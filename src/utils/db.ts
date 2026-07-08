@@ -140,7 +140,7 @@ export const setStorageData = <T>(key: string, data: T): void => {
   localStorage.setItem(key, JSON.stringify(data));
 };
 
-// Sincronização assíncrona em background com Supabase
+// Sincronização assíncrona em background com Supabase com tratamento de erro detalhado
 const syncToSupabase = async (table: string, data: any[]) => {
   try {
     // Mapeamento simples para o formato do banco de dados
@@ -211,9 +211,14 @@ const syncToSupabase = async (table: string, data: any[]) => {
       return item;
     });
 
-    await supabase.from(table).upsert(formattedData);
-  } catch (err) {
+    const { error } = await supabase.from(table).upsert(formattedData);
+    if (error) {
+      console.error(`Erro ao sincronizar tabela ${table}:`, error);
+      alert(`Erro de Sincronização com o Supabase na tabela "${table}": ${error.message}\n\nVerifique se o RLS (Row Level Security) está desativado ou se há políticas de acesso configuradas.`);
+    }
+  } catch (err: any) {
     console.warn('Erro ao sincronizar com o Supabase:', err);
+    alert('Erro de conexão com o Supabase: ' + (err.message || err));
   }
 };
 
@@ -273,7 +278,8 @@ export const db = {
   // Função para carregar dados iniciais do Supabase se existirem
   pullFromSupabase: async () => {
     try {
-      const { data: users } = await supabase.from('users').select('*');
+      const { data: users, error: usersError } = await supabase.from('users').select('*');
+      if (usersError) throw usersError;
       if (users && users.length > 0) {
         const mappedUsers: User[] = users.map(u => ({
           id: u.id,
@@ -289,7 +295,8 @@ export const db = {
         setStorageData('dm_users', mappedUsers);
       }
 
-      const { data: ests } = await supabase.from('establishments').select('*');
+      const { data: ests, error: estsError } = await supabase.from('establishments').select('*');
+      if (estsError) throw estsError;
       if (ests && ests.length > 0) {
         const mappedEsts: Establishment[] = ests.map(e => ({
           id: e.id,
@@ -309,7 +316,8 @@ export const db = {
         setStorageData('dm_establishments', mappedEsts);
       }
 
-      const { data: schs } = await supabase.from('schedules').select('*');
+      const { data: schs, error: schsError } = await supabase.from('schedules').select('*');
+      if (schsError) throw schsError;
       if (schs && schs.length > 0) {
         const mappedSchs: Schedule[] = schs.map(s => ({
           id: s.id,
@@ -325,7 +333,8 @@ export const db = {
         setStorageData('dm_schedules', mappedSchs);
       }
 
-      const { data: dels } = await supabase.from('deliveries').select('*');
+      const { data: dels, error: delsError } = await supabase.from('deliveries').select('*');
+      if (delsError) throw delsError;
       if (dels && dels.length > 0) {
         const mappedDels: Delivery[] = dels.map(d => ({
           id: d.id,
@@ -340,7 +349,8 @@ export const db = {
         setStorageData('dm_deliveries', mappedDels);
       }
 
-      const { data: notifs } = await supabase.from('notifications').select('*');
+      const { data: notifs, error: notifsError } = await supabase.from('notifications').select('*');
+      if (notifsError) throw notifsError;
       if (notifs && notifs.length > 0) {
         const mappedNotifs: Notification[] = notifs.map(n => ({
           id: n.id,
@@ -353,7 +363,7 @@ export const db = {
         setStorageData('dm_notifications', mappedNotifs);
       }
     } catch (err) {
-      console.warn('Não foi possível puxar dados do Supabase (tabelas podem não existir ainda):', err);
+      console.warn('Não foi possível puxar dados do Supabase (tabelas podem não existir ou RLS ativo):', err);
     }
   }
 };
