@@ -18,7 +18,9 @@ import {
   Download, 
   AlertTriangle,
   Search,
-  Clock
+  Clock,
+  Navigation,
+  Send
 } from 'lucide-react';
 
 export default function AdminDashboard() {
@@ -244,8 +246,8 @@ export default function AdminDashboard() {
     const newNotif: Notification = {
       id: 'n_' + Date.now(),
       riderId: scheduleForm.riderId,
-      title: 'Nova Escala Cadastrada',
-      message: `Você foi escalado no estabelecimento ${est?.name} para o dia ${new Date(scheduleForm.date + 'T00:00:00').toLocaleDateString('pt-BR')} no turno da ${getShiftLabel(scheduleForm.shift)} (${scheduleForm.startTime} - ${scheduleForm.endTime}).`,
+      title: '📍 Novo Encaminhamento de Rota',
+      message: `Você foi designado para o estabelecimento ${est?.name} no dia ${new Date(scheduleForm.date + 'T00:00:00').toLocaleDateString('pt-BR')} no turno da ${getShiftLabel(scheduleForm.shift)} (${scheduleForm.startTime} - ${scheduleForm.endTime}). Por favor, dirija-se ao local.`,
       date: new Date().toISOString(),
       read: false
     };
@@ -641,6 +643,27 @@ export default function AdminDashboard() {
                           </span>
                         </td>
                         <td className="py-3 px-4 text-right space-x-2">
+                          {rider.active && (
+                            <button
+                              onClick={() => {
+                                setScheduleForm({
+                                  riderId: rider.id,
+                                  establishmentId: '',
+                                  date: new Date().toISOString().split('T')[0],
+                                  shift: 'morning',
+                                  startTime: '08:00',
+                                  endTime: '12:00'
+                                });
+                                setScheduleConflictWarning('');
+                                setShowScheduleModal(true);
+                              }}
+                              className="p-1.5 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 rounded transition-colors inline-flex items-center space-x-1 text-xs font-bold"
+                              title="Designar Motoqueiro"
+                            >
+                              <Send className="h-3.5 w-3.5" />
+                              <span className="hidden md:inline">Designar</span>
+                            </button>
+                          )}
                           <button
                             onClick={() => {
                               setEditingRider(rider);
