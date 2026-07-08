@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../utils/db';
-import { Shield, Lock, Mail, AlertTriangle } from 'lucide-react';
+import { Lock, Mail, AlertTriangle } from 'lucide-react';
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -75,8 +75,12 @@ export default function Login() {
     <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
       <div className="max-w-md w-full space-y-8 bg-white p-8 rounded-xl shadow-lg border border-slate-100">
         <div className="text-center">
-          <div className="mx-auto h-12 w-12 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center mb-4">
-            <Shield className="h-6 w-6" />
+          <div className="mx-auto h-24 w-24 flex items-center justify-center mb-4">
+            <img 
+              src="/logo.png" 
+              alt="MotoHub Delivery Logo" 
+              className="h-full w-full object-contain"
+            />
           </div>
           <h2 className="text-3xl font-extrabold text-slate-900">MotoHub Delivery</h2>
           <p className="mt-2 text-sm text-slate-600">Faça login para acessar sua conta</p>
