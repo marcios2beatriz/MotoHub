@@ -12,6 +12,9 @@ function InactivityHandler({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
 
   useEffect(() => {
+    // Puxar dados do Supabase na inicialização
+    db.pullFromSupabase();
+
     const checkInactivity = () => {
       const currentUser = db.getCurrentUser();
       if (currentUser) {

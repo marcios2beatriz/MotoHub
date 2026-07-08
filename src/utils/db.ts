@@ -1,5 +1,7 @@
 "use client";
 
+import { supabase } from './supabase';
+
 export interface User {
   id: string;
   name: string;
@@ -8,7 +10,7 @@ export interface User {
   email: string;
   role: 'admin' | 'rider';
   active: boolean;
-  passwordHash: string; // Simulado
+  passwordHash: string;
   mustResetPassword?: boolean;
 }
 
@@ -60,7 +62,7 @@ export interface Notification {
   read: boolean;
 }
 
-// Seed Data
+// Seed Data inicial para fallback
 const INITIAL_USERS: User[] = [
   {
     id: 'u1',
@@ -125,65 +127,6 @@ const INITIAL_ESTABLISHMENTS: Establishment[] = [
   }
 ];
 
-const INITIAL_SCHEDULES: Schedule[] = [
-  {
-    id: 's1',
-    riderId: 'u2',
-    establishmentId: 'e1',
-    date: new Date().toISOString().split('T')[0], // Hoje
-    shift: 'night',
-    startTime: '18:00',
-    endTime: '23:00',
-    createdBy: 'Administrador Geral',
-    createdAt: new Date().toISOString()
-  },
-  {
-    id: 's2',
-    riderId: 'u3',
-    establishmentId: 'e2',
-    date: new Date().toISOString().split('T')[0], // Hoje
-    shift: 'afternoon',
-    startTime: '12:00',
-    endTime: '17:00',
-    createdBy: 'Administrador Geral',
-    createdAt: new Date().toISOString()
-  }
-];
-
-const INITIAL_DELIVERIES: Delivery[] = [
-  {
-    id: 'd1',
-    riderId: 'u2',
-    establishmentId: 'e1',
-    date: new Date().toISOString().split('T')[0],
-    time: '20:30',
-    value: 15.50,
-    status: 'active',
-    scheduleId: 's1'
-  },
-  {
-    id: 'd2',
-    riderId: 'u2',
-    establishmentId: 'e1',
-    date: new Date().toISOString().split('T')[0],
-    time: '21:15',
-    value: 18.00,
-    status: 'active',
-    scheduleId: 's1'
-  }
-];
-
-const INITIAL_NOTIFICATIONS: Notification[] = [
-  {
-    id: 'n1',
-    riderId: 'u2',
-    title: 'Nova Escala Cadastrada',
-    message: 'Você foi escalado na Pizzaria Bella Italia para o turno da Noite hoje (18:00 - 23:00).',
-    date: new Date().toISOString(),
-    read: false
-  }
-];
-
 export const getStorageData = <T>(key: string, initialData: T): T => {
   const data = localStorage.getItem(key);
   if (!data) {
@@ -197,21 +140,113 @@ export const setStorageData = <T>(key: string, data: T): void => {
   localStorage.setItem(key, JSON.stringify(data));
 };
 
+// Sincronização assíncrona em background com Supabase
+const syncToSupabase = async (table: string, data: any[]) => {
+  try {
+    // Mapeamento simples para o formato do banco de dados
+    const formattedData = data.map(item => {
+      if (table === 'users') {
+        return {
+          id: item.id,
+          name: item.name,
+          cpf: item.cpf,
+          phone: item.phone,
+          email: item.email,
+          role: item.role,
+          active: item.active,
+          password_hash: item.passwordHash,
+          must_reset_password: item.mustResetPassword || false
+        };
+      }
+      if (table === 'establishments') {
+        return {
+          id: item.id,
+          name: item.name,
+          street: item.address.street,
+          number: item.address.number,
+          complement: item.address.complement || null,
+          neighborhood: item.address.neighborhood,
+          city: item.address.city,
+          state: item.address.state,
+          zip_code: item.address.zipCode,
+          phone: item.phone,
+          active: item.active
+        };
+      }
+      if (table === 'schedules') {
+        return {
+          id: item.id,
+          rider_id: item.riderId,
+          establishment_id: item.establishmentId,
+          date: item.date,
+          shift: item.shift,
+          start_time: item.startTime,
+          end_time: item.endTime,
+          created_by: item.createdBy,
+          created_at: item.createdAt
+        };
+      }
+      if (table === 'deliveries') {
+        return {
+          id: item.id,
+          rider_id: item.riderId,
+          establishment_id: item.establishmentId,
+          date: item.date,
+          time: item.time,
+          value: item.value,
+          status: item.status,
+          schedule_id: item.scheduleId || null
+        };
+      }
+      if (table === 'notifications') {
+        return {
+          id: item.id,
+          rider_id: item.riderId,
+          title: item.title,
+          message: item.message,
+          date: item.date,
+          read: item.read
+        };
+      }
+      return item;
+    });
+
+    await supabase.from(table).upsert(formattedData);
+  } catch (err) {
+    console.warn('Erro ao sincronizar com o Supabase:', err);
+  }
+};
+
 export const db = {
   getUsers: () => getStorageData<User[]>('dm_users', INITIAL_USERS),
-  setUsers: (users: User[]) => setStorageData('dm_users', users),
+  setUsers: (users: User[]) => {
+    setStorageData('dm_users', users);
+    syncToSupabase('users', users);
+  },
   
   getEstablishments: () => getStorageData<Establishment[]>('dm_establishments', INITIAL_ESTABLISHMENTS),
-  setEstablishments: (est: Establishment[]) => setStorageData('dm_establishments', est),
+  setEstablishments: (est: Establishment[]) => {
+    setStorageData('dm_establishments', est);
+    syncToSupabase('establishments', est);
+  },
   
-  getSchedules: () => getStorageData<Schedule[]>('dm_schedules', INITIAL_SCHEDULES),
-  setSchedules: (sch: Schedule[]) => setStorageData('dm_schedules', sch),
+  getSchedules: () => getStorageData<Schedule[]>('dm_schedules', []),
+  setSchedules: (sch: Schedule[]) => {
+    setStorageData('dm_schedules', sch);
+    syncToSupabase('schedules', sch);
+  },
   
-  getDeliveries: () => getStorageData<Delivery[]>('dm_deliveries', INITIAL_DELIVERIES),
-  setDeliveries: (del: Delivery[]) => setStorageData('dm_deliveries', del),
+  getDeliveries: () => getStorageData<Delivery[]>('dm_deliveries', []),
+  setDeliveries: (del: Delivery[]) => {
+    setStorageData('dm_deliveries', del);
+    syncToSupabase('deliveries', del);
+  },
   
-  getNotifications: () => getStorageData<Notification[]>('dm_notifications', INITIAL_NOTIFICATIONS),
-  setNotifications: (notif: Notification[]) => setStorageData('dm_notifications', notif),
+  getNotifications: () => getStorageData<Notification[]>('dm_notifications', []),
+  setNotifications: (notif: Notification[]) => {
+    setStorageData('dm_notifications', notif);
+    syncToSupabase('notifications', notif);
+  },
 
   getCurrentUser: (): User | null => {
     const user = localStorage.getItem('dm_current_user');
@@ -233,5 +268,92 @@ export const db = {
   },
   setLoginAttempts: (attempts: { count: number; blockedUntil: number | null }) => {
     localStorage.setItem('dm_login_attempts', JSON.stringify(attempts));
+  },
+
+  // Função para carregar dados iniciais do Supabase se existirem
+  pullFromSupabase: async () => {
+    try {
+      const { data: users } = await supabase.from('users').select('*');
+      if (users && users.length > 0) {
+        const mappedUsers: User[] = users.map(u => ({
+          id: u.id,
+          name: u.name,
+          cpf: u.cpf,
+          phone: u.phone || '',
+          email: u.email,
+          role: u.role as any,
+          active: u.active,
+          passwordHash: u.password_hash,
+          mustResetPassword: u.must_reset_password
+        }));
+        setStorageData('dm_users', mappedUsers);
+      }
+
+      const { data: ests } = await supabase.from('establishments').select('*');
+      if (ests && ests.length > 0) {
+        const mappedEsts: Establishment[] = ests.map(e => ({
+          id: e.id,
+          name: e.name,
+          address: {
+            street: e.street,
+            number: e.number,
+            complement: e.complement || '',
+            neighborhood: e.neighborhood,
+            city: e.city,
+            state: e.state,
+            zipCode: e.zip_code
+          },
+          phone: e.phone || '',
+          active: e.active
+        }));
+        setStorageData('dm_establishments', mappedEsts);
+      }
+
+      const { data: schs } = await supabase.from('schedules').select('*');
+      if (schs && schs.length > 0) {
+        const mappedSchs: Schedule[] = schs.map(s => ({
+          id: s.id,
+          riderId: s.rider_id,
+          establishmentId: s.establishment_id,
+          date: s.date,
+          shift: s.shift as any,
+          startTime: s.start_time,
+          endTime: s.end_time,
+          createdBy: s.created_by || 'Admin',
+          createdAt: s.created_at
+        }));
+        setStorageData('dm_schedules', mappedSchs);
+      }
+
+      const { data: dels } = await supabase.from('deliveries').select('*');
+      if (dels && dels.length > 0) {
+        const mappedDels: Delivery[] = dels.map(d => ({
+          id: d.id,
+          riderId: d.rider_id,
+          establishmentId: d.establishment_id,
+          date: d.date,
+          time: d.time,
+          value: Number(d.value),
+          status: d.status as any,
+          scheduleId: d.schedule_id || undefined
+        }));
+        setStorageData('dm_deliveries', mappedDels);
+      }
+
+      const { data: notifs } = await supabase.from('notifications').select('*');
+      if (notifs && notifs.length > 0) {
+        const mappedNotifs: Notification[] = notifs.map(n => ({
+          id: n.id,
+          riderId: n.rider_id,
+          title: n.title,
+          message: n.message,
+          date: n.date,
+          read: n.read
+        }));
+        setStorageData('dm_notifications', mappedNotifs);
+      }
+    } catch (err) {
+      console.warn('Não foi possível puxar dados do Supabase (tabelas podem não existir ainda):', err);
+    }
   }
 };
