@@ -78,7 +78,7 @@ export default function Login() {
           <div className="mx-auto h-12 w-12 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center mb-4">
             <Shield className="h-6 w-6" />
           </div>
-          <h2 className="text-3xl font-extrabold text-slate-900">Delivery Escalas</h2>
+          <h2 className="text-3xl font-extrabold text-slate-900">MotoHub Delivery</h2>
           <p className="mt-2 text-sm text-slate-600">Faça login para acessar sua conta</p>
         </div>
 
