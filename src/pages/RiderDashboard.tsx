@@ -281,12 +281,14 @@ export default function RiderDashboard() {
                             </span>
                           )}
                           <h4 className="text-lg font-bold text-slate-800">{est?.name || 'Estabelecimento'}</h4>
-                          <p className="text-sm text-slate-500 flex items-center space-x-1 mt-1">
+                          <p className="text-sm text-slate-500 flex flex-wrap items-center gap-1.5 mt-1">
                             <Calendar className="h-4 w-4 text-slate-400" />
                             <span>{new Date(schedule.date + 'T00:00:00').toLocaleDateString('pt-BR')}</span>
-                            <span className="mx-1.5">•</span>
+                            <span className="text-slate-300">•</span>
                             <Clock className="h-4 w-4 text-slate-400" />
                             <span className="font-medium text-indigo-600">{getShiftLabel(schedule.shift)}</span>
+                            <span className="text-slate-300">•</span>
+                            <span className="font-semibold text-slate-700 bg-slate-100 px-2 py-0.5 rounded text-xs">{schedule.startTime} - {schedule.endTime}</span>
                           </p>
                         </div>
                       </div>

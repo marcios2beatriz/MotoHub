@@ -18,7 +18,7 @@ import {
   Download, 
   AlertTriangle,
   Search,
-  Filter
+  Clock
 } from 'lucide-react';
 
 export default function AdminDashboard() {
@@ -35,7 +35,6 @@ export default function AdminDashboard() {
   // Filtros e buscas
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
-  const [estFilter, setEstFilter] = useState('all');
 
   // Modais e Formulários
   const [showRiderModal, setShowRiderModal] = useState(false);
@@ -49,7 +48,14 @@ export default function AdminDashboard() {
   });
 
   const [showScheduleModal, setShowScheduleModal] = useState(false);
-  const [scheduleForm, setScheduleForm] = useState({ riderId: '', establishmentId: '', date: '', shift: 'morning' as any });
+  const [scheduleForm, setScheduleForm] = useState({ 
+    riderId: '', 
+    establishmentId: '', 
+    date: '', 
+    shift: 'morning' as any,
+    startTime: '08:00',
+    endTime: '12:00'
+  });
   const [scheduleConflictWarning, setScheduleConflictWarning] = useState('');
 
   const [showDeliveryModal, setShowDeliveryModal] = useState(false);
@@ -223,6 +229,8 @@ export default function AdminDashboard() {
       establishmentId: scheduleForm.establishmentId,
       date: scheduleForm.date,
       shift: scheduleForm.shift,
+      startTime: scheduleForm.startTime,
+      endTime: scheduleForm.endTime,
       createdBy: adminUser?.name || 'Admin',
       createdAt: new Date().toISOString()
     };
@@ -237,14 +245,21 @@ export default function AdminDashboard() {
       id: 'n_' + Date.now(),
       riderId: scheduleForm.riderId,
       title: 'Nova Escala Cadastrada',
-      message: `Você foi escalado no estabelecimento ${est?.name} para o dia ${new Date(scheduleForm.date + 'T00:00:00').toLocaleDateString('pt-BR')} no turno da ${getShiftLabel(scheduleForm.shift)}.`,
+      message: `Você foi escalado no estabelecimento ${est?.name} para o dia ${new Date(scheduleForm.date + 'T00:00:00').toLocaleDateString('pt-BR')} no turno da ${getShiftLabel(scheduleForm.shift)} (${scheduleForm.startTime} - ${scheduleForm.endTime}).`,
       date: new Date().toISOString(),
       read: false
     };
     db.setNotifications([...allNotif, newNotif]);
 
     setShowScheduleModal(false);
-    setScheduleForm({ riderId: '', establishmentId: '', date: '', shift: 'morning' });
+    setScheduleForm({ 
+      riderId: '', 
+      establishmentId: '', 
+      date: '', 
+      shift: 'morning',
+      startTime: '08:00',
+      endTime: '12:00'
+    });
     setScheduleConflictWarning('');
     loadData();
   };
@@ -778,7 +793,14 @@ export default function AdminDashboard() {
                 <h2 className="text-xl font-bold text-slate-800">Escalas de Trabalho</h2>
                 <button
                   onClick={() => {
-                    setScheduleForm({ riderId: '', establishmentId: '', date: '', shift: 'morning' });
+                    setScheduleForm({ 
+                      riderId: '', 
+                      establishmentId: '', 
+                      date: '', 
+                      shift: 'morning',
+                      startTime: '08:00',
+                      endTime: '12:00'
+                    });
                     setScheduleConflictWarning('');
                     setShowScheduleModal(true);
                   }}
@@ -806,8 +828,13 @@ export default function AdminDashboard() {
                           <div>
                             <p className="font-bold text-slate-800">{rider?.name || 'Motoqueiro Desconhecido'}</p>
                             <p className="text-sm text-slate-600">Estabelecimento: <span className="font-medium">{est?.name || 'N/A'}</span></p>
-                            <p className="text-xs text-slate-400 mt-1">
-                              Data: {new Date(sch.date + 'T00:00:00').toLocaleDateString('pt-BR')} | Turno: <span className="font-semibold text-indigo-600">{getShiftLabel(sch.shift)}</span>
+                            <p className="text-xs text-slate-400 mt-1 flex items-center gap-1">
+                              <span>Data: {new Date(sch.date + 'T00:00:00').toLocaleDateString('pt-BR')}</span>
+                              <span>|</span>
+                              <span>Turno: <span className="font-semibold text-indigo-600">{getShiftLabel(sch.shift)}</span></span>
+                              <span>|</span>
+                              <Clock className="h-3.5 w-3.5 text-slate-400 inline" />
+                              <span className="font-semibold text-slate-700">{sch.startTime} - {sch.endTime}</span>
                             </p>
                           </div>
                           <button
@@ -1301,6 +1328,28 @@ export default function AdminDashboard() {
                     <option value="afternoon">Tarde</option>
                     <option value="night">Noite</option>
                   </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Horário de Início</label>
+                  <input
+                    type="time"
+                    required
+                    value={scheduleForm.startTime}
+                    onChange={(e) => setScheduleForm({ ...scheduleForm, startTime: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Horário de Término</label>
+                  <input
+                    type="time"
+                    required
+                    value={scheduleForm.endTime}
+                    onChange={(e) => setScheduleForm({ ...scheduleForm, endTime: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none"
+                  />
                 </div>
               </div>
               <div className="flex justify-end space-x-2 pt-3">

@@ -34,6 +34,8 @@ export interface Schedule {
   establishmentId: string;
   date: string; // YYYY-MM-DD
   shift: 'morning' | 'afternoon' | 'night';
+  startTime: string; // HH:MM
+  endTime: string; // HH:MM
   createdBy: string; // Admin name
   createdAt: string;
 }
@@ -130,6 +132,8 @@ const INITIAL_SCHEDULES: Schedule[] = [
     establishmentId: 'e1',
     date: new Date().toISOString().split('T')[0], // Hoje
     shift: 'night',
+    startTime: '18:00',
+    endTime: '23:00',
     createdBy: 'Administrador Geral',
     createdAt: new Date().toISOString()
   },
@@ -139,6 +143,8 @@ const INITIAL_SCHEDULES: Schedule[] = [
     establishmentId: 'e2',
     date: new Date().toISOString().split('T')[0], // Hoje
     shift: 'afternoon',
+    startTime: '12:00',
+    endTime: '17:00',
     createdBy: 'Administrador Geral',
     createdAt: new Date().toISOString()
   }
@@ -172,7 +178,7 @@ const INITIAL_NOTIFICATIONS: Notification[] = [
     id: 'n1',
     riderId: 'u2',
     title: 'Nova Escala Cadastrada',
-    message: 'Você foi escalado na Pizzaria Bella Italia para o turno da Noite hoje.',
+    message: 'Você foi escalado na Pizzaria Bella Italia para o turno da Noite hoje (18:00 - 23:00).',
     date: new Date().toISOString(),
     read: false
   }
