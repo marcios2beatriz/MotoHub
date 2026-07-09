@@ -13,7 +13,11 @@ import {
   CheckCircle, 
   MapPin, 
   Clock,
-  AlertCircle
+  AlertCircle,
+  History,
+  Search,
+  Filter,
+  X
 } from 'lucide-react';
 
 export default function RiderDashboard() {
@@ -22,19 +26,25 @@ export default function RiderDashboard() {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'schedules' | 'notifications'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'schedules' | 'history' | 'notifications'>('dashboard');
+
+  // Filtros das escalas futuras
+  const [scheduleEstFilter, setScheduleEstFilter] = useState('');
+  const [scheduleDateFilter, setScheduleDateFilter] = useState('');
+
+  // Filtros do histórico
+  const [historyEstFilter, setHistoryEstFilter] = useState('');
+  const [historyDateFrom, setHistoryDateFrom] = useState('');
+  const [historyDateTo, setHistoryDateTo] = useState('');
 
   useEffect(() => {
     if (!user || user.role !== 'rider') {
       navigate('/login');
       return;
     }
-
-    // Carregar dados
     const allSchedules = db.getSchedules().filter(s => s.riderId === user.id);
     const allDeliveries = db.getDeliveries().filter(d => d.riderId === user.id && d.status === 'active');
     const allNotifications = db.getNotifications().filter(n => n.riderId === user.id);
-
     setSchedules(allSchedules);
     setDeliveries(allDeliveries);
     setNotifications(allNotifications);
@@ -92,7 +102,12 @@ export default function RiderDashboard() {
     }).sort((a, b) => a.date.localeCompare(b.date));
   };
 
-  const futureSchedules = getFutureSchedules();
+  // Aplicar filtros nas escalas futuras
+  const filteredFutureSchedules = getFutureSchedules().filter(s => {
+    const matchesEst = scheduleEstFilter ? s.establishmentId === scheduleEstFilter : true;
+    const matchesDate = scheduleDateFilter ? s.date === scheduleDateFilter : true;
+    return matchesEst && matchesDate;
+  });
 
   const handleOpenGPS = (address: any) => {
     const query = encodeURIComponent(`${address.street}, ${address.number}, ${address.neighborhood}, ${address.city} - ${address.state}`);
@@ -139,10 +154,10 @@ export default function RiderDashboard() {
 
       <main className="max-w-4xl mx-auto px-4 mt-6">
         {/* Tabs */}
-        <div className="flex bg-white rounded-lg p-1 shadow-sm mb-6 border border-slate-200">
+        <div className="grid grid-cols-4 bg-white rounded-lg p-1 shadow-sm mb-6 border border-slate-200 gap-1">
           <button
             onClick={() => setActiveTab('dashboard')}
-            className={`flex-1 py-2.5 text-sm font-medium rounded-md flex items-center justify-center space-x-2 transition-colors ${
+            className={`py-2.5 text-sm font-medium rounded-md flex items-center justify-center space-x-1.5 transition-colors ${
               activeTab === 'dashboard' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-100'
             }`}
           >
@@ -151,23 +166,33 @@ export default function RiderDashboard() {
           </button>
           <button
             onClick={() => setActiveTab('schedules')}
-            className={`flex-1 py-2.5 text-sm font-medium rounded-md flex items-center justify-center space-x-2 transition-colors ${
+            className={`py-2.5 text-sm font-medium rounded-md flex items-center justify-center space-x-1.5 transition-colors ${
               activeTab === 'schedules' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-100'
             }`}
           >
             <Calendar className="h-4 w-4" />
-            <span>Minhas Escalas</span>
+            <span className="hidden sm:inline">Escalas</span>
+            <span className="sm:hidden">Escala</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('history')}
+            className={`py-2.5 text-sm font-medium rounded-md flex items-center justify-center space-x-1.5 transition-colors ${
+              activeTab === 'history' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            <History className="h-4 w-4" />
+            <span>Histórico</span>
           </button>
           <button
             onClick={() => setActiveTab('notifications')}
-            className={`flex-1 py-2.5 text-sm font-medium rounded-md flex items-center justify-center space-x-2 transition-colors relative ${
+            className={`py-2.5 text-sm font-medium rounded-md flex items-center justify-center space-x-1.5 transition-colors relative ${
               activeTab === 'notifications' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-100'
             }`}
           >
             <Bell className="h-4 w-4" />
             <span>Avisos</span>
             {unreadCount > 0 && (
-              <span className="absolute top-1.5 right-4 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+              <span className="absolute top-1.5 right-2 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
                 {unreadCount}
               </span>
             )}
@@ -252,17 +277,66 @@ export default function RiderDashboard() {
         {/* Tab Content: Schedules */}
         {activeTab === 'schedules' && (
           <div className="space-y-4">
-            <h3 className="text-lg font-bold text-slate-800 mb-2">Escalas dos Próximos 30 Dias</h3>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
+              <h3 className="text-lg font-bold text-slate-800">Escalas dos Próximos 30 Dias</h3>
+              <span className="text-xs text-slate-500 bg-slate-100 px-2.5 py-1 rounded-full self-start sm:self-auto">
+                {filteredFutureSchedules.length} escala{filteredFutureSchedules.length !== 1 ? 's' : ''} encontrada{filteredFutureSchedules.length !== 1 ? 's' : ''}
+              </span>
+            </div>
+
+            {/* Filtros de Escala */}
+            <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-3 shadow-sm">
+              <p className="text-xs font-bold text-slate-500 uppercase flex items-center gap-1.5">
+                <Filter className="h-3.5 w-3.5 text-indigo-500" />
+                Filtrar Escalas
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Filtro por Estabelecimento */}
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">Estabelecimento</label>
+                  <select
+                    value={scheduleEstFilter}
+                    onChange={e => setScheduleEstFilter(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  >
+                    <option value="">Todos os estabelecimentos</option>
+                    {db.getEstablishments().filter(e => e.active).map(e => (
+                      <option key={e.id} value={e.id}>{e.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Filtro por Data */}
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">Data Específica</label>
+                  <input
+                    type="date"
+                    value={scheduleDateFilter}
+                    onChange={e => setScheduleDateFilter(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  />
+                </div>
+              </div>
+
+              {(scheduleEstFilter || scheduleDateFilter) && (
+                <button
+                  onClick={() => { setScheduleEstFilter(''); setScheduleDateFilter(''); }}
+                  className="text-xs text-red-600 hover:underline font-medium flex items-center gap-1"
+                >
+                  <X className="h-3 w-3" /> Limpar filtros
+                </button>
+              )}
+            </div>
             
-            {futureSchedules.length === 0 ? (
+            {filteredFutureSchedules.length === 0 ? (
               <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200 text-center text-slate-500">
                 <AlertCircle className="h-12 w-12 text-slate-300 mx-auto mb-3" />
-                <p className="font-medium">Nenhuma escala futura cadastrada.</p>
-                <p className="text-sm text-slate-400 mt-1">Fale com o administrador para organizar suas escalas.</p>
+                <p className="font-medium">Nenhuma escala encontrada para os filtros selecionados.</p>
+                <p className="text-sm text-slate-400 mt-1">Tente ajustar os filtros ou fale com o administrador.</p>
               </div>
             ) : (
               <div className="space-y-4">
-                {futureSchedules.map((schedule) => {
+                {filteredFutureSchedules.map((schedule) => {
                   const est = db.getEstablishments().find(e => e.id === schedule.establishmentId);
                   const isToday = schedule.date === todayStr;
 
@@ -318,6 +392,139 @@ export default function RiderDashboard() {
             )}
           </div>
         )}
+
+        {/* Tab Content: History */}
+        {activeTab === 'history' && (() => {
+          const todayStr = new Date().toISOString().split('T')[0];
+          const allEsts = db.getEstablishments();
+          // escalas passadas
+          const pastSchedules = schedules
+            .filter(s => s.date < todayStr)
+            .sort((a, b) => b.date.localeCompare(a.date));
+
+          // filtrar por estabelecimento
+          const estFiltered = historyEstFilter
+            ? pastSchedules.filter(s => s.establishmentId === historyEstFilter)
+            : pastSchedules;
+
+          // filtrar por data de/até
+          const dateFiltered = estFiltered.filter(s => {
+            if (historyDateFrom && s.date < historyDateFrom) return false;
+            if (historyDateTo && s.date > historyDateTo) return false;
+            return true;
+          });
+
+          // estabelecimentos que o motoboy já teve escala (para o select)
+          const usedEstIds = Array.from(new Set(pastSchedules.map(s => s.establishmentId)));
+          const usedEsts = allEsts.filter(e => usedEstIds.includes(e.id));
+
+          return (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                  <History className="h-5 w-5 text-indigo-500" />
+                  Histórico de Escalas
+                </h3>
+                <span className="text-xs text-slate-500 bg-slate-100 px-2.5 py-1 rounded-full">
+                  {dateFiltered.length} registro{dateFiltered.length !== 1 ? 's' : ''}
+                </span>
+              </div>
+
+              {/* Filtros */}
+              <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-3">
+                <p className="text-xs font-bold text-slate-500 uppercase flex items-center gap-1.5">
+                  <Filter className="h-3.5 w-3.5" />Filtros
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {/* Estabelecimento */}
+                  <select
+                    value={historyEstFilter}
+                    onChange={e => setHistoryEstFilter(e.target.value)}
+                    className="px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  >
+                    <option value="">Todos os estabelecimentos</option>
+                    {usedEsts.map(e => (
+                      <option key={e.id} value={e.id}>{e.name}</option>
+                    ))}
+                  </select>
+                  {/* De */}
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">De</label>
+                    <input
+                      type="date"
+                      value={historyDateFrom}
+                      onChange={e => setHistoryDateFrom(e.target.value)}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    />
+                  </div>
+                  {/* Até */}
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">Até</label>
+                    <input
+                      type="date"
+                      value={historyDateTo}
+                      onChange={e => setHistoryDateTo(e.target.value)}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    />
+                  </div>
+                </div>
+                {(historyEstFilter || historyDateFrom || historyDateTo) && (
+                  <button
+                    onClick={() => { setHistoryEstFilter(''); setHistoryDateFrom(''); setHistoryDateTo(''); }}
+                    className="text-xs text-indigo-600 hover:underline font-medium"
+                  >
+                    Limpar filtros
+                  </button>
+                )}
+              </div>
+
+              {/* Lista */}
+              {dateFiltered.length === 0 ? (
+                <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200 text-center text-slate-400">
+                  <History className="h-12 w-12 text-slate-300 mx-auto mb-3" />
+                  <p className="font-medium">Nenhuma escala encontrada.</p>
+                  <p className="text-sm mt-1">Tente ajustar os filtros.</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {dateFiltered.map(schedule => {
+                    const est = allEsts.find(e => e.id === schedule.establishmentId);
+                    return (
+                      <div key={schedule.id} className="bg-white border border-slate-200 rounded-xl p-4 opacity-80">
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <p className="font-bold text-slate-700">{est?.name || 'Estabelecimento'}</p>
+                            <p className="text-sm text-slate-500 flex flex-wrap items-center gap-1.5 mt-1">
+                              <Calendar className="h-3.5 w-3.5 text-slate-400" />
+                              <span>{new Date(schedule.date + 'T00:00:00').toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })}</span>
+                            </p>
+                            <p className="text-sm text-slate-500 flex flex-wrap items-center gap-1.5 mt-0.5">
+                              <Clock className="h-3.5 w-3.5 text-slate-400" />
+                              <span className={`font-medium ${schedule.shift === 'morning' ? 'text-amber-600' : schedule.shift === 'afternoon' ? 'text-orange-600' : 'text-blue-600'}`}>
+                                {getShiftLabel(schedule.shift)}
+                              </span>
+                              <span className="text-slate-300">•</span>
+                              <span className="font-mono text-slate-600 text-xs bg-slate-100 px-1.5 py-0.5 rounded">{schedule.startTime} — {schedule.endTime}</span>
+                            </p>
+                          </div>
+                          <span className="bg-slate-100 text-slate-500 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase flex-shrink-0">
+                            Concluída
+                          </span>
+                        </div>
+                        {est && (
+                          <div className="mt-3 flex items-center gap-2 text-xs text-slate-500 bg-slate-50 rounded-lg px-3 py-2">
+                            <MapPin className="h-3.5 w-3.5 text-slate-400 flex-shrink-0" />
+                            <span>{est.address.street}, {est.address.number} — {est.address.neighborhood}, {est.address.city}/{est.address.state}</span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* Tab Content: Notifications */}
         {activeTab === 'notifications' && (

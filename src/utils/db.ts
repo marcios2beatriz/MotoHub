@@ -213,12 +213,10 @@ const syncToSupabase = async (table: string, data: any[]) => {
 
     const { error } = await supabase.from(table).upsert(formattedData);
     if (error) {
-      console.error(`Erro ao sincronizar tabela ${table}:`, error);
-      alert(`Erro de Sincronização com o Supabase na tabela "${table}": ${error.message}\n\nVerifique se o RLS (Row Level Security) está desativado ou se há políticas de acesso configuradas.`);
+      console.error(`Erro ao sincronizar tabela ${table}:`, error.message);
     }
   } catch (err: any) {
-    console.warn('Erro ao sincronizar com o Supabase:', err);
-    alert('Erro de conexão com o Supabase: ' + (err.message || err));
+    console.warn('Erro ao sincronizar com o Supabase:', err?.message || err);
   }
 };
 
@@ -275,9 +273,10 @@ export const db = {
     localStorage.setItem('dm_login_attempts', JSON.stringify(attempts));
   },
 
-  // Função para carregar dados iniciais do Supabase se existirem
+  // Função para carregar dados do Supabase e, se estiver vazio, empurrar localStorage
   pullFromSupabase: async () => {
     try {
+      // ── USERS ──────────────────────────────────────────────────────────────
       const { data: users, error: usersError } = await supabase.from('users').select('*');
       if (usersError) throw usersError;
       if (users && users.length > 0) {
@@ -293,8 +292,13 @@ export const db = {
           mustResetPassword: u.must_reset_password
         }));
         setStorageData('dm_users', mappedUsers);
+      } else {
+        // Tabela vazia → enviar dados do localStorage para o Supabase
+        const localUsers = getStorageData<User[]>('dm_users', INITIAL_USERS);
+        await syncToSupabase('users', localUsers);
       }
 
+      // ── ESTABLISHMENTS ─────────────────────────────────────────────────────
       const { data: ests, error: estsError } = await supabase.from('establishments').select('*');
       if (estsError) throw estsError;
       if (ests && ests.length > 0) {
@@ -314,8 +318,12 @@ export const db = {
           active: e.active
         }));
         setStorageData('dm_establishments', mappedEsts);
+      } else {
+        const localEsts = getStorageData<Establishment[]>('dm_establishments', INITIAL_ESTABLISHMENTS);
+        await syncToSupabase('establishments', localEsts);
       }
 
+      // ── SCHEDULES ──────────────────────────────────────────────────────────
       const { data: schs, error: schsError } = await supabase.from('schedules').select('*');
       if (schsError) throw schsError;
       if (schs && schs.length > 0) {
@@ -331,8 +339,12 @@ export const db = {
           createdAt: s.created_at
         }));
         setStorageData('dm_schedules', mappedSchs);
+      } else {
+        const localSchs = getStorageData<Schedule[]>('dm_schedules', []);
+        if (localSchs.length > 0) await syncToSupabase('schedules', localSchs);
       }
 
+      // ── DELIVERIES ─────────────────────────────────────────────────────────
       const { data: dels, error: delsError } = await supabase.from('deliveries').select('*');
       if (delsError) throw delsError;
       if (dels && dels.length > 0) {
@@ -347,8 +359,12 @@ export const db = {
           scheduleId: d.schedule_id || undefined
         }));
         setStorageData('dm_deliveries', mappedDels);
+      } else {
+        const localDels = getStorageData<Delivery[]>('dm_deliveries', []);
+        if (localDels.length > 0) await syncToSupabase('deliveries', localDels);
       }
 
+      // ── NOTIFICATIONS ──────────────────────────────────────────────────────
       const { data: notifs, error: notifsError } = await supabase.from('notifications').select('*');
       if (notifsError) throw notifsError;
       if (notifs && notifs.length > 0) {
@@ -361,9 +377,14 @@ export const db = {
           read: n.read
         }));
         setStorageData('dm_notifications', mappedNotifs);
+      } else {
+        const localNotifs = getStorageData<Notification[]>('dm_notifications', []);
+        if (localNotifs.length > 0) await syncToSupabase('notifications', localNotifs);
       }
+
+      console.log('✅ Sincronização com Supabase concluída.');
     } catch (err) {
-      console.warn('Não foi possível puxar dados do Supabase (tabelas podem não existir ou RLS ativo):', err);
+      console.warn('Não foi possível sincronizar com o Supabase:', err);
     }
   }
 };

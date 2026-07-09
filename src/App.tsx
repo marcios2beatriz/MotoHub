@@ -70,12 +70,12 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-// Rota Protegida para Motoqueiro
+// Rota Protegida para Motoboy
 function RiderRoute({ children }: { children: React.ReactNode }) {
   const user = db.getCurrentUser();
   if (!user) return <Navigate to="/login" replace />;
   if (user.role !== 'rider') {
-    alert('Acesso negado. Esta área é restrita para motoqueiros.');
+    alert('Acesso negado. Esta área é restrita para motoboys.');
     return <Navigate to="/admin" replace />;
   }
   return <>{children}</>;

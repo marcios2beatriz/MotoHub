@@ -7,6 +7,7 @@ import {
   Users, 
   Store, 
   Calendar, 
+  CalendarDays,
   Bike, 
   BarChart3, 
   LogOut, 
@@ -20,7 +21,10 @@ import {
   Search,
   Clock,
   Navigation,
-  Send
+  Send,
+  LayoutGrid,
+  List,
+  ChevronDown
 } from 'lucide-react';
 
 export default function AdminDashboard() {
@@ -60,6 +64,31 @@ export default function AdminDashboard() {
   });
   const [scheduleConflictWarning, setScheduleConflictWarning] = useState('');
 
+  // Modal de Escala Semanal Automática
+  const [showWeeklyModal, setShowWeeklyModal] = useState(false);
+  const [weeklyForm, setWeeklyForm] = useState({
+    riderId: '',
+    establishmentId: '',
+    shift: 'morning' as 'morning' | 'afternoon' | 'night',
+    startTime: '08:00',
+    endTime: '12:00',
+    weekStart: '',
+    days: { seg: true, ter: true, qua: true, qui: true, sex: true, sab: false, dom: false }
+  });
+  const [weeklyPreview, setWeeklyPreview] = useState<{ date: string; label: string; conflict: boolean }[]>([]);
+  const [weeklyStep, setWeeklyStep] = useState<'form' | 'preview'>('form');
+
+  // Card accordion da aba Escalas
+  const [expandedRider, setExpandedRider] = useState<string | null>(null);
+  const [scheduleViewMode, setScheduleViewMode] = useState<'accordion' | 'grid' | 'timeline'>('accordion');
+  const [scheduleSearch, setScheduleSearch] = useState('');
+  // Modal "Ver Todas" do card
+  const [riderSchedulesModal, setRiderSchedulesModal] = useState<string | null>(null);
+  // Filtros do histórico no modal
+  const [modalHistoryEst, setModalHistoryEst] = useState('');
+  const [modalHistoryFrom, setModalHistoryFrom] = useState('');
+  const [modalHistoryTo, setModalHistoryTo] = useState('');
+
   const [showDeliveryModal, setShowDeliveryModal] = useState(false);
   const [editingDelivery, setEditingDelivery] = useState<Delivery | null>(null);
   const [deliveryForm, setDeliveryForm] = useState({ riderId: '', establishmentId: '', date: '', time: '', value: '' });
@@ -90,7 +119,7 @@ export default function AdminDashboard() {
     navigate('/login');
   };
 
-  // --- GESTÃO DE MOTOQUEIROS ---
+  // --- GESTÃO DE MOTOBOYS ---
   const handleSaveRider = (e: React.FormEvent) => {
     e.preventDefault();
     const allUsers = db.getUsers();
@@ -211,7 +240,7 @@ export default function AdminDashboard() {
     if (conflict) {
       const rider = riders.find(r => r.id === riderId);
       const est = establishments.find(e => e.id === conflict.establishmentId);
-      return `Aviso: O motoqueiro ${rider?.name} já está escalado no estabelecimento ${est?.name} neste mesmo dia e turno!`;
+      return `Aviso: O motoboy ${rider?.name} já está escalado no estabelecimento ${est?.name} neste mesmo dia e turno!`;
     }
     return '';
   };
@@ -240,7 +269,7 @@ export default function AdminDashboard() {
     const updatedSchedules = [...schedules, newSchedule];
     db.setSchedules(updatedSchedules);
 
-    // Criar Notificação para o Motoqueiro
+    // Criar Notificação para o Motoboy
     const est = establishments.find(es => es.id === scheduleForm.establishmentId);
     const allNotif = db.getNotifications();
     const newNotif: Notification = {
@@ -274,7 +303,7 @@ export default function AdminDashboard() {
       const updated = schedules.filter(s => s.id !== id);
       db.setSchedules(updated);
 
-      // Notificar Motoqueiro
+      // Notificar Motoboy
       const est = establishments.find(es => es.id === schedule.establishmentId);
       const allNotif = db.getNotifications();
       const newNotif: Notification = {
@@ -289,6 +318,82 @@ export default function AdminDashboard() {
 
       loadData();
     }
+  };
+
+  // --- ESCALA SEMANAL AUTOMÁTICA ---
+  const DAY_KEYS = ['seg', 'ter', 'qua', 'qui', 'sex', 'sab', 'dom'] as const;
+  const DAY_LABELS = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'];
+
+  // Retorna a segunda-feira da semana atual
+  const getThisMonday = () => {
+    const today = new Date();
+    const day = today.getDay(); // 0=dom
+    const diff = day === 0 ? -6 : 1 - day;
+    const monday = new Date(today);
+    monday.setDate(today.getDate() + diff);
+    return monday.toISOString().split('T')[0];
+  };
+
+  const buildWeeklyPreview = (form: typeof weeklyForm) => {
+    if (!form.weekStart || !form.riderId || !form.establishmentId) return;
+    const monday = new Date(form.weekStart + 'T00:00:00');
+    const allSchedules = db.getSchedules();
+    const preview = DAY_KEYS.map((key, idx) => {
+      const d = new Date(monday);
+      d.setDate(monday.getDate() + idx);
+      const dateStr = d.toISOString().split('T')[0];
+      const conflict = !!allSchedules.find(
+        s => s.riderId === form.riderId && s.date === dateStr && s.shift === form.shift
+      );
+      return { date: dateStr, label: DAY_LABELS[idx], conflict, key, enabled: form.days[key] };
+    });
+    setWeeklyPreview(preview as any);
+    setWeeklyStep('preview');
+  };
+
+  const handleSaveWeeklySchedule = () => {
+    const allSchedules = db.getSchedules();
+    const allNotif = db.getNotifications();
+    const est = establishments.find(es => es.id === weeklyForm.establishmentId);
+    const newSchedules: Schedule[] = [];
+    const newNotifs: Notification[] = [];
+
+    (weeklyPreview as any[]).forEach((day: any) => {
+      if (!day.enabled) return; // dia desabilitado pelo admin
+      const id = 's_' + Date.now() + '_' + day.date;
+      newSchedules.push({
+        id,
+        riderId: weeklyForm.riderId,
+        establishmentId: weeklyForm.establishmentId,
+        date: day.date,
+        shift: weeklyForm.shift,
+        startTime: weeklyForm.startTime,
+        endTime: weeklyForm.endTime,
+        createdBy: adminUser?.name || 'Admin',
+        createdAt: new Date().toISOString()
+      });
+      newNotifs.push({
+        id: 'n_' + Date.now() + '_' + day.date,
+        riderId: weeklyForm.riderId,
+        title: '📍 Novo Encaminhamento de Rota',
+        message: `Você foi designado para o estabelecimento ${est?.name} no dia ${new Date(day.date + 'T00:00:00').toLocaleDateString('pt-BR')} no turno da ${getShiftLabel(weeklyForm.shift)} (${weeklyForm.startTime} - ${weeklyForm.endTime}). Por favor, dirija-se ao local.`,
+        date: new Date().toISOString(),
+        read: false
+      });
+    });
+
+    db.setSchedules([...allSchedules, ...newSchedules]);
+    db.setNotifications([...allNotif, ...newNotifs]);
+
+    setShowWeeklyModal(false);
+    setWeeklyStep('form');
+    setWeeklyForm({
+      riderId: '', establishmentId: '', shift: 'morning',
+      startTime: '08:00', endTime: '12:00', weekStart: getThisMonday(),
+      days: { seg: true, ter: true, qua: true, qui: true, sex: true, sab: false, dom: false }
+    });
+    setWeeklyPreview([]);
+    loadData();
   };
 
   // --- REGISTRO DE CORRIDAS ---
@@ -355,7 +460,7 @@ export default function AdminDashboard() {
       return;
     }
 
-    if (confirm('Deseja realmente cancelar esta corrida? O valor será deduzido do faturamento do motoqueiro.')) {
+    if (confirm('Deseja realmente cancelar esta corrida? O valor será deduzido do faturamento do motoboy.')) {
       const updated = deliveries.map(d => d.id === id ? { ...d, status: 'cancelled' as const } : d);
       db.setDeliveries(updated);
       loadData();
@@ -382,7 +487,7 @@ export default function AdminDashboard() {
     }
 
     if (reportType === 'earnings') {
-      // Faturamento por motoqueiro
+      // Faturamento por motoboy
       const summary: { [key: string]: { name: string; total: number; count: number } } = {};
       riders.forEach(r => {
         summary[r.id] = { name: r.name, total: 0, count: 0 };
@@ -400,7 +505,7 @@ export default function AdminDashboard() {
 
       return Object.values(summary);
     } else if (reportType === 'deliveries') {
-      // Quantidade de corridas por motoqueiro
+      // Quantidade de corridas por motoboy
       const summary: { [key: string]: { name: string; count: number; cancelled: number } } = {};
       riders.forEach(r => {
         summary[r.id] = { name: r.name, count: 0, cancelled: 0 };
@@ -445,12 +550,12 @@ export default function AdminDashboard() {
     let csvContent = "data:text/csv;charset=utf-8,";
 
     if (reportType === 'earnings') {
-      csvContent += "Motoqueiro,Total Faturado (R$),Quantidade de Corridas\n";
+      csvContent += "Motoboy,Total Faturado (R$),Quantidade de Corridas\n";
       data.forEach((row: any) => {
         csvContent += `"${row.name}",${row.total.toFixed(2)},${row.count}\n`;
       });
     } else if (reportType === 'deliveries') {
-      csvContent += "Motoqueiro,Corridas Ativas,Corridas Canceladas\n";
+      csvContent += "Motoboy,Corridas Ativas,Corridas Canceladas\n";
       data.forEach((row: any) => {
         csvContent += `"${row.name}",${row.count},${row.cancelled}\n`;
       });
@@ -479,7 +584,7 @@ export default function AdminDashboard() {
     }
   };
 
-  // Filtros aplicados na listagem de motoqueiros
+  // Filtros aplicados na listagem de motoboys
   const filteredRiders = riders.filter(r => {
     const matchesSearch = r.name.toLowerCase().includes(searchQuery.toLowerCase()) || r.cpf.includes(searchQuery);
     const matchesStatus = statusFilter === 'all' || (statusFilter === 'active' && r.active) || (statusFilter === 'inactive' && !r.active);
@@ -496,18 +601,18 @@ export default function AdminDashboard() {
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
       {/* Header */}
-      <header className="bg-slate-900 text-white shadow-md">
-        <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
+      <header className="bg-slate-900 text-white shadow-md sticky top-0 z-20">
+        <div className="max-w-7xl mx-auto px-4 py-3 flex justify-between items-center">
           <div className="flex items-center space-x-3">
-            <div className="bg-indigo-600 p-2 rounded-lg">
-              <Bike className="h-6 w-6 text-white" />
+            <div className="bg-indigo-600 p-1.5 rounded-lg">
+              <Bike className="h-5 w-5 text-white" />
             </div>
             <div>
-              <h1 className="text-xl font-bold">Painel Administrativo</h1>
-              <p className="text-xs text-slate-400">Gestão de Escalas e Entregas</p>
+              <h1 className="text-base font-bold leading-tight">Painel Administrativo</h1>
+              <p className="text-xs text-slate-400 hidden sm:block">Gestão de Escalas e Entregas</p>
             </div>
           </div>
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-3">
             <span className="text-sm text-slate-300 hidden md:inline">Olá, {adminUser?.name}</span>
             <button 
               onClick={handleLogout}
@@ -518,12 +623,35 @@ export default function AdminDashboard() {
             </button>
           </div>
         </div>
+        {/* Mobile tab bar */}
+        <div className="lg:hidden border-t border-slate-700 overflow-x-auto">
+          <div className="flex min-w-max">
+            {[
+              { tab: 'riders', icon: <Users className="h-4 w-4" />, label: 'Motoboys' },
+              { tab: 'establishments', icon: <Store className="h-4 w-4" />, label: 'Estabelec.' },
+              { tab: 'schedules', icon: <Calendar className="h-4 w-4" />, label: 'Escalas' },
+              { tab: 'deliveries', icon: <Bike className="h-4 w-4" />, label: 'Corridas' },
+              { tab: 'reports', icon: <BarChart3 className="h-4 w-4" />, label: 'Relatórios' },
+            ].map(({ tab, icon, label }) => (
+              <button
+                key={tab}
+                onClick={() => { setActiveTab(tab as any); setSearchQuery(''); if (tab !== 'schedules' && tab !== 'deliveries') setStatusFilter('all'); }}
+                className={`flex flex-col items-center gap-0.5 px-4 py-2.5 text-xs font-medium transition-colors border-b-2 whitespace-nowrap ${
+                  activeTab === tab ? 'border-indigo-400 text-indigo-300' : 'border-transparent text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                {icon}
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
       </header>
 
       {/* Main Content */}
-      <div className="max-w-7xl w-full mx-auto px-4 py-6 flex-1 grid grid-cols-1 lg:grid-cols-5 gap-6">
-        {/* Sidebar Navigation */}
-        <div className="lg:col-span-1 bg-white p-4 rounded-xl shadow-sm border border-slate-200 h-fit space-y-1">
+      <div className="max-w-7xl w-full mx-auto px-3 sm:px-4 py-4 sm:py-6 flex-1 grid grid-cols-1 lg:grid-cols-5 gap-4 sm:gap-6">
+        {/* Sidebar Navigation — desktop only */}
+        <div className="hidden lg:block lg:col-span-1 bg-white p-4 rounded-xl shadow-sm border border-slate-200 h-fit space-y-1">
           <button
             onClick={() => { setActiveTab('riders'); setSearchQuery(''); setStatusFilter('all'); }}
             className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
@@ -531,7 +659,7 @@ export default function AdminDashboard() {
             }`}
           >
             <Users className="h-5 w-5" />
-            <span>Motoqueiros</span>
+            <span>Motoboys</span>
           </button>
           <button
             onClick={() => { setActiveTab('establishments'); setSearchQuery(''); setStatusFilter('all'); }}
@@ -572,12 +700,12 @@ export default function AdminDashboard() {
         </div>
 
         {/* Content Area */}
-        <div className="lg:col-span-4 space-y-6">
-          {/* TAB: MOTOQUEIROS */}
+        <div className="lg:col-span-4 space-y-4 sm:space-y-6">
+          {/* TAB: MOTOBOYS */}
           {activeTab === 'riders' && (
             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <h2 className="text-xl font-bold text-slate-800">Gerenciamento de Motoqueiros</h2>
+                <h2 className="text-xl font-bold text-slate-800">Gerenciamento de Motoboys</h2>
                 <button
                   onClick={() => {
                     setEditingRider(null);
@@ -587,7 +715,7 @@ export default function AdminDashboard() {
                   className="flex items-center justify-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
                 >
                   <Plus className="h-4 w-4" />
-                  <span>Novo Motoqueiro</span>
+                  <span>Novo Motoboy</span>
                 </button>
               </div>
 
@@ -616,7 +744,7 @@ export default function AdminDashboard() {
 
               {/* Tabela */}
               <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
+                <table className="w-full min-w-[580px] text-left border-collapse">
                   <thead>
                     <tr className="border-b border-slate-200 text-slate-500 text-xs uppercase font-semibold">
                       <th className="py-3 px-4">Nome</th>
@@ -658,7 +786,7 @@ export default function AdminDashboard() {
                                 setShowScheduleModal(true);
                               }}
                               className="p-1.5 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 rounded transition-colors inline-flex items-center space-x-1 text-xs font-bold"
-                              title="Designar Motoqueiro"
+                              title="Designar Motoboy"
                             >
                               <Send className="h-3.5 w-3.5" />
                               <span className="hidden md:inline">Designar</span>
@@ -743,7 +871,7 @@ export default function AdminDashboard() {
 
               {/* Tabela */}
               <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
+                <table className="w-full min-w-[560px] text-left border-collapse">
                   <thead>
                     <tr className="border-b border-slate-200 text-slate-500 text-xs uppercase font-semibold">
                       <th className="py-3 px-4">Nome</th>
@@ -812,67 +940,247 @@ export default function AdminDashboard() {
           {/* TAB: ESCALAS */}
           {activeTab === 'schedules' && (
             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
+
+              {/* Cabeçalho */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <h2 className="text-xl font-bold text-slate-800">Escalas de Trabalho</h2>
-                <button
-                  onClick={() => {
-                    setScheduleForm({ 
-                      riderId: '', 
-                      establishmentId: '', 
-                      date: '', 
-                      shift: 'morning',
-                      startTime: '08:00',
-                      endTime: '12:00'
-                    });
-                    setScheduleConflictWarning('');
-                    setShowScheduleModal(true);
-                  }}
-                  className="flex items-center justify-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-                >
-                  <Plus className="h-4 w-4" />
-                  <span>Criar Nova Escala</span>
-                </button>
+                <div className="flex flex-wrap gap-2 justify-end">
+                  <button
+                    onClick={() => {
+                      setWeeklyForm({ riderId: '', establishmentId: '', shift: 'morning', startTime: '08:00', endTime: '12:00', weekStart: getThisMonday(), days: { seg: true, ter: true, qua: true, qui: true, sex: true, sab: false, dom: false } });
+                      setWeeklyStep('form'); setWeeklyPreview([]); setShowWeeklyModal(true);
+                    }}
+                    className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                  >
+                    <CalendarDays className="h-4 w-4" /><span>Escala Semanal</span>
+                  </button>
+                  <button
+                    onClick={() => { setScheduleForm({ riderId: '', establishmentId: '', date: '', shift: 'morning', startTime: '08:00', endTime: '12:00' }); setScheduleConflictWarning(''); setShowScheduleModal(true); }}
+                    className="flex items-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                  >
+                    <Plus className="h-4 w-4" /><span>Nova Escala</span>
+                  </button>
+                </div>
               </div>
 
-              {/* Calendário Semanal Simples */}
-              <div className="border border-slate-200 rounded-xl overflow-hidden">
-                <div className="bg-slate-50 p-4 border-b border-slate-200">
-                  <h3 className="font-bold text-slate-700">Escalas Ativas</h3>
+              {/* Busca + Toggle de visualização */}
+              <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Buscar por nome, CPF ou telefone..."
+                    value={scheduleSearch}
+                    onChange={e => setScheduleSearch(e.target.value)}
+                    className="pl-9 pr-4 py-2 w-full border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  />
                 </div>
-                <div className="divide-y divide-slate-100">
-                  {schedules.length === 0 ? (
-                    <div className="p-8 text-center text-slate-400">Nenhuma escala cadastrada.</div>
-                  ) : (
-                    schedules.map(sch => {
-                      const rider = riders.find(r => r.id === sch.riderId);
-                      const est = establishments.find(e => e.id === sch.establishmentId);
-                      return (
-                        <div key={sch.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/50">
-                          <div>
-                            <p className="font-bold text-slate-800">{rider?.name || 'Motoqueiro Desconhecido'}</p>
-                            <p className="text-sm text-slate-600">Estabelecimento: <span className="font-medium">{est?.name || 'N/A'}</span></p>
-                            <p className="text-xs text-slate-400 mt-1 flex items-center gap-1">
-                              <span>Data: {new Date(sch.date + 'T00:00:00').toLocaleDateString('pt-BR')}</span>
-                              <span>|</span>
-                              <span>Turno: <span className="font-semibold text-indigo-600">{getShiftLabel(sch.shift)}</span></span>
-                              <span>|</span>
-                              <Clock className="h-3.5 w-3.5 text-slate-400 inline" />
-                              <span className="font-semibold text-slate-700">{sch.startTime} - {sch.endTime}</span>
-                            </p>
-                          </div>
-                          <button
-                            onClick={() => handleCancelSchedule(sch.id)}
-                            className="text-red-500 hover:bg-red-50 p-2 rounded transition-colors self-end sm:self-center"
-                            title="Cancelar Escala"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </div>
-                      );
-                    })
-                  )}
+                <div className="flex items-center bg-slate-100 rounded-lg p-1 gap-1 self-end sm:self-auto">
+                  <button onClick={() => setScheduleViewMode('accordion')} title="Lista" className={`flex items-center gap-1.5 px-3 py-2 rounded-md text-xs font-medium transition-colors ${scheduleViewMode === 'accordion' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                    <List className="h-3.5 w-3.5" /><span>Lista</span>
+                  </button>
+                  <button onClick={() => setScheduleViewMode('grid')} title="Cards" className={`flex items-center gap-1.5 px-3 py-2 rounded-md text-xs font-medium transition-colors ${scheduleViewMode === 'grid' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                    <LayoutGrid className="h-3.5 w-3.5" /><span>Cards</span>
+                  </button>
+                  <button onClick={() => setScheduleViewMode('timeline')} title="Agenda" className={`flex items-center gap-1.5 px-3 py-2 rounded-md text-xs font-medium transition-colors ${scheduleViewMode === 'timeline' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                    <Calendar className="h-3.5 w-3.5" /><span>Agenda</span>
+                  </button>
                 </div>
               </div>
+
+              {/* Conteúdo filtrado */}
+              {(() => {
+                const todayStr = new Date().toISOString().split('T')[0];
+                const q = scheduleSearch.toLowerCase();
+                const filteredList = riders.filter(r =>
+                  r.name.toLowerCase().includes(q) || r.cpf.includes(q) || r.phone.includes(q)
+                );
+                if (filteredList.length === 0) return (
+                  <div className="py-10 text-center text-slate-400">
+                    <Search className="h-10 w-10 mx-auto mb-2 text-slate-300" />
+                    <p>Nenhum motoboy encontrado.</p>
+                  </div>
+                );
+
+                /* ── MODO LISTA (ACCORDION) ── */
+                if (scheduleViewMode === 'accordion') return (
+                  <div className="space-y-2">
+                    {filteredList.map(rider => {
+                      const rs = schedules.filter(s => s.riderId === rider.id).sort((a,b) => a.date.localeCompare(b.date));
+                      const up = rs.filter(s => s.date >= todayStr);
+                      const exp = expandedRider === rider.id;
+                      return (
+                        <div key={rider.id} className="border border-slate-200 rounded-xl overflow-hidden">
+                          <button onClick={() => setExpandedRider(exp ? null : rider.id)} className="w-full flex items-center justify-between px-5 py-4 bg-white hover:bg-slate-50 transition-colors">
+                            <div className="flex items-center gap-3">
+                              <div className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold text-white flex-shrink-0 ${rider.active ? 'bg-indigo-600' : 'bg-slate-400'}`}>{rider.name.charAt(0).toUpperCase()}</div>
+                              <div className="text-left">
+                                <p className="font-bold text-slate-800 text-sm">{rider.name}</p>
+                                <p className="text-xs text-slate-500">{rider.phone} • {rider.cpf}</p>
+                                <p className="text-xs text-slate-400 mt-0.5">{rs.length === 0 ? 'Sem escalas' : `${up.length} futura${up.length !== 1 ? 's' : ''} • ${rs.length} total`}</p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {up.length > 0 && <span className="bg-indigo-100 text-indigo-700 text-xs font-bold px-2.5 py-1 rounded-full">{up.length}</span>}
+                              {!rider.active && <span className="bg-red-100 text-red-700 text-xs px-2 py-0.5 rounded-full">Inativo</span>}
+                              <ChevronDown className={`h-4 w-4 text-slate-400 transition-transform duration-200 ${exp ? 'rotate-180' : ''}`} />
+                            </div>
+                          </button>
+                          {exp && (
+                            <div className="border-t border-slate-100 bg-slate-50">
+                              {rs.length === 0 ? (
+                                <div className="px-5 py-6 text-center text-slate-400 text-sm">
+                                  <Calendar className="h-8 w-8 mx-auto mb-2 text-slate-300" /><p>Nenhuma escala cadastrada.</p>
+                                  <button onClick={() => { setScheduleForm({ riderId: rider.id, establishmentId: '', date: todayStr, shift: 'morning', startTime: '08:00', endTime: '12:00' }); setScheduleConflictWarning(''); setShowScheduleModal(true); }} className="mt-3 text-indigo-600 hover:underline text-xs font-medium">+ Criar escala agora</button>
+                                </div>
+                              ) : (
+                                <div className="divide-y divide-slate-100">
+                                  {rs.map(sch => {
+                                    const est = establishments.find(e => e.id === sch.establishmentId);
+                                    const isPast = sch.date < todayStr;
+                                    const isTod = sch.date === todayStr;
+                                    return (
+                                      <div key={sch.id} className={`px-5 py-3 flex items-center justify-between gap-3 ${isPast ? 'opacity-50' : 'bg-white'}`}>
+                                        <div className="flex items-center gap-3 min-w-0">
+                                          <div className={`w-2 h-2 rounded-full flex-shrink-0 ${isTod ? 'bg-emerald-500' : isPast ? 'bg-slate-300' : 'bg-indigo-400'}`} />
+                                          <div className="min-w-0">
+                                            <div className="flex flex-wrap items-center gap-1.5">
+                                              {isTod && <span className="bg-emerald-100 text-emerald-700 text-[10px] font-bold px-1.5 py-0.5 rounded-full uppercase">Hoje</span>}
+                                              <p className="text-sm font-semibold text-slate-800 truncate">{est?.name || 'N/A'}</p>
+                                            </div>
+                                            <p className="text-xs text-slate-500 flex flex-wrap items-center gap-1 mt-0.5">
+                                              <span>{new Date(sch.date + 'T00:00:00').toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' })}</span>
+                                              <span className="text-slate-300">•</span>
+                                              <span className={`font-medium ${sch.shift === 'morning' ? 'text-amber-600' : sch.shift === 'afternoon' ? 'text-orange-600' : 'text-blue-600'}`}>{getShiftLabel(sch.shift)}</span>
+                                              <span className="text-slate-300">•</span>
+                                              <span className="font-mono text-slate-600">{sch.startTime}–{sch.endTime}</span>
+                                            </p>
+                                          </div>
+                                        </div>
+                                        <button onClick={() => handleCancelSchedule(sch.id)} className="text-red-400 hover:text-red-600 hover:bg-red-50 p-1.5 rounded transition-colors flex-shrink-0"><Trash2 className="h-3.5 w-3.5" /></button>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+
+                /* ── MODO CARDS (GRID) ── */
+                if (scheduleViewMode === 'grid') return (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                    {filteredList.map(rider => {
+                      const rs = schedules.filter(s => s.riderId === rider.id).sort((a,b) => a.date.localeCompare(b.date));
+                      const up = rs.filter(s => s.date >= todayStr);
+                      const next = up[0];
+                      const nextEst = next ? establishments.find(e => e.id === next.establishmentId) : null;
+                      return (
+                        <div key={rider.id} className="border border-slate-200 rounded-xl bg-white p-5 flex flex-col gap-4 hover:shadow-md transition-shadow">
+                          <div className="flex items-center gap-3">
+                            <div className={`w-11 h-11 rounded-full flex items-center justify-center text-lg font-bold text-white flex-shrink-0 ${rider.active ? 'bg-indigo-600' : 'bg-slate-400'}`}>{rider.name.charAt(0).toUpperCase()}</div>
+                            <div className="min-w-0">
+                              <p className="font-bold text-slate-800 truncate">{rider.name}</p>
+                              <p className="text-xs text-slate-500 truncate">{rider.phone}</p>
+                              <p className="text-xs text-slate-400 truncate">{rider.cpf}</p>
+                            </div>
+                            {!rider.active && <span className="ml-auto bg-red-100 text-red-700 text-xs px-2 py-0.5 rounded-full flex-shrink-0">Inativo</span>}
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div className="bg-indigo-50 rounded-lg px-3 py-2 text-center">
+                              <p className="text-xl font-bold text-indigo-700">{up.length}</p>
+                              <p className="text-xs text-indigo-500">Futuras</p>
+                            </div>
+                            <div className="bg-slate-50 rounded-lg px-3 py-2 text-center">
+                              <p className="text-xl font-bold text-slate-700">{rs.length}</p>
+                              <p className="text-xs text-slate-500">Total</p>
+                            </div>
+                          </div>
+                          {next ? (
+                            <div className="bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
+                              <p className="text-xs font-bold text-emerald-700 uppercase mb-1">Próxima escala</p>
+                              <p className="text-sm font-semibold text-slate-800 truncate">{nextEst?.name || 'N/A'}</p>
+                              <p className="text-xs text-slate-500 mt-0.5">
+                                {new Date(next.date + 'T00:00:00').toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: '2-digit' })}
+                                {' · '}<span className={`font-medium ${next.shift === 'morning' ? 'text-amber-600' : next.shift === 'afternoon' ? 'text-orange-600' : 'text-blue-600'}`}>{getShiftLabel(next.shift)}</span>
+                                {' · '}{next.startTime}–{next.endTime}
+                              </p>
+                            </div>
+                          ) : (
+                            <div className="bg-slate-50 border border-slate-100 rounded-lg px-3 py-2 text-center text-xs text-slate-400">Sem escalas futuras</div>
+                          )}
+                          <div className="flex gap-2 mt-auto">
+                            <button onClick={() => { setScheduleForm({ riderId: rider.id, establishmentId: '', date: todayStr, shift: 'morning', startTime: '08:00', endTime: '12:00' }); setScheduleConflictWarning(''); setShowScheduleModal(true); }} className="flex-1 flex items-center justify-center gap-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-medium py-2 rounded-lg transition-colors">
+                              <Plus className="h-3.5 w-3.5" />Nova Escala
+                            </button>
+                            <button onClick={() => setRiderSchedulesModal(rider.id)} className="flex-1 flex items-center justify-center gap-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 text-xs font-medium py-2 rounded-lg transition-colors">
+                              <List className="h-3.5 w-3.5" />Ver Todas
+                            </button>                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+
+                /* ── MODO AGENDA (TIMELINE) ── */
+                const riderIds = new Set(filteredList.map(r => r.id));
+                const allUp = schedules.filter(s => s.date >= todayStr && riderIds.has(s.riderId)).sort((a,b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime));
+                const byDate: Record<string, typeof allUp> = {};
+                allUp.forEach(s => { if (!byDate[s.date]) byDate[s.date] = []; byDate[s.date].push(s); });
+
+                if (allUp.length === 0) return (
+                  <div className="py-10 text-center text-slate-400">
+                    <Calendar className="h-10 w-10 mx-auto mb-2 text-slate-300" />
+                    <p>Nenhuma escala futura encontrada.</p>
+                  </div>
+                );
+
+                return (
+                  <div className="space-y-6">
+                    {Object.entries(byDate).map(([date, daySchs]) => {
+                      const isTod = date === todayStr;
+                      const dateLabel = new Date(date + 'T00:00:00').toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' });
+                      return (
+                        <div key={date}>
+                          <div className="flex items-center gap-3 mb-3">
+                            <div className={`px-3 py-1 rounded-full text-xs font-bold uppercase ${isTod ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-600'}`}>{isTod ? 'Hoje' : dateLabel}</div>
+                            <div className="flex-1 h-px bg-slate-200" />
+                            <span className="text-xs text-slate-400">{daySchs.length} escala{daySchs.length !== 1 ? 's' : ''}</span>
+                          </div>
+                          <div className="space-y-2">
+                            {daySchs.map(sch => {
+                              const rider = riders.find(r => r.id === sch.riderId);
+                              const est = establishments.find(e => e.id === sch.establishmentId);
+                              return (
+                                <div key={sch.id} className="flex items-center justify-between gap-3 bg-white border border-slate-200 rounded-xl px-4 py-3 hover:border-indigo-200 transition-colors">
+                                  <div className="flex items-center gap-3 min-w-0">
+                                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0 ${rider?.active ? 'bg-indigo-600' : 'bg-slate-400'}`}>{rider?.name.charAt(0).toUpperCase() || '?'}</div>
+                                    <div className="min-w-0">
+                                      <p className="text-sm font-bold text-slate-800 truncate">{rider?.name || 'N/A'}</p>
+                                      <p className="text-xs text-slate-500 truncate">{est?.name || 'N/A'}</p>
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-3 flex-shrink-0">
+                                    <div className="text-right">
+                                      <p className={`text-xs font-bold ${sch.shift === 'morning' ? 'text-amber-600' : sch.shift === 'afternoon' ? 'text-orange-600' : 'text-blue-600'}`}>{getShiftLabel(sch.shift)}</p>
+                                      <p className="text-xs font-mono text-slate-600">{sch.startTime}–{sch.endTime}</p>
+                                    </div>
+                                    <button onClick={() => handleCancelSchedule(sch.id)} className="text-red-400 hover:text-red-600 hover:bg-red-50 p-1.5 rounded transition-colors"><Trash2 className="h-3.5 w-3.5" /></button>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
             </div>
           )}
 
@@ -912,7 +1220,7 @@ export default function AdminDashboard() {
                         <div key={del.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/50">
                           <div>
                             <div className="flex items-center space-x-2">
-                              <p className="font-bold text-slate-800">{rider?.name || 'Motoqueiro'}</p>
+                              <p className="font-bold text-slate-800">{rider?.name || 'Motoboy'}</p>
                               {del.status === 'cancelled' && (
                                 <span className="bg-red-100 text-red-800 text-[10px] font-bold px-2 py-0.5 rounded-full">Cancelada</span>
                               )}
@@ -968,7 +1276,7 @@ export default function AdminDashboard() {
                     onChange={(e: any) => setReportType(e.target.value)}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
                   >
-                    <option value="earnings">Faturamento por Motoqueiro</option>
+                    <option value="earnings">Faturamento por Motoboy</option>
                     <option value="deliveries">Quantidade de Corridas</option>
                     <option value="schedules">Escalas por Estabelecimento</option>
                   </select>
@@ -1014,7 +1322,8 @@ export default function AdminDashboard() {
 
               {/* Tabela de Resultados */}
               <div className="border border-slate-200 rounded-xl overflow-hidden">
-                <table className="w-full text-left border-collapse">
+                <div className="overflow-x-auto">
+                <table className="w-full min-w-[400px] text-left border-collapse">
                   <thead>
                     <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-xs uppercase font-semibold">
                       <th className="py-3 px-4">Item / Nome</th>
@@ -1038,19 +1347,20 @@ export default function AdminDashboard() {
                     ))}
                   </tbody>
                 </table>
+                </div>
               </div>
             </div>
           )}
         </div>
       </div>
 
-      {/* MODAL: MOTOQUEIRO */}
+      {/* MODAL: MOTOBOY */}
       {showRiderModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl max-w-md w-full p-6 space-y-4 shadow-xl">
+          <div className="bg-white rounded-xl max-w-md w-full p-6 space-y-4 shadow-xl max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center">
               <h3 className="text-lg font-bold text-slate-800">
-                {editingRider ? 'Editar Motoqueiro' : 'Cadastrar Novo Motoqueiro'}
+                {editingRider ? 'Editar Motoboy' : 'Cadastrar Novo Motoboy'}
               </h3>
               <button onClick={() => setShowRiderModal(false)} className="text-slate-400 hover:text-slate-600">
                 <X className="h-5 w-5" />
@@ -1268,7 +1578,7 @@ export default function AdminDashboard() {
       {/* MODAL: ESCALA */}
       {showScheduleModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl max-w-md w-full p-6 space-y-4 shadow-xl">
+          <div className="bg-white rounded-xl max-w-md w-full p-6 space-y-4 shadow-xl max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center">
               <h3 className="text-lg font-bold text-slate-800">Criar Nova Escala</h3>
               <button onClick={() => setShowScheduleModal(false)} className="text-slate-400 hover:text-slate-600">
@@ -1289,7 +1599,7 @@ export default function AdminDashboard() {
 
             <form onSubmit={handleSaveSchedule} className="space-y-3">
               <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Motoqueiro</label>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Motoboy</label>
                 <select
                   required
                   value={scheduleForm.riderId}
@@ -1299,7 +1609,7 @@ export default function AdminDashboard() {
                   }}
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none"
                 >
-                  <option value="">Selecione um Motoqueiro</option>
+                  <option value="">Selecione um Motoboy</option>
                   {riders.filter(r => r.active).map(r => (
                     <option key={r.id} value={r.id}>{r.name}</option>
                   ))}
@@ -1395,10 +1705,253 @@ export default function AdminDashboard() {
         </div>
       )}
 
+      {/* MODAL: ESCALA SEMANAL AUTOMÁTICA */}
+      {showWeeklyModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl max-w-lg w-full p-6 space-y-4 shadow-xl max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center">
+              <div>
+                <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                  <CalendarDays className="h-5 w-5 text-emerald-600" />
+                  Escala Semanal Automática
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {weeklyStep === 'form' ? 'Configure a escala para a semana' : 'Revise os dias antes de confirmar'}
+                </p>
+              </div>
+              <button onClick={() => setShowWeeklyModal(false)} className="text-slate-400 hover:text-slate-600">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {weeklyStep === 'form' && (
+              <div className="space-y-4">
+                {/* Motoboy */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Motoboy</label>
+                  <select
+                    required
+                    value={weeklyForm.riderId}
+                    onChange={(e) => setWeeklyForm({ ...weeklyForm, riderId: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                  >
+                    <option value="">Selecione um Motoboy</option>
+                    {riders.filter(r => r.active).map(r => (
+                      <option key={r.id} value={r.id}>{r.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Estabelecimento */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Estabelecimento</label>
+                  <select
+                    required
+                    value={weeklyForm.establishmentId}
+                    onChange={(e) => setWeeklyForm({ ...weeklyForm, establishmentId: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                  >
+                    <option value="">Selecione um Estabelecimento</option>
+                    {establishments.filter(e => e.active).map(e => (
+                      <option key={e.id} value={e.id}>{e.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Semana */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Semana (início na segunda-feira)</label>
+                  <input
+                    type="date"
+                    value={weeklyForm.weekStart}
+                    onChange={(e) => setWeeklyForm({ ...weeklyForm, weekStart: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                  />
+                </div>
+
+                {/* Turno e horários */}
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Turno</label>
+                    <select
+                      value={weeklyForm.shift}
+                      onChange={(e: any) => setWeeklyForm({ ...weeklyForm, shift: e.target.value })}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                    >
+                      <option value="morning">Manhã</option>
+                      <option value="afternoon">Tarde</option>
+                      <option value="night">Noite</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Início</label>
+                    <input
+                      type="time"
+                      value={weeklyForm.startTime}
+                      onChange={(e) => setWeeklyForm({ ...weeklyForm, startTime: e.target.value })}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Término</label>
+                    <input
+                      type="time"
+                      value={weeklyForm.endTime}
+                      onChange={(e) => setWeeklyForm({ ...weeklyForm, endTime: e.target.value })}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                    />
+                  </div>
+                </div>
+
+                {/* Dias da semana */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Dias que o estabelecimento funciona</label>
+                  <div className="grid grid-cols-7 gap-1">
+                    {(['seg','ter','qua','qui','sex','sab','dom'] as const).map((key, idx) => (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => setWeeklyForm({ ...weeklyForm, days: { ...weeklyForm.days, [key]: !weeklyForm.days[key] } })}
+                        className={`py-2 rounded-lg text-xs font-bold transition-colors border ${
+                          weeklyForm.days[key]
+                            ? 'bg-emerald-600 text-white border-emerald-600'
+                            : 'bg-white text-slate-400 border-slate-200 line-through'
+                        }`}
+                      >
+                        {['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'][idx]}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-xs text-slate-400 mt-1">Clique para ativar/desativar dias</p>
+                </div>
+
+                <div className="flex justify-end space-x-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowWeeklyModal(false)}
+                    className="px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!weeklyForm.riderId || !weeklyForm.establishmentId || !weeklyForm.weekStart) {
+                        alert('Preencha motoboy, estabelecimento e semana.');
+                        return;
+                      }
+                      if (!Object.values(weeklyForm.days).some(Boolean)) {
+                        alert('Selecione pelo menos um dia da semana.');
+                        return;
+                      }
+                      buildWeeklyPreview(weeklyForm);
+                    }}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium"
+                  >
+                    Pré-visualizar →
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {weeklyStep === 'preview' && (
+              <div className="space-y-4">
+                {/* Resumo */}
+                <div className="bg-slate-50 p-3 rounded-lg text-sm space-y-1 border border-slate-200">
+                  <p><span className="font-semibold text-slate-600">Motoboy:</span> {riders.find(r => r.id === weeklyForm.riderId)?.name}</p>
+                  <p><span className="font-semibold text-slate-600">Estabelecimento:</span> {establishments.find(e => e.id === weeklyForm.establishmentId)?.name}</p>
+                  <p><span className="font-semibold text-slate-600">Turno:</span> {getShiftLabel(weeklyForm.shift)} ({weeklyForm.startTime} - {weeklyForm.endTime})</p>
+                </div>
+
+                {/* Dias */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Dias gerados — desmarque se necessário</label>
+                  <div className="space-y-2">
+                    {(weeklyPreview as any[]).map((day: any) => (
+                      <div
+                        key={day.date}
+                        onClick={() => setWeeklyPreview((prev: any[]) =>
+                          prev.map((d: any) => d.date === day.date ? { ...d, enabled: !d.enabled } : d)
+                        )}
+                        className={`flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-all ${
+                          !day.enabled
+                            ? 'bg-slate-50 border-slate-200 opacity-50'
+                            : day.conflict
+                              ? 'bg-amber-50 border-amber-300'
+                              : 'bg-emerald-50 border-emerald-200'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 ${
+                            day.enabled ? 'bg-emerald-600 border-emerald-600' : 'border-slate-300 bg-white'
+                          }`}>
+                            {day.enabled && <Check className="h-3 w-3 text-white" />}
+                          </div>
+                          <div>
+                            <p className={`text-sm font-semibold ${day.enabled ? 'text-slate-800' : 'text-slate-400 line-through'}`}>
+                              {day.label}
+                            </p>
+                            <p className="text-xs text-slate-500">
+                              {new Date(day.date + 'T00:00:00').toLocaleDateString('pt-BR')}
+                            </p>
+                          </div>
+                        </div>
+                        {day.conflict && day.enabled && (
+                          <span className="text-xs bg-amber-100 text-amber-700 font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
+                            <AlertTriangle className="h-3 w-3" /> Conflito
+                          </span>
+                        )}
+                        {!day.enabled && (
+                          <span className="text-xs bg-slate-100 text-slate-500 font-medium px-2 py-0.5 rounded-full">Ignorado</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-xs text-slate-400 mt-2">Clique em um dia para ativar/desativar</p>
+                </div>
+
+                {(weeklyPreview as any[]).some((d: any) => d.conflict && d.enabled) && (
+                  <div className="bg-amber-50 border-l-4 border-amber-400 p-3 rounded text-sm text-amber-800">
+                    <strong>Atenção:</strong> Alguns dias marcados já possuem escala para este motoboy e turno. Eles serão criados mesmo assim.
+                  </div>
+                )}
+
+                <div className="flex justify-between items-center pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setWeeklyStep('form')}
+                    className="px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    ← Voltar
+                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowWeeklyModal(false)}
+                      className="px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSaveWeeklySchedule}
+                      disabled={!(weeklyPreview as any[]).some((d: any) => d.enabled)}
+                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white rounded-lg text-sm font-medium"
+                    >
+                      Confirmar {(weeklyPreview as any[]).filter((d: any) => d.enabled).length} dia(s)
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* MODAL: CORRIDA */}
       {showDeliveryModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl max-w-md w-full p-6 space-y-4 shadow-xl">
+          <div className="bg-white rounded-xl max-w-md w-full p-6 space-y-4 shadow-xl max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center">
               <h3 className="text-lg font-bold text-slate-800">Lançar Nova Corrida</h3>
               <button onClick={() => setShowDeliveryModal(false)} className="text-slate-400 hover:text-slate-600">
@@ -1407,14 +1960,14 @@ export default function AdminDashboard() {
             </div>
             <form onSubmit={handleSaveDelivery} className="space-y-3">
               <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Motoqueiro</label>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Motoboy</label>
                 <select
                   required
                   value={deliveryForm.riderId}
                   onChange={(e) => setDeliveryForm({ ...deliveryForm, riderId: e.target.value })}
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none"
                 >
-                  <option value="">Selecione um Motoqueiro</option>
+                  <option value="">Selecione um Motoboy</option>
                   {riders.filter(r => r.active).map(r => (
                     <option key={r.id} value={r.id}>{r.name}</option>
                   ))}
@@ -1487,6 +2040,179 @@ export default function AdminDashboard() {
           </div>
         </div>
       )}
+
+      {/* MODAL: ESCALAS DO MOTOBOY (Ver Todas) */}
+      {riderSchedulesModal && (() => {
+        const rider = riders.find(r => r.id === riderSchedulesModal);
+        if (!rider) return null;
+        const todayStr = new Date().toISOString().split('T')[0];
+        const rs = schedules.filter(s => s.riderId === rider.id).sort((a, b) => a.date.localeCompare(b.date));
+        const upcoming = rs.filter(s => s.date >= todayStr);
+        const past = rs.filter(s => s.date < todayStr);
+        return (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-xl w-full max-w-lg shadow-xl flex flex-col max-h-[90vh]">
+              {/* Header */}
+              <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 flex-shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center text-base font-bold text-white ${rider.active ? 'bg-indigo-600' : 'bg-slate-400'}`}>
+                    {rider.name.charAt(0).toUpperCase()}
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-slate-800">{rider.name}</h3>
+                    <p className="text-xs text-slate-500">{rider.phone} • {rider.cpf}</p>
+                  </div>
+                </div>
+                <button onClick={() => setRiderSchedulesModal(null)} className="text-slate-400 hover:text-slate-600 p-1">
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              {/* Resumo */}
+              <div className="grid grid-cols-3 gap-3 px-6 py-3 border-b border-slate-100 flex-shrink-0">
+                <div className="bg-indigo-50 rounded-lg px-2 py-2 text-center">
+                  <p className="text-lg font-bold text-indigo-700">{upcoming.length}</p>
+                  <p className="text-xs text-indigo-500">Futuras</p>
+                </div>
+                <div className="bg-slate-50 rounded-lg px-2 py-2 text-center">
+                  <p className="text-lg font-bold text-slate-700">{past.length}</p>
+                  <p className="text-xs text-slate-500">Passadas</p>
+                </div>
+                <div className="bg-slate-50 rounded-lg px-2 py-2 text-center">
+                  <p className="text-lg font-bold text-slate-700">{rs.length}</p>
+                  <p className="text-xs text-slate-500">Total</p>
+                </div>
+              </div>
+
+              {/* Lista de escalas */}
+              <div className="overflow-y-auto flex-1 px-6 py-4 space-y-4">
+                {rs.length === 0 ? (
+                  <div className="py-10 text-center text-slate-400">
+                    <Calendar className="h-10 w-10 mx-auto mb-2 text-slate-300" />
+                    <p className="text-sm">Nenhuma escala cadastrada.</p>
+                  </div>
+                ) : (
+                  <>
+                    {upcoming.length > 0 && (
+                      <div>
+                        <p className="text-xs font-bold text-slate-500 uppercase mb-2">Próximas escalas</p>
+                        <div className="space-y-2">
+                          {upcoming.map(sch => {
+                            const est = establishments.find(e => e.id === sch.establishmentId);
+                            const isToday = sch.date === todayStr;
+                            return (
+                              <div key={sch.id} className={`flex items-center justify-between gap-3 rounded-xl px-4 py-3 border ${isToday ? 'bg-emerald-50 border-emerald-200' : 'bg-white border-slate-200'}`}>
+                                <div className="min-w-0">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    {isToday && <span className="bg-emerald-100 text-emerald-700 text-[10px] font-bold px-1.5 py-0.5 rounded-full uppercase">Hoje</span>}
+                                    <p className="text-sm font-semibold text-slate-800 truncate">{est?.name || 'N/A'}</p>
+                                  </div>
+                                  <p className="text-xs text-slate-500 mt-0.5 flex flex-wrap items-center gap-1">
+                                    <span>{new Date(sch.date + 'T00:00:00').toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
+                                    <span className="text-slate-300">•</span>
+                                    <span className={`font-medium ${sch.shift === 'morning' ? 'text-amber-600' : sch.shift === 'afternoon' ? 'text-orange-600' : 'text-blue-600'}`}>{getShiftLabel(sch.shift)}</span>
+                                    <span className="text-slate-300">•</span>
+                                    <span className="font-mono">{sch.startTime}–{sch.endTime}</span>
+                                  </p>
+                                </div>
+                                <button onClick={() => { handleCancelSchedule(sch.id); }} className="text-red-400 hover:text-red-600 hover:bg-red-50 p-1.5 rounded transition-colors flex-shrink-0">
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                    {past.length > 0 && (
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-xs font-bold text-slate-400 uppercase">Histórico de escalas</p>
+                          <span className="text-xs text-slate-400">{past.length} registro{past.length !== 1 ? 's' : ''}</span>
+                        </div>
+                        {/* Filtros do histórico */}
+                        <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 mb-3 space-y-2">
+                          <p className="text-xs font-bold text-slate-500 uppercase flex items-center gap-1">
+                            <Search className="h-3 w-3" />Filtrar histórico
+                          </p>
+                          <div className="grid grid-cols-1 gap-2">
+                            <select
+                              value={modalHistoryEst}
+                              onChange={e => setModalHistoryEst(e.target.value)}
+                              className="px-2 py-1.5 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                            >
+                              <option value="">Todos os estabelecimentos</option>
+                              {Array.from(new Set(past.map(s => s.establishmentId))).map(eid => {
+                                const e = establishments.find(x => x.id === eid);
+                                return e ? <option key={e.id} value={e.id}>{e.name}</option> : null;
+                              })}
+                            </select>
+                            <div className="grid grid-cols-2 gap-2">
+                              <div>
+                                <label className="block text-[10px] text-slate-400 mb-0.5">De</label>
+                                <input type="date" value={modalHistoryFrom} onChange={e => setModalHistoryFrom(e.target.value)} className="w-full px-2 py-1.5 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+                              </div>
+                              <div>
+                                <label className="block text-[10px] text-slate-400 mb-0.5">Até</label>
+                                <input type="date" value={modalHistoryTo} onChange={e => setModalHistoryTo(e.target.value)} className="w-full px-2 py-1.5 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+                              </div>
+                            </div>
+                            {(modalHistoryEst || modalHistoryFrom || modalHistoryTo) && (
+                              <button onClick={() => { setModalHistoryEst(''); setModalHistoryFrom(''); setModalHistoryTo(''); }} className="text-xs text-indigo-600 hover:underline text-left font-medium">Limpar filtros</button>
+                            )}
+                          </div>
+                        </div>
+                        {/* Lista filtrada */}
+                        <div className="space-y-2 opacity-70">
+                          {past
+                            .filter(s => (!modalHistoryEst || s.establishmentId === modalHistoryEst) && (!modalHistoryFrom || s.date >= modalHistoryFrom) && (!modalHistoryTo || s.date <= modalHistoryTo))
+                            .map(sch => {
+                              const est = establishments.find(e => e.id === sch.establishmentId);
+                              return (
+                                <div key={sch.id} className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3">
+                                  <div className="flex items-start justify-between gap-2">
+                                    <div className="min-w-0">
+                                      <p className="text-sm font-semibold text-slate-700 truncate">{est?.name || 'N/A'}</p>
+                                      <p className="text-xs text-slate-400 mt-0.5 flex flex-wrap items-center gap-1">
+                                        <span>{new Date(sch.date + 'T00:00:00').toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
+                                        <span className="text-slate-300">•</span>
+                                        <span className={`font-medium ${sch.shift === 'morning' ? 'text-amber-500' : sch.shift === 'afternoon' ? 'text-orange-500' : 'text-blue-500'}`}>{getShiftLabel(sch.shift)}</span>
+                                        <span className="text-slate-300">•</span>
+                                        <span className="font-mono">{sch.startTime}–{sch.endTime}</span>
+                                      </p>
+                                    </div>
+                                    <span className="bg-slate-200 text-slate-500 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase flex-shrink-0">Concluída</span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          {past.filter(s => (!modalHistoryEst || s.establishmentId === modalHistoryEst) && (!modalHistoryFrom || s.date >= modalHistoryFrom) && (!modalHistoryTo || s.date <= modalHistoryTo)).length === 0 && (
+                            <div className="text-center py-4 text-xs text-slate-400">Nenhum registro com os filtros selecionados.</div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              {/* Footer */}
+              <div className="px-6 py-4 border-t border-slate-200 flex gap-2 flex-shrink-0">
+                <button
+                  onClick={() => { setScheduleForm({ riderId: rider.id, establishmentId: '', date: new Date().toISOString().split('T')[0], shift: 'morning', startTime: '08:00', endTime: '12:00' }); setScheduleConflictWarning(''); setRiderSchedulesModal(null); setShowScheduleModal(true); }}
+                  className="flex-1 flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium py-2.5 rounded-lg transition-colors"
+                >
+                  <Plus className="h-4 w-4" />
+                  Nova Escala
+                </button>
+                <button onClick={() => setRiderSchedulesModal(null)} className="px-4 py-2.5 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50">
+                  Fechar
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
