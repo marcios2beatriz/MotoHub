@@ -2,6 +2,7 @@
 
 import React, { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import Landing from './pages/Landing';
 import Login from './pages/Login';
 import AdminDashboard from './pages/AdminDashboard';
 import RiderDashboard from './pages/RiderDashboard';
@@ -86,6 +87,7 @@ export default function App() {
     <Router>
       <InactivityHandler>
         <Routes>
+          <Route path="/" element={<Landing />} />
           <Route path="/login" element={<Login />} />
           
           <Route 
@@ -116,7 +118,7 @@ export default function App() {
                     ? '/admin' 
                     : db.getCurrentUser()?.role === 'rider' 
                       ? '/rider' 
-                      : '/login'
+                      : '/'
                 } 
                 replace 
               />
