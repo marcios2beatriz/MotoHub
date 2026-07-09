@@ -151,12 +151,6 @@ export default function Login() {
             </button>
           </div>
         </form>
-
-        <div className="mt-4 text-center text-xs text-slate-400">
-          <p>Acesso de teste:</p>
-          <p>Admin: admin@delivery.com / admin123</p>
-          <p>Motoboy: carlos@delivery.com / moto123</p>
-        </div>
       </div>
     </div>
   );
