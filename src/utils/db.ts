@@ -72,6 +72,9 @@ export interface PartnerRequest {
   createdAt: string;
 }
 
+// Tabelas que não existem no Supabase serão desativadas dinamicamente para usar apenas LocalStorage
+const disabledTables = new Set<string>();
+
 // Seed Data inicial para fallback
 const INITIAL_USERS: User[] = [
   {
@@ -167,6 +170,10 @@ const mergeById = <T extends { id: string }>(local: T[], remote: T[]): T[] => {
 
 // Sincronização assíncrona em background com Supabase com tratamento de erro detalhado
 const syncToSupabase = async (table: string, data: any[]) => {
+  if (disabledTables.has(table)) {
+    return;
+  }
+
   try {
     // Mapeamento simples para o formato do banco de dados
     const formattedData = data.map(item => {
@@ -249,7 +256,12 @@ const syncToSupabase = async (table: string, data: any[]) => {
 
     const { error } = await supabase.from(table).upsert(formattedData);
     if (error) {
-      console.error(`Erro ao sincronizar tabela ${table}:`, error.message);
+      if (error.message?.includes('schema cache') || error.message?.includes('does not exist') || error.code === '42P01') {
+        console.warn(`⚠️ Tabela "${table}" não existe no Supabase. Usando LocalStorage como fallback.`);
+        disabledTables.add(table);
+      } else {
+        console.error(`Erro ao sincronizar tabela ${table}:`, error.message);
+      }
     }
   } catch (err: any) {
     console.warn('Erro ao sincronizar com o Supabase:', err?.message || err);
@@ -318,163 +330,193 @@ export const db = {
   // Função para carregar dados do Supabase de forma robusta e mesclar com o localStorage
   pullFromSupabase: async () => {
     // ── USERS ──────────────────────────────────────────────────────────────
-    try {
-      const { data: users, error: usersError } = await supabase.from('users').select('*');
-      if (!usersError && users) {
-        const mappedUsers: User[] = users.map(u => ({
-          id: u.id,
-          name: u.name,
-          cpf: u.cpf,
-          phone: u.phone || '',
-          email: u.email,
-          role: u.role as any,
-          active: u.active,
-          passwordHash: u.password_hash,
-          mustResetPassword: u.must_reset_password
-        }));
-        const localUsers = getStorageData<User[]>('dm_users', INITIAL_USERS);
-        const merged = mergeById(localUsers, mappedUsers);
-        setStorageData('dm_users', merged);
-        await syncToSupabase('users', merged);
-      } else {
-        const localUsers = getStorageData<User[]>('dm_users', INITIAL_USERS);
-        await syncToSupabase('users', localUsers);
+    if (!disabledTables.has('users')) {
+      try {
+        const { data: users, error: usersError } = await supabase.from('users').select('*');
+        if (!usersError && users) {
+          const mappedUsers: User[] = users.map(u => ({
+            id: u.id,
+            name: u.name,
+            cpf: u.cpf,
+            phone: u.phone || '',
+            email: u.email,
+            role: u.role as any,
+            active: u.active,
+            passwordHash: u.password_hash,
+            mustResetPassword: u.must_reset_password
+          }));
+          const localUsers = getStorageData<User[]>('dm_users', INITIAL_USERS);
+          const merged = mergeById(localUsers, mappedUsers);
+          setStorageData('dm_users', merged);
+          await syncToSupabase('users', merged);
+        } else {
+          if (usersError?.message?.includes('schema cache') || usersError?.message?.includes('does not exist') || usersError?.code === '42P01') {
+            disabledTables.add('users');
+          }
+          const localUsers = getStorageData<User[]>('dm_users', INITIAL_USERS);
+          await syncToSupabase('users', localUsers);
+        }
+      } catch (err) {
+        console.warn('Erro ao sincronizar tabela users:', err);
       }
-    } catch (err) {
-      console.warn('Erro ao sincronizar tabela users:', err);
     }
 
     // ── ESTABLISHMENTS ─────────────────────────────────────────────────────
-    try {
-      const { data: ests, error: estsError } = await supabase.from('establishments').select('*');
-      if (!estsError && ests) {
-        const mappedEsts: Establishment[] = ests.map(e => ({
-          id: e.id,
-          name: e.name,
-          address: {
-            street: e.street,
-            number: e.number,
-            complement: e.complement || '',
-            neighborhood: e.neighborhood,
-            city: e.city,
-            state: e.state,
-            zipCode: e.zip_code
-          },
-          phone: e.phone || '',
-          active: e.active
-        }));
-        const localEsts = getStorageData<Establishment[]>('dm_establishments', INITIAL_ESTABLISHMENTS);
-        const merged = mergeById(localEsts, mappedEsts);
-        setStorageData('dm_establishments', merged);
-        await syncToSupabase('establishments', merged);
-      } else {
-        const localEsts = getStorageData<Establishment[]>('dm_establishments', INITIAL_ESTABLISHMENTS);
-        await syncToSupabase('establishments', localEsts);
+    if (!disabledTables.has('establishments')) {
+      try {
+        const { data: ests, error: estsError } = await supabase.from('establishments').select('*');
+        if (!estsError && ests) {
+          const mappedEsts: Establishment[] = ests.map(e => ({
+            id: e.id,
+            name: e.name,
+            address: {
+              street: e.street,
+              number: e.number,
+              complement: e.complement || '',
+              neighborhood: e.neighborhood,
+              city: e.city,
+              state: e.state,
+              zipCode: e.zip_code
+            },
+            phone: e.phone || '',
+            active: e.active
+          }));
+          const localEsts = getStorageData<Establishment[]>('dm_establishments', INITIAL_ESTABLISHMENTS);
+          const merged = mergeById(localEsts, mappedEsts);
+          setStorageData('dm_establishments', merged);
+          await syncToSupabase('establishments', merged);
+        } else {
+          if (estsError?.message?.includes('schema cache') || estsError?.message?.includes('does not exist') || estsError?.code === '42P01') {
+            disabledTables.add('establishments');
+          }
+          const localEsts = getStorageData<Establishment[]>('dm_establishments', INITIAL_ESTABLISHMENTS);
+          await syncToSupabase('establishments', localEsts);
+        }
+      } catch (err) {
+        console.warn('Erro ao sincronizar tabela establishments:', err);
       }
-    } catch (err) {
-      console.warn('Erro ao sincronizar tabela establishments:', err);
     }
 
     // ── SCHEDULES ──────────────────────────────────────────────────────────
-    try {
-      const { data: schs, error: schsError } = await supabase.from('schedules').select('*');
-      if (!schsError && schs) {
-        const mappedSchs: Schedule[] = schs.map(s => ({
-          id: s.id,
-          riderId: s.rider_id,
-          establishmentId: s.establishment_id,
-          date: s.date,
-          shift: s.shift as any,
-          startTime: s.start_time,
-          endTime: s.end_time,
-          createdBy: s.created_by || 'Admin',
-          createdAt: s.created_at
-        }));
-        const localSchs = getStorageData<Schedule[]>('dm_schedules', []);
-        const merged = mergeById(localSchs, mappedSchs);
-        setStorageData('dm_schedules', merged);
-        await syncToSupabase('schedules', merged);
-      } else {
-        const localSchs = getStorageData<Schedule[]>('dm_schedules', []);
-        if (localSchs.length > 0) await syncToSupabase('schedules', localSchs);
+    if (!disabledTables.has('schedules')) {
+      try {
+        const { data: schs, error: schsError } = await supabase.from('schedules').select('*');
+        if (!schsError && schs) {
+          const mappedSchs: Schedule[] = schs.map(s => ({
+            id: s.id,
+            riderId: s.rider_id,
+            establishmentId: s.establishment_id,
+            date: s.date,
+            shift: s.shift as any,
+            startTime: s.start_time,
+            endTime: s.end_time,
+            createdBy: s.created_by || 'Admin',
+            createdAt: s.created_at
+          }));
+          const localSchs = getStorageData<Schedule[]>('dm_schedules', []);
+          const merged = mergeById(localSchs, mappedSchs);
+          setStorageData('dm_schedules', merged);
+          await syncToSupabase('schedules', merged);
+        } else {
+          if (schsError?.message?.includes('schema cache') || schsError?.message?.includes('does not exist') || schsError?.code === '42P01') {
+            disabledTables.add('schedules');
+          }
+          const localSchs = getStorageData<Schedule[]>('dm_schedules', []);
+          if (localSchs.length > 0) await syncToSupabase('schedules', localSchs);
+        }
+      } catch (err) {
+        console.warn('Erro ao sincronizar tabela schedules:', err);
       }
-    } catch (err) {
-      console.warn('Erro ao sincronizar tabela schedules:', err);
     }
 
     // ── DELIVERIES ─────────────────────────────────────────────────────────
-    try {
-      const { data: dels, error: delsError } = await supabase.from('deliveries').select('*');
-      if (!delsError && dels) {
-        const mappedDels: Delivery[] = dels.map(d => ({
-          id: d.id,
-          riderId: d.rider_id,
-          establishmentId: d.establishment_id,
-          date: d.date,
-          time: d.time,
-          value: Number(d.value),
-          status: d.status as any,
-          scheduleId: d.schedule_id || undefined
-        }));
-        const localDels = getStorageData<Delivery[]>('dm_deliveries', []);
-        const merged = mergeById(localDels, mappedDels);
-        setStorageData('dm_deliveries', merged);
-        await syncToSupabase('deliveries', merged);
-      } else {
-        const localDels = getStorageData<Delivery[]>('dm_deliveries', []);
-        if (localDels.length > 0) await syncToSupabase('deliveries', localDels);
+    if (!disabledTables.has('deliveries')) {
+      try {
+        const { data: dels, error: delsError } = await supabase.from('deliveries').select('*');
+        if (!delsError && dels) {
+          const mappedDels: Delivery[] = dels.map(d => ({
+            id: d.id,
+            riderId: d.rider_id,
+            establishmentId: d.establishment_id,
+            date: d.date,
+            time: d.time,
+            value: Number(d.value),
+            status: d.status as any,
+            scheduleId: d.schedule_id || undefined
+          }));
+          const localDels = getStorageData<Delivery[]>('dm_deliveries', []);
+          const merged = mergeById(localDels, mappedDels);
+          setStorageData('dm_deliveries', merged);
+          await syncToSupabase('deliveries', merged);
+        } else {
+          if (delsError?.message?.includes('schema cache') || delsError?.message?.includes('does not exist') || delsError?.code === '42P01') {
+            disabledTables.add('deliveries');
+          }
+          const localDels = getStorageData<Delivery[]>('dm_deliveries', []);
+          if (localDels.length > 0) await syncToSupabase('deliveries', localDels);
+        }
+      } catch (err) {
+        console.warn('Erro ao sincronizar tabela deliveries:', err);
       }
-    } catch (err) {
-      console.warn('Erro ao sincronizar tabela deliveries:', err);
     }
 
     // ── NOTIFICATIONS ──────────────────────────────────────────────────────
-    try {
-      const { data: notifs, error: notifsError } = await supabase.from('notifications').select('*');
-      if (!notifsError && notifs) {
-        const mappedNotifs: Notification[] = notifs.map(n => ({
-          id: n.id,
-          riderId: n.rider_id,
-          title: n.title,
-          message: n.message,
-          date: n.date,
-          read: n.read
-        }));
-        const localNotifs = getStorageData<Notification[]>('dm_notifications', []);
-        const merged = mergeById(localNotifs, mappedNotifs);
-        setStorageData('dm_notifications', merged);
-        await syncToSupabase('notifications', merged);
-      } else {
-        const localNotifs = getStorageData<Notification[]>('dm_notifications', []);
-        if (localNotifs.length > 0) await syncToSupabase('notifications', localNotifs);
+    if (!disabledTables.has('notifications')) {
+      try {
+        const { data: notifs, error: notifsError } = await supabase.from('notifications').select('*');
+        if (!notifsError && notifs) {
+          const mappedNotifs: Notification[] = notifs.map(n => ({
+            id: n.id,
+            riderId: n.rider_id,
+            title: n.title,
+            message: n.message,
+            date: n.date,
+            read: n.read
+          }));
+          const localNotifs = getStorageData<Notification[]>('dm_notifications', []);
+          const merged = mergeById(localNotifs, mappedNotifs);
+          setStorageData('dm_notifications', merged);
+          await syncToSupabase('notifications', merged);
+        } else {
+          if (notifsError?.message?.includes('schema cache') || notifsError?.message?.includes('does not exist') || notifsError?.code === '42P01') {
+            disabledTables.add('notifications');
+          }
+          const localNotifs = getStorageData<Notification[]>('dm_notifications', []);
+          if (localNotifs.length > 0) await syncToSupabase('notifications', localNotifs);
+        }
+      } catch (err) {
+        console.warn('Erro ao sincronizar tabela notifications:', err);
       }
-    } catch (err) {
-      console.warn('Erro ao sincronizar tabela notifications:', err);
     }
 
     // ── PARTNER REQUESTS ───────────────────────────────────────────────────
-    try {
-      const { data: reqs, error: reqsError } = await supabase.from('partner_requests').select('*');
-      if (!reqsError && reqs) {
-        const mappedReqs: PartnerRequest[] = reqs.map(r => ({
-          id: r.id,
-          establishmentName: r.establishment_name,
-          ownerName: r.owner_name,
-          phone: r.phone,
-          address: r.address,
-          status: r.status as any,
-          createdAt: r.created_at
-        }));
-        const localReqs = getStorageData<PartnerRequest[]>('dm_partner_requests', []);
-        const merged = mergeById(localReqs, mappedReqs);
-        setStorageData('dm_partner_requests', merged);
-        await syncToSupabase('partner_requests', merged);
-      } else {
-        const localReqs = getStorageData<PartnerRequest[]>('dm_partner_requests', []);
-        if (localReqs.length > 0) await syncToSupabase('partner_requests', localReqs);
+    if (!disabledTables.has('partner_requests')) {
+      try {
+        const { data: reqs, error: reqsError } = await supabase.from('partner_requests').select('*');
+        if (!reqsError && reqs) {
+          const mappedReqs: PartnerRequest[] = reqs.map(r => ({
+            id: r.id,
+            establishmentName: r.establishment_name,
+            ownerName: r.owner_name,
+            phone: r.phone,
+            address: r.address,
+            status: r.status as any,
+            createdAt: r.created_at
+          }));
+          const localReqs = getStorageData<PartnerRequest[]>('dm_partner_requests', []);
+          const merged = mergeById(localReqs, mappedReqs);
+          setStorageData('dm_partner_requests', merged);
+          await syncToSupabase('partner_requests', merged);
+        } else {
+          if (reqsError?.message?.includes('schema cache') || reqsError?.message?.includes('does not exist') || reqsError?.code === '42P01') {
+            disabledTables.add('partner_requests');
+          }
+          const localReqs = getStorageData<PartnerRequest[]>('dm_partner_requests', []);
+          if (localReqs.length > 0) await syncToSupabase('partner_requests', localReqs);
+        }
+      } catch (err) {
+        console.warn('Erro ao sincronizar tabela partner_requests:', err);
       }
-    } catch (err) {
-      console.warn('Erro ao sincronizar tabela partner_requests:', err);
     }
 
     console.log('✅ Sincronização com Supabase concluída de forma robusta.');
