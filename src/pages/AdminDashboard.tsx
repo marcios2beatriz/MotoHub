@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { db, User, Establishment, Schedule, Delivery, Notification } from '../utils/db';
+import { db, User, Establishment, Schedule, Delivery, Notification, PartnerRequest } from '../utils/db';
 import { 
   Users, 
   Store, 
@@ -24,23 +24,28 @@ import {
   Send,
   LayoutGrid,
   List,
-  ChevronDown
+  ChevronDown,
+  MessageSquare,
+  Building2,
+  CheckCircle2
 } from 'lucide-react';
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
   const [adminUser, setAdminUser] = useState(db.getCurrentUser());
-  const [activeTab, setActiveTab] = useState<'riders' | 'establishments' | 'schedules' | 'deliveries' | 'reports'>('riders');
+  const [activeTab, setActiveTab] = useState<'riders' | 'establishments' | 'schedules' | 'deliveries' | 'reports' | 'requests'>('riders');
 
   // Listas de dados
   const [riders, setRiders] = useState<User[]>([]);
   const [establishments, setEstablishments] = useState<Establishment[]>([]);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
+  const [partnerRequests, setPartnerRequests] = useState<PartnerRequest[]>([]);
 
   // Filtros e buscas
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [requestStatusFilter, setRequestStatusFilter] = useState<'all' | 'pending' | 'contacted'>('all');
 
   // Modais e Formulários
   const [showRiderModal, setShowRiderModal] = useState(false);
@@ -112,6 +117,7 @@ export default function AdminDashboard() {
     setEstablishments(db.getEstablishments());
     setSchedules(db.getSchedules());
     setDeliveries(db.getDeliveries());
+    setPartnerRequests(db.getPartnerRequests());
   };
 
   const handleLogout = () => {
@@ -124,7 +130,6 @@ export default function AdminDashboard() {
     e.preventDefault();
     const allUsers = db.getUsers();
 
-    // Validações de CPF e E-mail únicos
     const duplicateCpf = allUsers.find(u => u.cpf === riderForm.cpf && (!editingRider || u.id !== editingRider.id));
     const duplicateEmail = allUsers.find(u => u.email.toLowerCase() === riderForm.email.toLowerCase() && (!editingRider || u.id !== editingRider.id));
 
@@ -251,7 +256,7 @@ export default function AdminDashboard() {
     
     if (conflict && !scheduleConflictWarning) {
       setScheduleConflictWarning(conflict);
-      return; // Exibe o aviso primeiro
+      return;
     }
 
     const newSchedule: Schedule = {
@@ -269,7 +274,6 @@ export default function AdminDashboard() {
     const updatedSchedules = [...schedules, newSchedule];
     db.setSchedules(updatedSchedules);
 
-    // Criar Notificação para o Motoboy
     const est = establishments.find(es => es.id === scheduleForm.establishmentId);
     const allNotif = db.getNotifications();
     const newNotif: Notification = {
@@ -303,7 +307,6 @@ export default function AdminDashboard() {
       const updated = schedules.filter(s => s.id !== id);
       db.setSchedules(updated);
 
-      // Notificar Motoboy
       const est = establishments.find(es => es.id === schedule.establishmentId);
       const allNotif = db.getNotifications();
       const newNotif: Notification = {
@@ -324,10 +327,9 @@ export default function AdminDashboard() {
   const DAY_KEYS = ['seg', 'ter', 'qua', 'qui', 'sex', 'sab', 'dom'] as const;
   const DAY_LABELS = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'];
 
-  // Retorna a segunda-feira da semana atual
   const getThisMonday = () => {
     const today = new Date();
-    const day = today.getDay(); // 0=dom
+    const day = today.getDay();
     const diff = day === 0 ? -6 : 1 - day;
     const monday = new Date(today);
     monday.setDate(today.getDate() + diff);
@@ -359,7 +361,7 @@ export default function AdminDashboard() {
     const newNotifs: Notification[] = [];
 
     (weeklyPreview as any[]).forEach((day: any) => {
-      if (!day.enabled) return; // dia desabilitado pelo admin
+      if (!day.enabled) return;
       const id = 's_' + Date.now() + '_' + day.date;
       newSchedules.push({
         id,
@@ -405,7 +407,6 @@ export default function AdminDashboard() {
       return;
     }
 
-    // Tentar associar automaticamente à escala ativa
     const activeSchedule = schedules.find(s => 
       s.riderId === deliveryForm.riderId && 
       s.establishmentId === deliveryForm.establishmentId && 
@@ -413,7 +414,6 @@ export default function AdminDashboard() {
     );
 
     if (editingDelivery) {
-      // Verificar se é do mesmo dia para permitir edição
       const todayStr = new Date().toISOString().split('T')[0];
       if (editingDelivery.date !== todayStr) {
         alert('Erro: Só é permitido editar corridas lançadas no dia de hoje.');
@@ -467,6 +467,33 @@ export default function AdminDashboard() {
     }
   };
 
+  // --- GESTÃO DE SOLICITAÇÕES DE PARCERIA ---
+  const handleToggleRequestStatus = (id: string) => {
+    const updated = partnerRequests.map(r => {
+      if (r.id === id) {
+        return { ...r, status: r.status === 'pending' ? 'contacted' as const : 'pending' as const };
+      }
+      return r;
+    });
+    db.setPartnerRequests(updated);
+    loadData();
+  };
+
+  const handleDeleteRequest = (id: string) => {
+    if (confirm('Deseja realmente excluir esta solicitação?')) {
+      const updated = partnerRequests.filter(r => r.id !== id);
+      db.setPartnerRequests(updated);
+      loadData();
+    }
+  };
+
+  const handleContactRequest = (request: PartnerRequest) => {
+    const cleanPhone = request.phone.replace(/\D/g, '');
+    const formattedPhone = cleanPhone.startsWith('55') ? cleanPhone : `55${cleanPhone}`;
+    const message = encodeURIComponent(`Olá ${request.ownerName}! Recebemos sua solicitação de parceria para o estabelecimento ${request.establishmentName} no MotoHub. Gostaria de dar andamento ao seu cadastro?`);
+    window.open(`https://wa.me/${formattedPhone}?text=${message}`, '_blank');
+  };
+
   // --- RELATÓRIOS E EXPORTAÇÃO ---
   const getFilteredReportData = () => {
     let start = new Date();
@@ -487,7 +514,6 @@ export default function AdminDashboard() {
     }
 
     if (reportType === 'earnings') {
-      // Faturamento por motoboy
       const summary: { [key: string]: { name: string; total: number; count: number } } = {};
       riders.forEach(r => {
         summary[r.id] = { name: r.name, total: 0, count: 0 };
@@ -505,7 +531,6 @@ export default function AdminDashboard() {
 
       return Object.values(summary);
     } else if (reportType === 'deliveries') {
-      // Quantidade de corridas por motoboy
       const summary: { [key: string]: { name: string; count: number; cancelled: number } } = {};
       riders.forEach(r => {
         summary[r.id] = { name: r.name, count: 0, cancelled: 0 };
@@ -526,7 +551,6 @@ export default function AdminDashboard() {
 
       return Object.values(summary);
     } else {
-      // Escalas por estabelecimento
       const summary: { [key: string]: { name: string; count: number } } = {};
       establishments.forEach(e => {
         summary[e.id] = { name: e.name, count: 0 };
@@ -584,19 +608,25 @@ export default function AdminDashboard() {
     }
   };
 
-  // Filtros aplicados na listagem de motoboys
   const filteredRiders = riders.filter(r => {
     const matchesSearch = r.name.toLowerCase().includes(searchQuery.toLowerCase()) || r.cpf.includes(searchQuery);
     const matchesStatus = statusFilter === 'all' || (statusFilter === 'active' && r.active) || (statusFilter === 'inactive' && !r.active);
     return matchesSearch && matchesStatus;
   });
 
-  // Filtros aplicados na listagem de estabelecimentos
   const filteredEsts = establishments.filter(e => {
     const matchesSearch = e.name.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesStatus = statusFilter === 'all' || (statusFilter === 'active' && e.active) || (statusFilter === 'inactive' && !e.active);
     return matchesSearch && matchesStatus;
   });
+
+  const filteredRequests = partnerRequests.filter(r => {
+    const matchesSearch = r.establishmentName.toLowerCase().includes(searchQuery.toLowerCase()) || r.ownerName.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesStatus = requestStatusFilter === 'all' || r.status === requestStatusFilter;
+    return matchesSearch && matchesStatus;
+  });
+
+  const pendingRequestsCount = partnerRequests.filter(r => r.status === 'pending').length;
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
@@ -629,6 +659,7 @@ export default function AdminDashboard() {
             {[
               { tab: 'riders', icon: <Users className="h-4 w-4" />, label: 'Motoboys' },
               { tab: 'establishments', icon: <Store className="h-4 w-4" />, label: 'Estabelec.' },
+              { tab: 'requests', icon: <Building2 className="h-4 w-4" />, label: `Solicitações (${pendingRequestsCount})` },
               { tab: 'schedules', icon: <Calendar className="h-4 w-4" />, label: 'Escalas' },
               { tab: 'deliveries', icon: <Bike className="h-4 w-4" />, label: 'Corridas' },
               { tab: 'reports', icon: <BarChart3 className="h-4 w-4" />, label: 'Relatórios' },
@@ -669,6 +700,22 @@ export default function AdminDashboard() {
           >
             <Store className="h-5 w-5" />
             <span>Estabelecimentos</span>
+          </button>
+          <button
+            onClick={() => { setActiveTab('requests'); setSearchQuery(''); setRequestStatusFilter('all'); }}
+            className={`w-full flex items-center justify-between px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
+              activeTab === 'requests' ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-50'
+            }`}
+          >
+            <div className="flex items-center space-x-3">
+              <Building2 className="h-5 w-5" />
+              <span>Solicitações</span>
+            </div>
+            {pendingRequestsCount > 0 && (
+              <span className="bg-emerald-600 text-white text-xs font-bold px-2 py-0.5 rounded-full">
+                {pendingRequestsCount}
+              </span>
+            )}
           </button>
           <button
             onClick={() => { setActiveTab('schedules'); setSearchQuery(''); }}
@@ -937,11 +984,115 @@ export default function AdminDashboard() {
             </div>
           )}
 
+          {/* TAB: SOLICITAÇÕES DE PARCERIA */}
+          {activeTab === 'requests' && (
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-xl font-bold text-slate-800">Solicitações de Parceria</h2>
+                  <p className="text-xs text-slate-500 mt-0.5">Estabelecimentos que se cadastraram pela Landing Page</p>
+                </div>
+              </div>
+
+              {/* Filtros */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="relative col-span-2">
+                  <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Buscar por estabelecimento ou proprietário..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-9 pr-4 py-2 w-full border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  />
+                </div>
+                <select
+                  value={requestStatusFilter}
+                  onChange={(e: any) => setRequestStatusFilter(e.target.value)}
+                  className="px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                >
+                  <option value="all">Todos os Status</option>
+                  <option value="pending">Pendentes</option>
+                  <option value="contacted">Contatados</option>
+                </select>
+              </div>
+
+              {/* Tabela */}
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[600px] text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-200 text-slate-500 text-xs uppercase font-semibold">
+                      <th className="py-3 px-4">Estabelecimento</th>
+                      <th className="py-3 px-4">Proprietário</th>
+                      <th className="py-3 px-4">Contato</th>
+                      <th className="py-3 px-4">Endereço</th>
+                      <th className="py-3 px-4">Status</th>
+                      <th className="py-3 px-4 text-right">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-sm">
+                    {filteredRequests.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="py-8 text-center text-slate-400">
+                          Nenhuma solicitação encontrada.
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredRequests.map(req => (
+                        <tr key={req.id} className="hover:bg-slate-50/50">
+                          <td className="py-3 px-4 font-bold text-slate-800">{req.establishmentName}</td>
+                          <td className="py-3 px-4 text-slate-700">{req.ownerName}</td>
+                          <td className="py-3 px-4 text-slate-600 font-mono">{req.phone}</td>
+                          <td className="py-3 px-4 text-slate-500 max-w-xs truncate" title={req.address}>
+                            {req.address}
+                          </td>
+                          <td className="py-3 px-4">
+                            <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
+                              req.status === 'pending' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
+                            }`}>
+                              {req.status === 'pending' ? 'Pendente' : 'Contatado'}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 text-right space-x-2 whitespace-nowrap">
+                            <button
+                              onClick={() => handleContactRequest(req)}
+                              className="p-1.5 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 rounded transition-colors inline-flex items-center space-x-1 text-xs font-bold"
+                              title="Chamar no WhatsApp"
+                            >
+                              <MessageSquare className="h-4 w-4" />
+                              <span>WhatsApp</span>
+                            </button>
+                            <button
+                              onClick={() => handleToggleRequestStatus(req.id)}
+                              className={`p-1.5 rounded transition-colors ${
+                                req.status === 'pending' 
+                                  ? 'text-emerald-600 hover:bg-emerald-50' 
+                                  : 'text-amber-600 hover:bg-amber-50'
+                              }`}
+                              title={req.status === 'pending' ? 'Marcar como Contatado' : 'Marcar como Pendente'}
+                            >
+                              {req.status === 'pending' ? <CheckCircle2 className="h-4 w-4" /> : <X className="h-4 w-4" />}
+                            </button>
+                            <button
+                              onClick={() => handleDeleteRequest(req.id)}
+                              className="p-1.5 text-red-500 hover:bg-red-50 rounded transition-colors"
+                              title="Excluir"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
           {/* TAB: ESCALAS */}
           {activeTab === 'schedules' && (
             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
-
-              {/* Cabeçalho */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <h2 className="text-xl font-bold text-slate-800">Escalas de Trabalho</h2>
                 <div className="flex flex-wrap gap-2 justify-end">
@@ -963,7 +1114,6 @@ export default function AdminDashboard() {
                 </div>
               </div>
 
-              {/* Busca + Toggle de visualização */}
               <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
                 <div className="relative flex-1">
                   <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
@@ -988,7 +1138,6 @@ export default function AdminDashboard() {
                 </div>
               </div>
 
-              {/* Conteúdo filtrado */}
               {(() => {
                 const todayStr = new Date().toISOString().split('T')[0];
                 const q = scheduleSearch.toLowerCase();
@@ -1002,7 +1151,6 @@ export default function AdminDashboard() {
                   </div>
                 );
 
-                /* ── MODO LISTA (ACCORDION) ── */
                 if (scheduleViewMode === 'accordion') return (
                   <div className="space-y-2">
                     {filteredList.map(rider => {
@@ -1071,7 +1219,6 @@ export default function AdminDashboard() {
                   </div>
                 );
 
-                /* ── MODO CARDS (GRID) ── */
                 if (scheduleViewMode === 'grid') return (
                   <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
                     {filteredList.map(rider => {
@@ -1119,14 +1266,14 @@ export default function AdminDashboard() {
                             </button>
                             <button onClick={() => setRiderSchedulesModal(rider.id)} className="flex-1 flex items-center justify-center gap-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 text-xs font-medium py-2 rounded-lg transition-colors">
                               <List className="h-3.5 w-3.5" />Ver Todas
-                            </button>                          </div>
+                            </button>
+                          </div>
                         </div>
                       );
                     })}
                   </div>
                 );
 
-                /* ── MODO AGENDA (TIMELINE) ── */
                 const riderIds = new Set(filteredList.map(r => r.id));
                 const allUp = schedules.filter(s => s.date >= todayStr && riderIds.has(s.riderId)).sort((a,b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime));
                 const byDate: Record<string, typeof allUp> = {};
@@ -1169,7 +1316,7 @@ export default function AdminDashboard() {
                                       <p className={`text-xs font-bold ${sch.shift === 'morning' ? 'text-amber-600' : sch.shift === 'afternoon' ? 'text-orange-600' : 'text-blue-600'}`}>{getShiftLabel(sch.shift)}</p>
                                       <p className="text-xs font-mono text-slate-600">{sch.startTime}–{sch.endTime}</p>
                                     </div>
-                                    <button onClick={() => handleCancelSchedule(sch.id)} className="text-red-400 hover:text-red-600 hover:bg-red-50 p-1.5 rounded transition-colors"><Trash2 className="h-3.5 w-3.5" /></button>
+                                    <button onClick={() => handleCancelSchedule(sch.id)} className="text-red-400 hover:text-red-600 hover:bg-red-50 p-1.5 rounded transition-colors flex-shrink-0"><Trash2 className="h-3.5 w-3.5" /></button>
                                   </div>
                                 </div>
                               );
@@ -1202,7 +1349,6 @@ export default function AdminDashboard() {
                 </button>
               </div>
 
-              {/* Histórico de Corridas */}
               <div className="border border-slate-200 rounded-xl overflow-hidden">
                 <div className="bg-slate-50 p-4 border-b border-slate-200">
                   <h3 className="font-bold text-slate-700">Histórico de Lançamentos</h3>
@@ -1267,7 +1413,6 @@ export default function AdminDashboard() {
                 </button>
               </div>
 
-              {/* Filtros de Relatório */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-100">
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Tipo de Relatório</label>
@@ -1320,33 +1465,32 @@ export default function AdminDashboard() {
                 )}
               </div>
 
-              {/* Tabela de Resultados */}
               <div className="border border-slate-200 rounded-xl overflow-hidden">
                 <div className="overflow-x-auto">
-                <table className="w-full min-w-[400px] text-left border-collapse">
-                  <thead>
-                    <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-xs uppercase font-semibold">
-                      <th className="py-3 px-4">Item / Nome</th>
-                      {reportType === 'earnings' && <th className="py-3 px-4">Total Faturado</th>}
-                      {reportType === 'earnings' && <th className="py-3 px-4">Corridas Realizadas</th>}
-                      {reportType === 'deliveries' && <th className="py-3 px-4">Corridas Ativas</th>}
-                      {reportType === 'deliveries' && <th className="py-3 px-4">Corridas Canceladas</th>}
-                      {reportType === 'schedules' && <th className="py-3 px-4">Total de Escalas</th>}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 text-sm">
-                    {getFilteredReportData().map((row: any, idx: number) => (
-                      <tr key={idx} className="hover:bg-slate-50/50">
-                        <td className="py-3 px-4 font-medium text-slate-800">{row.name}</td>
-                        {reportType === 'earnings' && <td className="py-3 px-4 text-emerald-600 font-bold">R$ {row.total.toFixed(2)}</td>}
-                        {reportType === 'earnings' && <td className="py-3 px-4 text-slate-600">{row.count}</td>}
-                        {reportType === 'deliveries' && <td className="py-3 px-4 text-slate-600">{row.count}</td>}
-                        {reportType === 'deliveries' && <td className="py-3 px-4 text-red-500">{row.cancelled}</td>}
-                        {reportType === 'schedules' && <td className="py-3 px-4 text-slate-600">{row.count}</td>}
+                  <table className="w-full min-w-[400px] text-left border-collapse">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-xs uppercase font-semibold">
+                        <th className="py-3 px-4">Item / Nome</th>
+                        {reportType === 'earnings' && <th className="py-3 px-4">Total Faturado</th>}
+                        {reportType === 'earnings' && <th className="py-3 px-4">Corridas Realizadas</th>}
+                        {reportType === 'deliveries' && <th className="py-3 px-4">Corridas Ativas</th>}
+                        {reportType === 'deliveries' && <th className="py-3 px-4">Corridas Canceladas</th>}
+                        {reportType === 'schedules' && <th className="py-3 px-4">Total de Escalas</th>}
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-sm">
+                      {getFilteredReportData().map((row: any, idx: number) => (
+                        <tr key={idx} className="hover:bg-slate-50/50">
+                          <td className="py-3 px-4 font-medium text-slate-800">{row.name}</td>
+                          {reportType === 'earnings' && <td className="py-3 px-4 text-emerald-600 font-bold">R$ {row.total.toFixed(2)}</td>}
+                          {reportType === 'earnings' && <td className="py-3 px-4 text-slate-600">{row.count}</td>}
+                          {reportType === 'deliveries' && <td className="py-3 px-4 text-slate-600">{row.count}</td>}
+                          {reportType === 'deliveries' && <td className="py-3 px-4 text-red-500">{row.cancelled}</td>}
+                          {reportType === 'schedules' && <td className="py-3 px-4 text-slate-600">{row.count}</td>}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             </div>
@@ -1726,7 +1870,6 @@ export default function AdminDashboard() {
 
             {weeklyStep === 'form' && (
               <div className="space-y-4">
-                {/* Motoboy */}
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Motoboy</label>
                   <select
@@ -1742,7 +1885,6 @@ export default function AdminDashboard() {
                   </select>
                 </div>
 
-                {/* Estabelecimento */}
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Estabelecimento</label>
                   <select
@@ -1758,7 +1900,6 @@ export default function AdminDashboard() {
                   </select>
                 </div>
 
-                {/* Semana */}
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Semana (início na segunda-feira)</label>
                   <input
@@ -1769,7 +1910,6 @@ export default function AdminDashboard() {
                   />
                 </div>
 
-                {/* Turno e horários */}
                 <div className="grid grid-cols-3 gap-2">
                   <div>
                     <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Turno</label>
@@ -1803,7 +1943,6 @@ export default function AdminDashboard() {
                   </div>
                 </div>
 
-                {/* Dias da semana */}
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Dias que o estabelecimento funciona</label>
                   <div className="grid grid-cols-7 gap-1">
@@ -1856,14 +1995,12 @@ export default function AdminDashboard() {
 
             {weeklyStep === 'preview' && (
               <div className="space-y-4">
-                {/* Resumo */}
                 <div className="bg-slate-50 p-3 rounded-lg text-sm space-y-1 border border-slate-200">
                   <p><span className="font-semibold text-slate-600">Motoboy:</span> {riders.find(r => r.id === weeklyForm.riderId)?.name}</p>
                   <p><span className="font-semibold text-slate-600">Estabelecimento:</span> {establishments.find(e => e.id === weeklyForm.establishmentId)?.name}</p>
                   <p><span className="font-semibold text-slate-600">Turno:</span> {getShiftLabel(weeklyForm.shift)} ({weeklyForm.startTime} - {weeklyForm.endTime})</p>
                 </div>
 
-                {/* Dias */}
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Dias gerados — desmarque se necessário</label>
                   <div className="space-y-2">
@@ -1948,99 +2085,6 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* MODAL: CORRIDA */}
-      {showDeliveryModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl max-w-md w-full p-6 space-y-4 shadow-xl max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center">
-              <h3 className="text-lg font-bold text-slate-800">Lançar Nova Corrida</h3>
-              <button onClick={() => setShowDeliveryModal(false)} className="text-slate-400 hover:text-slate-600">
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-            <form onSubmit={handleSaveDelivery} className="space-y-3">
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Motoboy</label>
-                <select
-                  required
-                  value={deliveryForm.riderId}
-                  onChange={(e) => setDeliveryForm({ ...deliveryForm, riderId: e.target.value })}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none"
-                >
-                  <option value="">Selecione um Motoboy</option>
-                  {riders.filter(r => r.active).map(r => (
-                    <option key={r.id} value={r.id}>{r.name}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Estabelecimento</label>
-                <select
-                  required
-                  value={deliveryForm.establishmentId}
-                  onChange={(e) => setDeliveryForm({ ...deliveryForm, establishmentId: e.target.value })}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none"
-                >
-                  <option value="">Selecione um Estabelecimento</option>
-                  {establishments.filter(e => e.active).map(e => (
-                    <option key={e.id} value={e.id}>{e.name}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Data</label>
-                  <input
-                    type="date"
-                    required
-                    value={deliveryForm.date}
-                    onChange={(e) => setDeliveryForm({ ...deliveryForm, date: e.target.value })}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Hora</label>
-                  <input
-                    type="time"
-                    required
-                    value={deliveryForm.time}
-                    onChange={(e) => setDeliveryForm({ ...deliveryForm, time: e.target.value })}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Valor da Corrida (R$)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  required
-                  placeholder="0.00"
-                  value={deliveryForm.value}
-                  onChange={(e) => setDeliveryForm({ ...deliveryForm, value: e.target.value })}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none"
-                />
-              </div>
-              <div className="flex justify-end space-x-2 pt-3">
-                <button
-                  type="button"
-                  onClick={() => setShowDeliveryModal(false)}
-                  className="px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-medium"
-                >
-                  Salvar Corrida
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
       {/* MODAL: ESCALAS DO MOTOBOY (Ver Todas) */}
       {riderSchedulesModal && (() => {
         const rider = riders.find(r => r.id === riderSchedulesModal);
@@ -2052,7 +2096,6 @@ export default function AdminDashboard() {
         return (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
             <div className="bg-white rounded-xl w-full max-w-lg shadow-xl flex flex-col max-h-[90vh]">
-              {/* Header */}
               <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 flex-shrink-0">
                 <div className="flex items-center gap-3">
                   <div className={`w-10 h-10 rounded-full flex items-center justify-center text-base font-bold text-white ${rider.active ? 'bg-indigo-600' : 'bg-slate-400'}`}>
@@ -2068,7 +2111,6 @@ export default function AdminDashboard() {
                 </button>
               </div>
 
-              {/* Resumo */}
               <div className="grid grid-cols-3 gap-3 px-6 py-3 border-b border-slate-100 flex-shrink-0">
                 <div className="bg-indigo-50 rounded-lg px-2 py-2 text-center">
                   <p className="text-lg font-bold text-indigo-700">{upcoming.length}</p>
@@ -2084,7 +2126,6 @@ export default function AdminDashboard() {
                 </div>
               </div>
 
-              {/* Lista de escalas */}
               <div className="overflow-y-auto flex-1 px-6 py-4 space-y-4">
                 {rs.length === 0 ? (
                   <div className="py-10 text-center text-slate-400">
@@ -2130,7 +2171,6 @@ export default function AdminDashboard() {
                           <p className="text-xs font-bold text-slate-400 uppercase">Histórico de escalas</p>
                           <span className="text-xs text-slate-400">{past.length} registro{past.length !== 1 ? 's' : ''}</span>
                         </div>
-                        {/* Filtros do histórico */}
                         <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 mb-3 space-y-2">
                           <p className="text-xs font-bold text-slate-500 uppercase flex items-center gap-1">
                             <Search className="h-3 w-3" />Filtrar histórico
@@ -2162,7 +2202,6 @@ export default function AdminDashboard() {
                             )}
                           </div>
                         </div>
-                        {/* Lista filtrada */}
                         <div className="space-y-2 opacity-70">
                           {past
                             .filter(s => (!modalHistoryEst || s.establishmentId === modalHistoryEst) && (!modalHistoryFrom || s.date >= modalHistoryFrom) && (!modalHistoryTo || s.date <= modalHistoryTo))
@@ -2196,7 +2235,6 @@ export default function AdminDashboard() {
                 )}
               </div>
 
-              {/* Footer */}
               <div className="px-6 py-4 border-t border-slate-200 flex gap-2 flex-shrink-0">
                 <button
                   onClick={() => { setScheduleForm({ riderId: rider.id, establishmentId: '', date: new Date().toISOString().split('T')[0], shift: 'morning', startTime: '08:00', endTime: '12:00' }); setScheduleConflictWarning(''); setRiderSchedulesModal(null); setShowScheduleModal(true); }}
