@@ -150,6 +150,21 @@ export const setStorageData = <T>(key: string, data: T): void => {
   localStorage.setItem(key, JSON.stringify(data));
 };
 
+// Helper para mesclar dados locais e remotos por ID, evitando perda de dados
+const mergeById = <T extends { id: string }>(local: T[], remote: T[]): T[] => {
+  const map = new Map<string, T>();
+  local.forEach(item => map.set(item.id, item));
+  remote.forEach(item => {
+    const existing = map.get(item.id);
+    if (existing) {
+      map.set(item.id, { ...existing, ...item });
+    } else {
+      map.set(item.id, item);
+    }
+  });
+  return Array.from(map.values());
+};
+
 // Sincronização assíncrona em background com Supabase com tratamento de erro detalhado
 const syncToSupabase = async (table: string, data: any[]) => {
   try {
@@ -300,13 +315,12 @@ export const db = {
     localStorage.setItem('dm_login_attempts', JSON.stringify(attempts));
   },
 
-  // Função para carregar dados do Supabase e, se estiver vazio, empurrar localStorage
+  // Função para carregar dados do Supabase de forma robusta e mesclar com o localStorage
   pullFromSupabase: async () => {
+    // ── USERS ──────────────────────────────────────────────────────────────
     try {
-      // ── USERS ──────────────────────────────────────────────────────────────
       const { data: users, error: usersError } = await supabase.from('users').select('*');
-      if (usersError) throw usersError;
-      if (users && users.length > 0) {
+      if (!usersError && users) {
         const mappedUsers: User[] = users.map(u => ({
           id: u.id,
           name: u.name,
@@ -318,17 +332,22 @@ export const db = {
           passwordHash: u.password_hash,
           mustResetPassword: u.must_reset_password
         }));
-        setStorageData('dm_users', mappedUsers);
+        const localUsers = getStorageData<User[]>('dm_users', INITIAL_USERS);
+        const merged = mergeById(localUsers, mappedUsers);
+        setStorageData('dm_users', merged);
+        await syncToSupabase('users', merged);
       } else {
-        // Tabela vazia → enviar dados do localStorage para o Supabase
         const localUsers = getStorageData<User[]>('dm_users', INITIAL_USERS);
         await syncToSupabase('users', localUsers);
       }
+    } catch (err) {
+      console.warn('Erro ao sincronizar tabela users:', err);
+    }
 
-      // ── ESTABLISHMENTS ─────────────────────────────────────────────────────
+    // ── ESTABLISHMENTS ─────────────────────────────────────────────────────
+    try {
       const { data: ests, error: estsError } = await supabase.from('establishments').select('*');
-      if (estsError) throw estsError;
-      if (ests && ests.length > 0) {
+      if (!estsError && ests) {
         const mappedEsts: Establishment[] = ests.map(e => ({
           id: e.id,
           name: e.name,
@@ -344,16 +363,22 @@ export const db = {
           phone: e.phone || '',
           active: e.active
         }));
-        setStorageData('dm_establishments', mappedEsts);
+        const localEsts = getStorageData<Establishment[]>('dm_establishments', INITIAL_ESTABLISHMENTS);
+        const merged = mergeById(localEsts, mappedEsts);
+        setStorageData('dm_establishments', merged);
+        await syncToSupabase('establishments', merged);
       } else {
         const localEsts = getStorageData<Establishment[]>('dm_establishments', INITIAL_ESTABLISHMENTS);
         await syncToSupabase('establishments', localEsts);
       }
+    } catch (err) {
+      console.warn('Erro ao sincronizar tabela establishments:', err);
+    }
 
-      // ── SCHEDULES ──────────────────────────────────────────────────────────
+    // ── SCHEDULES ──────────────────────────────────────────────────────────
+    try {
       const { data: schs, error: schsError } = await supabase.from('schedules').select('*');
-      if (schsError) throw schsError;
-      if (schs && schs.length > 0) {
+      if (!schsError && schs) {
         const mappedSchs: Schedule[] = schs.map(s => ({
           id: s.id,
           riderId: s.rider_id,
@@ -365,16 +390,22 @@ export const db = {
           createdBy: s.created_by || 'Admin',
           createdAt: s.created_at
         }));
-        setStorageData('dm_schedules', mappedSchs);
+        const localSchs = getStorageData<Schedule[]>('dm_schedules', []);
+        const merged = mergeById(localSchs, mappedSchs);
+        setStorageData('dm_schedules', merged);
+        await syncToSupabase('schedules', merged);
       } else {
         const localSchs = getStorageData<Schedule[]>('dm_schedules', []);
         if (localSchs.length > 0) await syncToSupabase('schedules', localSchs);
       }
+    } catch (err) {
+      console.warn('Erro ao sincronizar tabela schedules:', err);
+    }
 
-      // ── DELIVERIES ─────────────────────────────────────────────────────────
+    // ── DELIVERIES ─────────────────────────────────────────────────────────
+    try {
       const { data: dels, error: delsError } = await supabase.from('deliveries').select('*');
-      if (delsError) throw delsError;
-      if (dels && dels.length > 0) {
+      if (!delsError && dels) {
         const mappedDels: Delivery[] = dels.map(d => ({
           id: d.id,
           riderId: d.rider_id,
@@ -385,16 +416,22 @@ export const db = {
           status: d.status as any,
           scheduleId: d.schedule_id || undefined
         }));
-        setStorageData('dm_deliveries', mappedDels);
+        const localDels = getStorageData<Delivery[]>('dm_deliveries', []);
+        const merged = mergeById(localDels, mappedDels);
+        setStorageData('dm_deliveries', merged);
+        await syncToSupabase('deliveries', merged);
       } else {
         const localDels = getStorageData<Delivery[]>('dm_deliveries', []);
         if (localDels.length > 0) await syncToSupabase('deliveries', localDels);
       }
+    } catch (err) {
+      console.warn('Erro ao sincronizar tabela deliveries:', err);
+    }
 
-      // ── NOTIFICATIONS ──────────────────────────────────────────────────────
+    // ── NOTIFICATIONS ──────────────────────────────────────────────────────
+    try {
       const { data: notifs, error: notifsError } = await supabase.from('notifications').select('*');
-      if (notifsError) throw notifsError;
-      if (notifs && notifs.length > 0) {
+      if (!notifsError && notifs) {
         const mappedNotifs: Notification[] = notifs.map(n => ({
           id: n.id,
           riderId: n.rider_id,
@@ -403,15 +440,22 @@ export const db = {
           date: n.date,
           read: n.read
         }));
-        setStorageData('dm_notifications', mappedNotifs);
+        const localNotifs = getStorageData<Notification[]>('dm_notifications', []);
+        const merged = mergeById(localNotifs, mappedNotifs);
+        setStorageData('dm_notifications', merged);
+        await syncToSupabase('notifications', merged);
       } else {
         const localNotifs = getStorageData<Notification[]>('dm_notifications', []);
         if (localNotifs.length > 0) await syncToSupabase('notifications', localNotifs);
       }
+    } catch (err) {
+      console.warn('Erro ao sincronizar tabela notifications:', err);
+    }
 
-      // ── PARTNER REQUESTS ───────────────────────────────────────────────────
+    // ── PARTNER REQUESTS ───────────────────────────────────────────────────
+    try {
       const { data: reqs, error: reqsError } = await supabase.from('partner_requests').select('*');
-      if (!reqsError && reqs && reqs.length > 0) {
+      if (!reqsError && reqs) {
         const mappedReqs: PartnerRequest[] = reqs.map(r => ({
           id: r.id,
           establishmentName: r.establishment_name,
@@ -421,15 +465,18 @@ export const db = {
           status: r.status as any,
           createdAt: r.created_at
         }));
-        setStorageData('dm_partner_requests', mappedReqs);
+        const localReqs = getStorageData<PartnerRequest[]>('dm_partner_requests', []);
+        const merged = mergeById(localReqs, mappedReqs);
+        setStorageData('dm_partner_requests', merged);
+        await syncToSupabase('partner_requests', merged);
       } else {
         const localReqs = getStorageData<PartnerRequest[]>('dm_partner_requests', []);
         if (localReqs.length > 0) await syncToSupabase('partner_requests', localReqs);
       }
-
-      console.log('✅ Sincronização com Supabase concluída.');
     } catch (err) {
-      console.warn('Não foi possível sincronizar com o Supabase:', err);
+      console.warn('Erro ao sincronizar tabela partner_requests:', err);
     }
+
+    console.log('✅ Sincronização com Supabase concluída de forma robusta.');
   }
 };
