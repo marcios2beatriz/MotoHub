@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { db, User } from '../utils/db';
+import { db, User, PartnerRequest } from '../utils/db';
 import { 
   Bike, 
   Shield, 
@@ -14,12 +14,18 @@ import {
   UserPlus, 
   X, 
   Store, 
-  MapPin 
+  MapPin,
+  MessageSquare,
+  Building2,
+  UserCheck
 } from 'lucide-react';
 
 export default function Landing() {
   const navigate = useNavigate();
   const [showRegisterModal, setShowRegisterModal] = useState(false);
+  const [showEstModal, setShowEstModal] = useState(false);
+  
+  // Form de Motoboy
   const [form, setForm] = useState({
     name: '',
     cpf: '',
@@ -27,6 +33,15 @@ export default function Landing() {
     email: '',
     password: ''
   });
+
+  // Form de Estabelecimento
+  const [estForm, setEstForm] = useState({
+    establishmentName: '',
+    ownerName: '',
+    phone: '',
+    address: ''
+  });
+
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
 
@@ -37,7 +52,6 @@ export default function Landing() {
 
     const allUsers = db.getUsers();
 
-    // Validações de CPF e E-mail únicos
     const duplicateCpf = allUsers.find(u => u.cpf === form.cpf);
     const duplicateEmail = allUsers.find(u => u.email.toLowerCase() === form.email.toLowerCase());
 
@@ -72,8 +86,40 @@ export default function Landing() {
     }, 2000);
   };
 
+  const handleEstRegister = (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setSuccess(false);
+
+    const newRequest: PartnerRequest = {
+      id: 'req_' + Date.now(),
+      establishmentName: estForm.establishmentName,
+      ownerName: estForm.ownerName,
+      phone: estForm.phone,
+      address: estForm.address,
+      status: 'pending',
+      createdAt: new Date().toISOString()
+    };
+
+    const allRequests = db.getPartnerRequests();
+    db.setPartnerRequests([...allRequests, newRequest]);
+
+    setSuccess(true);
+    setEstForm({ establishmentName: '', ownerName: '', phone: '', address: '' });
+
+    setTimeout(() => {
+      setShowEstModal(false);
+      setSuccess(false);
+    }, 2500);
+  };
+
+  const handleWhatsAppContact = () => {
+    const message = encodeURIComponent("Olá! Gostaria de fechar parceria com o MotoHub para o meu estabelecimento.");
+    window.open(`https://wa.me/5583988623431?text=${message}`, '_blank');
+  };
+
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
+    <div className="min-h-screen bg-slate-50 flex flex-col font-sans relative">
       {/* Header / Navbar */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
@@ -90,6 +136,13 @@ export default function Landing() {
             >
               <LogIn className="h-4 w-4" />
               <span>Entrar</span>
+            </button>
+            <button 
+              onClick={() => setShowEstModal(true)}
+              className="hidden sm:flex items-center space-x-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 px-4 py-2 rounded-lg text-sm font-medium transition-colors border border-emerald-200"
+            >
+              <Building2 className="h-4 w-4" />
+              <span>Seja Parceiro</span>
             </button>
             <button 
               onClick={() => setShowRegisterModal(true)}
@@ -124,10 +177,11 @@ export default function Landing() {
                 <ArrowRight className="h-5 w-5" />
               </button>
               <button 
-                onClick={() => navigate('/login')}
-                className="flex items-center justify-center space-x-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 px-6 py-3.5 rounded-xl font-semibold transition-all shadow-sm"
+                onClick={() => setShowEstModal(true)}
+                className="flex items-center justify-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3.5 rounded-xl font-semibold transition-all shadow-md hover:shadow-lg"
               >
-                <span>Acessar Painel Administrativo</span>
+                <Building2 className="h-5 w-5" />
+                <span>Cadastrar Estabelecimento</span>
               </button>
             </div>
           </div>
@@ -213,6 +267,23 @@ export default function Landing() {
         </div>
       </section>
 
+      {/* WhatsApp CTA Section */}
+      <section className="bg-emerald-600 text-white py-12 sm:py-16">
+        <div className="max-w-5xl mx-auto px-4 text-center space-y-6">
+          <h2 className="text-2xl sm:text-3xl font-extrabold">Quer fechar negócio agora mesmo?</h2>
+          <p className="text-emerald-100 max-w-xl mx-auto text-sm sm:text-base">
+            Fale diretamente com o nosso administrador no WhatsApp para tirar dúvidas, fechar parcerias e começar a usar o MotoHub hoje mesmo!
+          </p>
+          <button
+            onClick={handleWhatsAppContact}
+            className="inline-flex items-center space-x-2 bg-white text-emerald-700 hover:bg-emerald-50 px-6 py-3 rounded-xl font-bold transition-all shadow-md hover:shadow-lg"
+          >
+            <MessageSquare className="h-5 w-5 text-emerald-600" />
+            <span>Falar com Administrador no WhatsApp</span>
+          </button>
+        </div>
+      </section>
+
       {/* Footer */}
       <footer className="bg-slate-900 text-slate-400 py-12 mt-auto border-t border-slate-800">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col md:flex-row items-center justify-between gap-6">
@@ -238,6 +309,15 @@ export default function Landing() {
           </p>
         </div>
       </footer>
+
+      {/* Botão Flutuante do WhatsApp */}
+      <button
+        onClick={handleWhatsAppContact}
+        className="fixed bottom-6 right-6 bg-emerald-500 hover:bg-emerald-600 text-white p-4 rounded-full shadow-2xl transition-all hover:scale-110 z-50 flex items-center justify-center"
+        title="Fale Conosco no WhatsApp"
+      >
+        <MessageSquare className="h-6 w-6" />
+      </button>
 
       {/* MODAL DE CADASTRO DE MOTOBOY */}
       {showRegisterModal && (
@@ -344,6 +424,102 @@ export default function Landing() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE CADASTRO DE ESTABELECIMENTO */}
+      {showEstModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl max-h-[95vh] overflow-y-auto">
+            <div className="flex justify-between items-center">
+              <h3 className="text-xl font-bold text-slate-900 flex items-center gap-2">
+                <Building2 className="h-5 w-5 text-emerald-600" />
+                Seja um Estabelecimento Parceiro
+              </h3>
+              <button 
+                onClick={() => {
+                  setShowEstModal(false);
+                  setError('');
+                  setSuccess(false);
+                }} 
+                className="text-slate-400 hover:text-slate-600 transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {success ? (
+              <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-xl text-center space-y-3">
+                <UserCheck className="h-12 w-12 text-emerald-600 mx-auto" />
+                <h4 className="font-bold text-emerald-800">Solicitação Enviada!</h4>
+                <p className="text-xs text-emerald-700">
+                  Seus dados foram enviados com sucesso para o nosso painel administrativo. Entraremos em contato em breve!
+                </p>
+              </div>
+            ) : (
+              <form onSubmit={handleEstRegister} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Nome do Estabelecimento</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ex: Pizzaria Bella Italia"
+                    value={estForm.establishmentName}
+                    onChange={(e) => setEstForm({ ...estForm, establishmentName: e.target.value })}
+                    className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Nome do Proprietário</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ex: João Silva"
+                    value={estForm.ownerName}
+                    onChange={(e) => setEstForm({ ...estForm, ownerName: e.target.value })}
+                    className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Telefone para Contato</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ex: (83) 99999-9999"
+                    value={estForm.phone}
+                    onChange={(e) => setEstForm({ ...estForm, phone: e.target.value })}
+                    className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Endereço do Estabelecimento</label>
+                  <textarea
+                    required
+                    rows={3}
+                    placeholder="Rua, número, bairro, cidade..."
+                    value={estForm.address}
+                    onChange={(e) => setEstForm({ ...estForm, address: e.target.value })}
+                    className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all resize-none"
+                  />
+                </div>
+                <div className="flex justify-end space-x-2 pt-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowEstModal(false)}
+                    className="px-5 py-2.5 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-medium transition-colors shadow-sm"
+                  >
+                    Enviar Solicitação
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}

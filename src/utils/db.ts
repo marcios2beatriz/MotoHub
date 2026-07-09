@@ -62,6 +62,16 @@ export interface Notification {
   read: boolean;
 }
 
+export interface PartnerRequest {
+  id: string;
+  establishmentName: string;
+  ownerName: string;
+  phone: string;
+  address: string;
+  status: 'pending' | 'contacted';
+  createdAt: string;
+}
+
 // Seed Data inicial para fallback
 const INITIAL_USERS: User[] = [
   {
@@ -208,6 +218,17 @@ const syncToSupabase = async (table: string, data: any[]) => {
           read: item.read
         };
       }
+      if (table === 'partner_requests') {
+        return {
+          id: item.id,
+          establishment_name: item.establishmentName,
+          owner_name: item.ownerName,
+          phone: item.phone,
+          address: item.address,
+          status: item.status,
+          created_at: item.createdAt
+        };
+      }
       return item;
     });
 
@@ -249,6 +270,12 @@ export const db = {
   setNotifications: (notif: Notification[]) => {
     setStorageData('dm_notifications', notif);
     syncToSupabase('notifications', notif);
+  },
+
+  getPartnerRequests: () => getStorageData<PartnerRequest[]>('dm_partner_requests', []),
+  setPartnerRequests: (reqs: PartnerRequest[]) => {
+    setStorageData('dm_partner_requests', reqs);
+    syncToSupabase('partner_requests', reqs);
   },
 
   getCurrentUser: (): User | null => {
@@ -380,6 +407,24 @@ export const db = {
       } else {
         const localNotifs = getStorageData<Notification[]>('dm_notifications', []);
         if (localNotifs.length > 0) await syncToSupabase('notifications', localNotifs);
+      }
+
+      // ── PARTNER REQUESTS ───────────────────────────────────────────────────
+      const { data: reqs, error: reqsError } = await supabase.from('partner_requests').select('*');
+      if (!reqsError && reqs && reqs.length > 0) {
+        const mappedReqs: PartnerRequest[] = reqs.map(r => ({
+          id: r.id,
+          establishmentName: r.establishment_name,
+          ownerName: r.owner_name,
+          phone: r.phone,
+          address: r.address,
+          status: r.status as any,
+          createdAt: r.created_at
+        }));
+        setStorageData('dm_partner_requests', mappedReqs);
+      } else {
+        const localReqs = getStorageData<PartnerRequest[]>('dm_partner_requests', []);
+        if (localReqs.length > 0) await syncToSupabase('partner_requests', localReqs);
       }
 
       console.log('✅ Sincronização com Supabase concluída.');
