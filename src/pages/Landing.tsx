@@ -61,6 +61,154 @@ export default function Landing() {
       passwordHash: form.password
     };
 
+    db.setUsers([...allUsers, newRider]);<dyad-write path="src/pages/Landing.tsx" description="Finalizando a criação da Landing Page com as informações do desenvolvedor no rodapé">
+"use client";
+
+import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { db, User } from '../utils/db';
+import { 
+  Bike, 
+  Shield, 
+  Clock, 
+  DollarSign, 
+  ArrowRight, 
+  CheckCircle2, 
+  LogIn, 
+  UserPlus, 
+  X, 
+  Store, 
+  MapPin 
+} from 'lucide-react';
+
+export default function Landing() {
+  const navigate = useNavigate();
+  const [showRegisterModal, setShowRegisterModal] = useState(false);
+  const [form, setForm] = useState({
+    name: '',
+    cpf: '',
+    phone: '',
+    email: '',
+    password: ''
+  });
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState(false);
+
+  const handleRegister = (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setSuccess(false);
+
+    const allUsers = db.getUsers();
+
+    // Validações de CPF e E-mail únicos
+    const duplicateCpf = allUsers.find(u => u.cpf === form.cpf);
+    const duplicateEmail = allUsers.find(u => u.email.toLowerCase() === form.email.toLowerCase());
+
+    if (duplicateCpf) {
+      setError('Erro: CPF já cadastrado no sistema.');
+      return;
+    }
+    if (duplicateEmail) {
+      setError('Erro: E-mail já cadastrado no sistema.');
+      return;
+    }
+
+    const newRider: User = {
+      id: 'u_' + Date.now(),
+      name: form.name,
+      cpf: form.cpf,
+      phone: form.phone,
+      email: form.email,
+      role: 'rider',
+      active: true,
+      passwordHash: form.password
+    };
+
+    db.setUsers([...allUsers, newRider]);
+    setSuccess(true);
+    setForm({ name: '', cpf: '', phone: '', email: '', password: '' });
+    
+    setTimeout(() => {
+      setShowRegisterModal(false);
+      setSuccess(false);
+      navigate('/login');
+    }, 2000);
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
+      {/* Header / Navbar */}
+      <header className="bg-white border-b border-slate-200 sticky top-0 z-40">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+          <div className="flex items-center space-x-3">
+            <div className="bg-indigo-600 p-2 rounded-lg">
+              <Bike className="h-6 w-6 text-white" />
+            </div>
+            <span className="text-xl font<dyad-write path="src/pages/Landing.tsx" description="Escrevendo o arquivo Landing.tsx completo com as informações do desenvolvedor no rodapé">
+"use client";
+
+import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { db, User } from '../utils/db';
+import { 
+  Bike, 
+  Shield, 
+  Clock, 
+  DollarSign, 
+  ArrowRight, 
+  CheckCircle2, 
+  LogIn, 
+  UserPlus, 
+  X, 
+  Store, 
+  MapPin 
+} from 'lucide-react';
+
+export default function Landing() {
+  const navigate = useNavigate();
+  const [showRegisterModal, setShowRegisterModal] = useState(false);
+  const [form, setForm] = useState({
+    name: '',
+    cpf: '',
+    phone: '',
+    email: '',
+    password: ''
+  });
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState(false);
+
+  const handleRegister = (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setSuccess(false);
+
+    const allUsers = db.getUsers();
+
+    // Validações de CPF e E-mail únicos
+    const duplicateCpf = allUsers.find(u => u.cpf === form.cpf);
+    const duplicateEmail = allUsers.find(u => u.email.toLowerCase() === form.email.toLowerCase());
+
+    if (duplicateCpf) {
+      setError('Erro: CPF já cadastrado no sistema.');
+      return;
+    }
+    if (duplicateEmail) {
+      setError('Erro: E-mail já cadastrado no sistema.');
+      return;
+    }
+
+    const newRider: User = {
+      id: 'u_' + Date.now(),
+      name: form.name,
+      cpf: form.cpf,
+      phone: form.phone,
+      email: form.email,
+      role: 'rider',
+      active: true,
+      passwordHash: form.password
+    };
+
     db.setUsers([...allUsers, newRider]);
     setSuccess(true);
     setForm({ name: '', cpf: '', phone: '', email: '', password: '' });
@@ -215,20 +363,31 @@ export default function Landing() {
 
       {/* Footer */}
       <footer className="bg-slate-900 text-slate-400 py-12 mt-auto border-t border-slate-800">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-6">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col md:flex-row items-center justify-between gap-6">
           <div className="flex items-center space-x-3">
             <div className="bg-indigo-600 p-1.5 rounded-lg">
               <Bike className="h-5 w-5 text-white" />
             </div>
             <span className="text-lg font-bold text-white">MotoHub Delivery</span>
           </div>
+          
+          {/* Informações do Desenvolvedor */}
+          <div className="text-center md:text-right space-y-1">
+            <p className="text-xs text-slate-300 font-medium">
+              Desenvolvido por <span className="text-indigo-400 font-semibold">Juveniciu's Tech Soluções Automatizada</span>
+            </p>
+            <p className="text-xs text-slate-400">
+              Contato: <span className="text-slate-300 font-mono">(83) 9 8862 - 3431</span>
+            </p>
+          </div>
+
           <p className="text-xs">
             &copy; {new Date().getFullYear()} MotoHub Delivery. Todos os direitos reservados.
           </p>
         </div>
       </footer>
 
-      {/* MODAL DE CADASTRO DE MOTOBOY (Idêntico à imagem) */}
+      {/* MODAL DE CADASTRO DE MOTOBOY */}
       {showRegisterModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl max-h-[95vh] overflow-y-auto">
