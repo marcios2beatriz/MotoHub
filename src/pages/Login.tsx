@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../utils/db';
-import { Lock, Mail, AlertTriangle } from 'lucide-react';
+import { Lock, Mail, AlertTriangle, ArrowLeft } from 'lucide-react';
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -73,7 +73,16 @@ export default function Login() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
-      <div className="max-w-md w-full space-y-8 bg-white p-8 rounded-xl shadow-lg border border-slate-100">
+      <div className="max-w-md w-full space-y-8 bg-white p-8 rounded-xl shadow-lg border border-slate-100 relative pt-12">
+        {/* Botão Voltar */}
+        <button 
+          onClick={() => navigate('/')}
+          className="absolute top-4 left-4 flex items-center space-x-1 text-xs font-semibold text-slate-400 hover:text-indigo-600 transition-colors"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          <span>Voltar ao início</span>
+        </button>
+
         <div className="text-center">
           <div className="mx-auto h-24 w-24 flex items-center justify-center mb-4">
             <img 
