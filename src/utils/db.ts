@@ -520,5 +520,8 @@ export const db = {
     }
 
     console.log('✅ Sincronização com Supabase concluída de forma robusta.');
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('db-sync-complete'));
+    }
   }
 };
