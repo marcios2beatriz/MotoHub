@@ -37,18 +37,149 @@ export default function RiderDashboard() {
   const [historyDateFrom, setHistoryDateFrom] = useState('');
   const [historyDateTo, setHistoryDateTo] = useState('');
 
-  useEffect(() => {
-    if (!user || user.role !== 'rider') {
-      navigate('/login');
-      return;
-    }
+  const loadData = () => {
+    if (!user) return;
     const allSchedules = db.getSchedules().filter(s => s.riderId === user.id);
     const allDeliveries = db.getDeliveries().filter(d => d.riderId === user.id && d.status === 'active');
     const allNotifications = db.getNotifications().filter(n => n.riderId === user.id);
     setSchedules(allSchedules);
     setDeliveries(allDeliveries);
     setNotifications(allNotifications);
-  }, [user, navigate]);
+  };
+
+  useEffect(() => {
+    if (!user || user.role !== 'rider') {
+      navigate('/login');
+      return;
+    }
+    loadData();
+  }, [user, navigate, activeTab]);
+
+  useEffect(() => {
+    const handleSyncComplete = () => {
+      loadData();
+    };
+    window.addEventListener('db-sync-complete', handleSyncComplete);
+    return () => {
+      window.removeEventListener('db-sync-complete', handleSyncComplete);
+    };
+  }, [user]);
+
+  const handleLogout = () => {
+    db.setCurrentUser(null);
+    navigate('/login');
+  };
+
+  // Cálculos de faturamento
+  const getTodayDateString = () => new Date().toISOString().split('T')[0];
+
+  const getStartOfWeek = () => {
+    const today = new Date();
+    const day = today.getDay();
+    const diff = today.getDate() - day + (day === 0 ? -6 : 1); // Segunda-feira
+    const start = new Date(today.setDate(diff));
+    start.setHours(0,0,0,0);
+    return start;
+  };
+
+  const getStartOfMonth = () => {
+    const today = new Date();
+    return new Date(today.getFullYear(), today.getMonth(), 1);
+  };
+
+  const todayStr = getTodayDateString();
+  const startOfWeek = getStartOfWeek();
+  const startOfMonth = getStartOfMonth();
+
+  const todayDeliveries = deliveries.filter(d => d.date === todayStr);
+  const todayEarnings = todayDeliveries.reduce((sum, d) => sum + d.value, 0);
+
+  const weekEarnings = deliveries.filter(d => {
+    const dDate = new Date(d.date + 'T00:00:00');
+    return dDate >= startOfWeek;
+  }).reduce((sum, d) => sum + d.value, 0);
+
+  const monthEarnings = deliveries.filter(d => {
+    const dDate = new Date(d.date + 'T00:00:00');
+    return dDate >= startOfMonth;
+  }).reduce((sum, d) => sum + d.value, 0);
+
+  // Escalas dos próximos 30 dias
+  const getFutureSchedules = () => {
+    const today = new Date();
+    today.setHours(0,0,0,0);
+    const limitDate = new Date();
+    limitDate.setDate(today.getDate() + 30);
+
+    return schedules.filter(s => {
+      const sDate = new Date(s.date + 'T00:00:00');
+<dyad-write path="src/pages/RiderDashboard.tsx" description="Reescrevendo o arquivo RiderDashboard.tsx por completo para garantir que o código esteja íntegro e sem cortes">
+"use client";
+
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { db, Schedule, Delivery, Notification } from '../utils/db';
+import { 
+  DollarSign, 
+  Calendar, 
+  Navigation, 
+  Bell, 
+  LogOut, 
+  TrendingUp, 
+  CheckCircle, 
+  MapPin, 
+  Clock,
+  AlertCircle,
+  History,
+  Search,
+  Filter,
+  X
+} from 'lucide-react';
+
+export default function RiderDashboard() {
+  const navigate = useNavigate();
+  const [user, setUser] = useState(db.getCurrentUser());
+  const [schedules, setSchedules] = useState<Schedule[]>([]);
+  const [deliveries, setDeliveries] = useState<Delivery[]>([]);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'schedules' | 'history' | 'notifications'>('dashboard');
+
+  // Filtros das escalas futuras
+  const [scheduleEstFilter, setScheduleEstFilter] = useState('');
+  const [scheduleDateFilter, setScheduleDateFilter] = useState('');
+
+  // Filtros do histórico
+  const [historyEstFilter, setHistoryEstFilter] = useState('');
+  const [historyDateFrom, setHistoryDateFrom] = useState('');
+  const [historyDateTo, setHistoryDateTo] = useState('');
+
+  const loadData = () => {
+    if (!user) return;
+    const allSchedules = db.getSchedules().filter(s => s.riderId === user.id);
+    const allDeliveries = db.getDeliveries().filter(d => d.riderId === user.id && d.status === 'active');
+    const allNotifications = db.getNotifications().filter(n => n.riderId === user.id);
+    setSchedules(allSchedules);
+    setDeliveries(allDeliveries);
+    setNotifications(allNotifications);
+  };
+
+  useEffect(() => {
+    if (!user || user.role !== 'rider') {
+      navigate('/login');
+      return;
+    }
+    loadData();
+  }, [user, navigate, activeTab]);
+
+  useEffect(() => {
+    const handleSyncComplete = () => {
+      loadData();
+    };
+    window.addEventListener('db-sync-complete', handleSyncComplete);
+    return () => {
+      window.removeEventListener('db-sync-complete', handleSyncComplete);
+    };
+  }, [user]);
 
   const handleLogout = () => {
     db.setCurrentUser(null);
