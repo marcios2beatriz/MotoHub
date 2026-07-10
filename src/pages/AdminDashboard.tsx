@@ -96,7 +96,7 @@ export default function AdminDashboard() {
 
   const [showDeliveryModal, setShowDeliveryModal] = useState(false);
   const [editingDelivery, setEditingDelivery] = useState<Delivery | null>(null);
-  const [deliveryForm, setDeliveryForm] = useState({ riderId: '', establishmentId: '', date: '', time: '', value: '' });
+  const [deliveryForm, setDeliveryForm] = useState({ riderId: '', establishmentId: '', date: '', time: '', value: '', orderNumber: '' });
 
   // Relatórios
   const [reportType, setReportType] = useState<'earnings' | 'deliveries' | 'schedules'>('earnings');
@@ -437,7 +437,8 @@ export default function AdminDashboard() {
         date: deliveryForm.date,
         time: deliveryForm.time,
         value: val,
-        scheduleId: activeSchedule?.id || d.scheduleId
+        scheduleId: activeSchedule?.id || d.scheduleId,
+        orderNumber: deliveryForm.orderNumber.trim() || undefined
       } : d);
       db.setDeliveries(updated);
     } else {
@@ -449,14 +450,15 @@ export default function AdminDashboard() {
         time: deliveryForm.time,
         value: val,
         status: 'active',
-        scheduleId: activeSchedule?.id
+        scheduleId: activeSchedule?.id,
+        orderNumber: deliveryForm.orderNumber.trim() || undefined
       };
       db.setDeliveries([...deliveries, newDelivery]);
     }
 
     setShowDeliveryModal(false);
     setEditingDelivery(null);
-    setDeliveryForm({ riderId: '', establishmentId: '', date: '', time: '', value: '' });
+    setDeliveryForm({ riderId: '', establishmentId: '', date: '', time: '', value: '', orderNumber: '' });
     loadData();
   };
 
@@ -1350,7 +1352,7 @@ export default function AdminDashboard() {
                 <button
                   onClick={() => {
                     setEditingDelivery(null);
-                    setDeliveryForm({ riderId: '', establishmentId: '', date: new Date().toISOString().split('T')[0], time: new Date().toTimeString().slice(0,5), value: '' });
+                    setDeliveryForm({ riderId: '', establishmentId: '', date: new Date().toISOString().split('T')[0], time: new Date().toTimeString().slice(0,5), value: '', orderNumber: '' });
                     setShowDeliveryModal(true);
                   }}
                   className="flex items-center justify-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
@@ -1381,6 +1383,11 @@ export default function AdminDashboard() {
                               {del.status === 'cancelled' && (
                                 <span className="bg-red-100 text-red-800 text-[10px] font-bold px-2 py-0.5 rounded-full">Cancelada</span>
                               )}
+                              {del.orderNumber && (
+                                <span className="bg-slate-100 text-slate-500 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                                  #{del.orderNumber}
+                                </span>
+                              )}
                             </div>
                             <p className="text-sm text-slate-600">Estabelecimento: {est?.name}</p>
                             <p className="text-xs text-slate-400 mt-1">
@@ -1392,13 +1399,33 @@ export default function AdminDashboard() {
                               R$ {del.value.toFixed(2)}
                             </span>
                             {isToday && del.status === 'active' && (
-                              <button
-                                onClick={() => handleCancelDelivery(del.id)}
-                                className="text-red-500 hover:bg-red-50 p-2 rounded transition-colors"
-                                title="Cancelar Corrida"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </button>
+                              <div className="flex items-center space-x-1">
+                                <button
+                                  onClick={() => {
+                                    setEditingDelivery(del);
+                                    setDeliveryForm({
+                                      riderId: del.riderId,
+                                      establishmentId: del.establishmentId,
+                                      date: del.date,
+                                      time: del.time,
+                                      value: del.value.toString(),
+                                      orderNumber: del.orderNumber || ''
+                                    });
+                                    setShowDeliveryModal(true);
+                                  }}
+                                  className="text-slate-500 hover:bg-slate-100 p-2 rounded transition-colors"
+                                  title="Editar Corrida"
+                                >
+                                  <Edit2 className="h-4 w-4" />
+                                </button>
+                                <button
+                                  onClick={() => handleCancelDelivery(del.id)}
+                                  className="text-red-500 hover:bg-red-50 p-2 rounded transition-colors"
+                                  title="Cancelar Corrida"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
+                              </div>
                             )}
                           </div>
                         </div>
@@ -2262,6 +2289,114 @@ export default function AdminDashboard() {
           </div>
         );
       })()}
+
+      {/* MODAL: REGISTRAR CORRIDA */}
+      {showDeliveryModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl max-w-md w-full p-6 space-y-4 shadow-xl max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center">
+              <h3 className="text-lg font-bold text-slate-800">
+                {editingDelivery ? 'Editar Corrida' : 'Lançar Nova Corrida'}
+              </h3>
+              <button onClick={() => setShowDeliveryModal(false)} className="text-slate-400 hover:text-slate-600">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <form onSubmit={handleSaveDelivery} className="space-y-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Motoboy</label>
+                <select
+                  required
+                  value={deliveryForm.riderId}
+                  onChange={(e) => setDeliveryForm({ ...deliveryForm, riderId: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none"
+                >
+                  <option value="">Selecione um Motoboy</option>
+                  {riders.filter(r => r.active).map(r => (
+                    <option key={r.id} value={r.id}>{r.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Estabelecimento</label>
+                <select
+                  required
+                  value={deliveryForm.establishmentId}
+                  onChange={(e) => setDeliveryForm({ ...deliveryForm, establishmentId: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none"
+                >
+                  <option value="">Selecione um Estabelecimento</option>
+                  {establishments.filter(e => e.active).map(e => (
+                    <option key={e.id} value={e.id}>{e.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Data</label>
+                  <input
+                    type="date"
+                    required
+                    value={deliveryForm.date}
+                    onChange={(e) => setDeliveryForm({ ...deliveryForm, date: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Horário</label>
+                  <input
+                    type="time"
+                    required
+                    value={deliveryForm.time}
+                    onChange={(e) => setDeliveryForm({ ...deliveryForm, time: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Valor (R$)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    required
+                    min="0.01"
+                    placeholder="0,00"
+                    value={deliveryForm.value}
+                    onChange={(e) => setDeliveryForm({ ...deliveryForm, value: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nº do Pedido (Opcional)</label>
+                  <input
+                    type="text"
+                    placeholder="Ex: 1234"
+                    value={deliveryForm.orderNumber}
+                    onChange={(e) => setDeliveryForm({ ...deliveryForm, orderNumber: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none"
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end space-x-2 pt-3">
+                <button
+                  type="button"
+                  onClick={() => setShowDeliveryModal(false)}
+                  className="px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-medium"
+                >
+                  Salvar
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

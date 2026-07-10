@@ -46,29 +46,42 @@ export default function EstablishmentDashboard() {
   const markersRef = useRef<{ [key: string]: L.Marker }>({});
 
   const loadData = () => {
-    if (!user || !user.establishmentId) return;
+    console.log('loadData chamado, user:', user);
+    console.log('establishmentId do usuário:', user?.establishmentId);
+    if (!user || !user.establishmentId) {
+      console.log('Usuário ou establishmentId não encontrado');
+      return;
+    }
 
     const allEsts = db.getEstablishments();
     const currentEst = allEsts.find(e => e.id === user.establishmentId);
+    console.log('Estabelecimento encontrado:', currentEst);
     if (currentEst) {
       setEstablishment(currentEst);
     }
 
     const todayStr = new Date().toISOString().split('T')[0];
+    console.log('Data de hoje:', todayStr);
     const allSchedules = db.getSchedules();
+    console.log('Todas as escalas:', allSchedules);
     const estSchedulesToday = allSchedules.filter(s => s.establishmentId === user.establishmentId && s.date === todayStr);
+    console.log('Escalas do estabelecimento hoje:', estSchedulesToday);
     setTodaySchedules(estSchedulesToday);
 
     const allUsers = db.getUsers();
     const scheduledRiderIds = estSchedulesToday.map(s => s.riderId);
     const riders = allUsers.filter(u => scheduledRiderIds.includes(u.id));
+    console.log('Motoboys escalados:', riders);
     setScheduledRiders(riders);
 
     const allDeliveries = db.getDeliveries();
+    console.log('Todas as entregas:', allDeliveries);
     const estDeliveriesToday = allDeliveries.filter(d => d.establishmentId === user.establishmentId && d.date === todayStr);
+    console.log('Entregas do estabelecimento hoje:', estDeliveriesToday);
     setTodayDeliveries(estDeliveriesToday);
 
     const locations = db.getRiderLocations();
+    console.log('Localizações dos motoboys:', locations);
     setRiderLocations(locations);
   };
 
@@ -77,6 +90,19 @@ export default function EstablishmentDashboard() {
       navigate('/login');
       return;
     }
+
+    // Se o usuário não tiver establishmentId, atualizar com o valor correto
+    if (!user.establishmentId) {
+      console.log('Usuário sem establishmentId, atualizando...');
+      const allUsers = db.getUsers();
+      const updatedUser = allUsers.find(u => u.id === user.id);
+      if (updatedUser && updatedUser.establishmentId) {
+        db.setCurrentUser(updatedUser);
+        setUser(updatedUser);
+        console.log('Usuário atualizado com establishmentId:', updatedUser.establishmentId);
+      }
+    }
+
     loadData();
 
     // Poll for rider locations every 5 seconds

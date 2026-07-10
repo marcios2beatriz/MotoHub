@@ -6,6 +6,7 @@ import Landing from './pages/Landing';
 import Login from './pages/Login';
 import AdminDashboard from './pages/AdminDashboard';
 import RiderDashboard from './pages/RiderDashboard';
+import EstablishmentDashboard from './pages/EstablishmentDashboard';
 import { db } from './utils/db';
 
 // Componente para gerenciar a inatividade do usuário (30 minutos)
@@ -66,7 +67,7 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
   if (!user) return <Navigate to="/login" replace />;
   if (user.role !== 'admin') {
     alert('Acesso negado. Esta área é restrita para administradores.');
-    return <Navigate to="/rider" replace />;
+    return <Navigate to={user.role === 'establishment' ? '/establishment' : '/rider'} replace />;
   }
   return <>{children}</>;
 }
@@ -77,7 +78,18 @@ function RiderRoute({ children }: { children: React.ReactNode }) {
   if (!user) return <Navigate to="/login" replace />;
   if (user.role !== 'rider') {
     alert('Acesso negado. Esta área é restrita para motoboys.');
-    return <Navigate to="/admin" replace />;
+    return <Navigate to={user.role === 'establishment' ? '/establishment' : '/admin'} replace />;
+  }
+  return <>{children}</>;
+}
+
+// Rota Protegida para Estabelecimento
+function EstablishmentRoute({ children }: { children: React.ReactNode }) {
+  const user = db.getCurrentUser();
+  if (!user) return <Navigate to="/login" replace />;
+  if (user.role !== 'establishment') {
+    alert('Acesso negado. Esta área é restrita para estabelecimentos.');
+    return <Navigate to={user.role === 'rider' ? '/rider' : '/admin'} replace />;
   }
   return <>{children}</>;
 }
@@ -108,6 +120,15 @@ export default function App() {
             } 
           />
 
+          <Route 
+            path="/establishment" 
+            element={
+              <EstablishmentRoute>
+                <EstablishmentDashboard />
+              </EstablishmentRoute>
+            } 
+          />
+
           {/* Redirecionamento padrão */}
           <Route 
             path="*" 
@@ -116,9 +137,9 @@ export default function App() {
                 to={
                   db.getCurrentUser()?.role === 'admin' 
                     ? '/admin' 
-                    : db.getCurrentUser()?.role === 'rider' 
-                      ? '/rider' 
-                      : '/'
+                    : db.getCurrentUser()?.role === 'establishment'
+                      ? '/establishment'
+                      : '/rider'
                 } 
                 replace 
               />
