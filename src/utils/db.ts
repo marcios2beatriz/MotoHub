@@ -8,10 +8,11 @@ export interface User {
   cpf: string;
   phone: string;
   email: string;
-  role: 'admin' | 'rider';
+  role: 'admin' | 'rider' | 'establishment';
   active: boolean;
   passwordHash: string;
   mustResetPassword?: boolean;
+  establishmentId?: string; // Linked establishment for establishment users
 }
 
 export interface Establishment {
@@ -51,6 +52,7 @@ export interface Delivery {
   value: number;
   status: 'active' | 'cancelled';
   scheduleId?: string;
+  orderNumber?: string; // Optional order number
 }
 
 export interface Notification {
@@ -72,10 +74,18 @@ export interface PartnerRequest {
   createdAt: string;
 }
 
-// Tabelas que não existem no Supabase serão desativadas dinamicamente para usar apenas LocalStorage
+export interface RiderLocation {
+  riderId: string;
+  riderName: string;
+  lat: number;
+  lng: number;
+  updatedAt: string;
+}
+
+// Tables that don't exist in Supabase will be disabled dynamically to use only LocalStorage
 const disabledTables = new Set<string>();
 
-// Seed Data inicial para fallback
+// Seed Data with an initial establishment user for testing
 const INITIAL_USERS: User[] = [
   {
     id: 'u1',
@@ -106,6 +116,17 @@ const INITIAL_USERS: User[] = [
     role: 'rider',
     active: true,
     passwordHash: 'moto123'
+  },
+  {
+    id: 'u4',
+    name: 'Gerente Bella Italia',
+    cpf: '333.333.333-33',
+    phone: '(11) 3222-1111',
+    email: 'bella@delivery.com',
+    role: 'establishment',
+    active: true,
+    passwordHash: 'bella123',
+    establishmentId: 'e1'
   }
 ];
 
@@ -153,7 +174,7 @@ export const setStorageData = <T>(key: string, data: T): void => {
   localStorage.setItem(key, JSON.stringify(data));
 };
 
-// Helper para mesclar dados locais e remotos por ID, evitando perda de dados
+// Helper to merge local and remote data by ID
 const mergeById = <T extends { id: string }>(local: T[], remote: T[]): T[] => {
   const map = new Map<string, T>();
   local.forEach(item => map.set(item.id, item));
@@ -168,14 +189,13 @@ const mergeById = <T extends { id: string }>(local: T[], remote: T[]): T[] => {
   return Array.from(map.values());
 };
 
-// Sincronização assíncrona em background com Supabase com tratamento de erro detalhado
+// Async background sync with Supabase
 const syncToSupabase = async (table: string, data: any[]) => {
   if (disabledTables.has(table)) {
     return;
   }
 
   try {
-    // Mapeamento simples para o formato do banco de dados
     const formattedData = data.map(item => {
       if (table === 'users') {
         return {
@@ -187,7 +207,8 @@ const syncToSupabase = async (table: string, data: any[]) => {
           role: item.role,
           active: item.active,
           password_hash: item.passwordHash,
-          must_reset_password: item.mustResetPassword || false
+          must_reset_password: item.mustResetPassword || false,
+          establishment_id: item.establishmentId || null
         };
       }
       if (table === 'establishments') {
@@ -227,7 +248,8 @@ const syncToSupabase = async (table: string, data: any[]) => {
           time: item.time,
           value: item.value,
           status: item.status,
-          schedule_id: item.scheduleId || null
+          schedule_id: item.scheduleId || null,
+          order_number: item.orderNumber || null
         };
       }
       if (table === 'notifications') {
@@ -269,13 +291,41 @@ const syncToSupabase = async (table: string, data: any[]) => {
 };
 
 export const db = {
-  getUsers: () => getStorageData<User[]>('dm_users', INITIAL_USERS),
+  getUsers: () => {
+    const users = getStorageData<User[]>('dm_users', INITIAL_USERS);
+    let updated = false;
+    const merged = [...users];
+    INITIAL_USERS.forEach(initUser => {
+      if (!merged.some(u => u.email.toLowerCase() === initUser.email.toLowerCase())) {
+        merged.push(initUser);
+        updated = true;
+      }
+    });
+    if (updated) {
+      setStorageData('dm_users', merged);
+    }
+    return merged;
+  },
   setUsers: (users: User[]) => {
     setStorageData('dm_users', users);
     syncToSupabase('users', users);
   },
   
-  getEstablishments: () => getStorageData<Establishment[]>('dm_establishments', INITIAL_ESTABLISHMENTS),
+  getEstablishments: () => {
+    const ests = getStorageData<Establishment[]>('dm_establishments', INITIAL_ESTABLISHMENTS);
+    let updated = false;
+    const merged = [...ests];
+    INITIAL_ESTABLISHMENTS.forEach(initEst => {
+      if (!merged.some(e => e.id === initEst.id)) {
+        merged.push(initEst);
+        updated = true;
+      }
+    });
+    if (updated) {
+      setStorageData('dm_establishments', merged);
+    }
+    return merged;
+  },
   setEstablishments: (est: Establishment[]) => {
     setStorageData('dm_establishments', est);
     syncToSupabase('establishments', est);
@@ -305,6 +355,30 @@ export const db = {
     syncToSupabase('partner_requests', reqs);
   },
 
+  getRiderLocations: (): RiderLocation[] => getStorageData<RiderLocation[]>('dm_rider_locations', []),
+  setRiderLocations: (locations: RiderLocation[]) => {
+    setStorageData('dm_rider_locations', locations);
+    // Also sync to Supabase if table exists
+    syncToSupabase('rider_locations', locations).catch(() => {});
+  },
+  updateRiderLocation: (riderId: string, riderName: string, lat: number, lng: number) => {
+    const locations = db.getRiderLocations();
+    const existingIdx = locations.findIndex(l => l.riderId === riderId);
+    const newLoc: RiderLocation = {
+      riderId,
+      riderName,
+      lat,
+      lng,
+      updatedAt: new Date().toISOString()
+    };
+    if (existingIdx >= 0) {
+      locations[existingIdx] = newLoc;
+    } else {
+      locations.push(newLoc);
+    }
+    db.setRiderLocations(locations);
+  },
+
   getCurrentUser: (): User | null => {
     const user = localStorage.getItem('dm_current_user');
     return user ? JSON.parse(user) : null;
@@ -327,7 +401,6 @@ export const db = {
     localStorage.setItem('dm_login_attempts', JSON.stringify(attempts));
   },
 
-  // Função para carregar dados do Supabase de forma robusta e mesclar com o localStorage
   pullFromSupabase: async () => {
     // ── USERS ──────────────────────────────────────────────────────────────
     if (!disabledTables.has('users')) {
@@ -343,7 +416,8 @@ export const db = {
             role: u.role as any,
             active: u.active,
             passwordHash: u.password_hash,
-            mustResetPassword: u.must_reset_password
+            mustResetPassword: u.must_reset_password,
+            establishmentId: u.establishment_id || undefined
           }));
           const localUsers = getStorageData<User[]>('dm_users', INITIAL_USERS);
           const merged = mergeById(localUsers, mappedUsers);
@@ -442,7 +516,8 @@ export const db = {
             time: d.time,
             value: Number(d.value),
             status: d.status as any,
-            scheduleId: d.schedule_id || undefined
+            scheduleId: d.schedule_id || undefined,
+            orderNumber: d.order_number || undefined
           }));
           const localDels = getStorageData<Delivery[]>('dm_deliveries', []);
           const merged = mergeById(localDels, mappedDels);
