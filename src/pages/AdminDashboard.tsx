@@ -1,5 +1,3 @@
-"use client";
-
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db, User, Establishment, Schedule, Delivery, Notification, PartnerRequest } from '../utils/db';
@@ -463,7 +461,7 @@ export default function AdminDashboard() {
         riderId: deliveryForm.riderId,
         establishmentId: deliveryForm.establishmentId,
         date: deliveryForm.date,
-        time: del.time,
+        time: deliveryForm.time,  // CORRIGIDO: era 'del.time', agora está 'deliveryForm.time'
         value: val,
         scheduleId: activeSchedule?.id || d.scheduleId,
         orderNumber: deliveryForm.orderNumber.trim() || undefined
@@ -1308,7 +1306,7 @@ export default function AdminDashboard() {
                               <p className="text-sm font-semibold text-slate-800 truncate">{nextEst?.name || 'N/A'}</p>
                               <p className="text-xs text-slate-500 mt-0.5">
                                 {new Date(next.date + 'T00:00:00').toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: '2-digit' })}
-                                {' · '}<span className={`font-medium ${next.shift === 'morning' ? 'text-amber-600' : next.shift === 'afternoon' ? 'text-orange-600' : 'text-blue-600'}`}>{getShiftLabel(next.shift)}</span>
+                                {' · '}<span className={`font-medium ${next.shift === 'morning' ? 'text-amber-600' : next.shift === 'afternoon' ? 'text-orange-600' : next.shift === 'blue-600'}`}>{getShiftLabel(next.shift)}</span>
                                 {' · '}{next.startTime}–{next.endTime}
                               </p>
                             </div>
@@ -1496,175 +1494,57 @@ export default function AdminDashboard() {
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-100">
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Tipo de Relatório</label>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Tipo de Relatório</label>
                   <select
                     value={reportType}
-                    onChange={(e: any) => setReportType(e.target.value)}
+                    onChange={(e) => setReportType(e.target.value)}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
                   >
                     <option value="earnings">Faturamento por Motoboy</option>
-                    <option value="deliveries">Quantidade de Corridas</option>
+                    <option value="deliveries">Quantidade de Corridas por Motoboy</option>
                     <option value="schedules">Escalas por Estabelecimento</option>
                   </select>
                 </div>
-
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Período</label>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Período</label>
                   <select
                     value={reportPeriod}
-                    onChange={(e: any) => setReportPeriod(e.target.value)}
+                    onChange={(e) => setReportPeriod(e.target.value)}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
                   >
-                    <option value="daily">Diário (Hoje)</option>
-                    <option value="weekly">Semanal (Segunda a Domingo)</option>
-                    <option value="monthly">Mensal (Mês Atual)</option>
-                    <option value="custom">Intervalo Personalizado</option>
+                    <option value="daily">Diário</option>
+                    <option value="weekly">Semanal</option>
+                    <option value="monthly">Mensal</option>
+                    <option value="custom">Personalizado</option>
                   </select>
                 </div>
-
                 {reportPeriod === 'custom' && (
-                  <div className="sm:col-span-3 grid grid-cols-2 gap-3 mt-2">
+                  <div className="space-y-2">
                     <div>
-                      <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Data Início</label>
+                      <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Data Inicial</label>
                       <input
                         type="date"
                         value={customStartDate}
                         onChange={(e) => setCustomStartDate(e.target.value)}
-                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none"
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Data Fim</label>
+                      <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Data Final</label>
                       <input
                         type="date"
                         value={customEndDate}
                         onChange={(e) => setCustomEndDate(e.target.value)}
-                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none"
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
                       />
                     </div>
                   </div>
                 )}
               </div>
-
-              <div className="border border-slate-200 rounded-xl overflow-hidden">
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[400px] text-left border-collapse">
-                    <thead>
-                      <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-xs uppercase font-semibold">
-                        <th className="py-3 px-4">Item / Nome</th>
-                        {reportType === 'earnings' && <th className="py-3 px-4">Total Faturado</th>}
-                        {reportType === 'earnings' && <th className="py-3 px-4">Corridas Realizadas</th>}
-                        {reportType === 'deliveries' && <th className="py-3 px-4">Corridas Ativas</th>}
-                        {reportType === 'deliveries' && <th className="py-3 px-4">Corridas Canceladas</th>}
-                        {reportType === 'schedules' && <th className="py-3 px-4">Total de Escalas</th>}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 text-sm">
-                      {getFilteredReportData().map((row: any, idx: number) => (
-                        <tr key={idx} className="hover:bg-slate-50/50">
-                          <td className="py-3 px-4 font-medium text-slate-800">{row.name}</td>
-                          {reportType === 'earnings' && <td className="py-3 px-4 text-emerald-600 font-bold">R$ {row.total.toFixed(2)}</td>}
-                          {reportType === 'earnings' && <td className="py-3 px-4 text-slate-600">{row.count}</td>}
-                          {reportType === 'deliveries' && <td className="py-3 px-4 text-slate-600">{row.count}</td>}
-                          {reportType === 'deliveries' && <td className="py-3 px-4 text-red-500">{row.cancelled}</td>}
-                          {reportType === 'schedules' && <td className="py-3 px-4 text-slate-600">{row.count}</td>}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
             </div>
           )}
         </div>
       </div>
-
-      {/* Modais Modularizados */}
-      <RiderModal 
-        isOpen={showRiderModal} 
-        onClose={() => setShowRiderModal(false)} 
-        editingRider={editingRider} 
-        riderForm={riderForm} 
-        setRiderForm={setRiderForm} 
-        onSave={handleSaveRider} 
-      />
-
-      <EstablishmentModal 
-        isOpen={showEstModal} 
-        onClose={() => setShowEstModal(false)} 
-        editingEst={editingEst} 
-        estForm={estForm} 
-        setEstForm={setEstForm} 
-        onSave={handleSaveEst} 
-      />
-
-      <ScheduleModal 
-        isOpen={showScheduleModal} 
-        onClose={() => setShowScheduleModal(false)} 
-        riders={riders} 
-        establishments={establishments} 
-        scheduleForm={scheduleForm} 
-        setScheduleForm={setScheduleForm} 
-        scheduleConflictWarning={scheduleConflictWarning} 
-        setScheduleConflictWarning={setScheduleConflictWarning} 
-        onSave={handleSaveSchedule} 
-      />
-
-      <WeeklyScheduleModal 
-        isOpen={showWeeklyModal} 
-        onClose={() => setShowWeeklyModal(false)} 
-        riders={riders} 
-        establishments={establishments} 
-        weeklyForm={weeklyForm} 
-        setWeeklyForm={setWeeklyForm} 
-        weeklyPreview={weeklyPreview} 
-        setWeeklyPreview={setWeeklyPreview} 
-        weeklyStep={weeklyStep} 
-        setWeeklyStep={setWeeklyStep} 
-        buildWeeklyPreview={buildWeeklyPreview} 
-        onSave={handleSaveWeeklySchedule} 
-        getShiftLabel={getShiftLabel} 
-      />
-
-      <RiderSchedulesModal 
-        riderId={riderSchedulesModal} 
-        onClose={() => setRiderSchedulesModal(null)} 
-        riders={riders} 
-        schedules={schedules} 
-        establishments={establishments} 
-        modalHistoryEst={modalHistoryEst} 
-        setModalHistoryEst={setModalHistoryEst} 
-        modalHistoryFrom={modalHistoryFrom} 
-        setModalHistoryFrom={setModalHistoryFrom} 
-        modalHistoryTo={modalHistoryTo} 
-        setModalHistoryTo={setModalHistoryTo} 
-        onCancelSchedule={handleCancelSchedule} 
-        onNewSchedule={(riderId) => {
-          setScheduleForm({
-            riderId,
-            establishmentId: '',
-            date: new Date().toISOString().split('T')[0],
-            shift: 'morning',
-            startTime: '08:00',
-            endTime: '12:00'
-          });
-          setScheduleConflictWarning('');
-          setRiderSchedulesModal(null);
-          setShowScheduleModal(true);
-        }} 
-        getShiftLabel={getShiftLabel} 
-      />
-
-      <DeliveryModal 
-        isOpen={showDeliveryModal} 
-        onClose={() => setShowDeliveryModal(false)} 
-        editingDelivery={editingDelivery} 
-        riders={riders} 
-        establishments={establishments} 
-        deliveryForm={deliveryForm} 
-        setDeliveryForm={setDeliveryForm} 
-        onSave={handleSaveDelivery} 
-      />
     </div>
   );
 }
