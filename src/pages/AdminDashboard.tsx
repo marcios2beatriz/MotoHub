@@ -461,7 +461,7 @@ export default function AdminDashboard() {
         riderId: deliveryForm.riderId,
         establishmentId: deliveryForm.establishmentId,
         date: deliveryForm.date,
-        time: deliveryForm.time,  // CORRIGIDO: era 'del.time', agora está 'deliveryForm.time'
+        time: deliveryForm.time,  // CORRIGIDO: garante que usa o valor do formulário, não 'del'
         value: val,
         scheduleId: activeSchedule?.id || d.scheduleId,
         orderNumber: deliveryForm.orderNumber.trim() || undefined
@@ -1005,8 +1005,7 @@ export default function AdminDashboard() {
                                 neighborhood: est.address.neighborhood,
                                 city: est.address.city,
                                 state: est.address.state,
-                                zipCode: est.address.zipCode,
-                                phone: est.phone
+                                zipCode: est.address.zipCode
                               });
                               setShowEstModal(true);
                             }}
@@ -1027,7 +1026,7 @@ export default function AdminDashboard() {
                           </button>
                         </td>
                       </tr>
-                    ))}
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -1073,7 +1072,7 @@ export default function AdminDashboard() {
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[600px] text-left border-collapse">
                   <thead>
-                    <tr className="border-b border-slate-200 text-slate-500 text-xs uppercase font-semibold">
+                    <tr className="border-b border-slate-200 text-sale-500 text-xs uppercase font-semibold">
                       <th className="py-3 px-4">Estabelecimento</th>
                       <th className="py-3 px-4">Proprietário</th>
                       <th className="py-3 px-4">Contato</th>
@@ -1243,12 +1242,10 @@ export default function AdminDashboard() {
                                     return (
                                       <div key={sch.id} className={`px-5 py-3 flex items-center justify-between gap-3 ${isPast ? 'opacity-50' : 'bg-white'}`}>
                                         <div className="flex items-center gap-3 min-w-0">
-                                          <div className={`w-2 h-2 rounded-full flex-shrink-0 ${isTod ? 'bg-emerald-500' : isPast ? 'bg-slate-300' : 'bg-indigo-400'}`} />
-                                          <div className="min-w-0">
-                                            <div className="flex flex-wrap items-center gap-1.5">
-                                              {isTod && <span className="bg-emerald-100 text-emerald-700 text-[10px] font-bold px-1.5 py-0.5 rounded-full uppercase">Hoje</span>}
-                                              <p className="text-sm font-semibold text-slate-800 truncate">{est?.name || 'N/A'}</p>
-                                            </div>
+                                          <div className="flex items-center gap-1.5 flex-wrap">
+                                            {isTod && <span className="bg-emerald-100 text-emerald-700 text-[10px] font-bold px-1.5 py-0.5 rounded-full uppercase">Hoje</span>}
+                                            <p className="text-sm font-semibold text-slate-800 truncate">{est?.name || 'N/A'}</p>
+                                            <span className="text-slate-300">•</span>
                                             <p className="text-xs text-slate-500 flex flex-wrap items-center gap-1 mt-0.5">
                                               <span>{new Date(sch.date + 'T00:00:00').toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' })}</span>
                                               <span className="text-slate-300">•</span>
@@ -1304,7 +1301,7 @@ export default function AdminDashboard() {
                             <div className="bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
                               <p className="text-xs font-bold text-emerald-700 uppercase mb-1">Próxima escala</p>
                               <p className="text-sm font-semibold text-slate-800 truncate">{nextEst?.name || 'N/A'}</p>
-                              <p className="text-xs text-slate-500 mt-0.5">
+                              <p className="text-sm font-semibold text-slate-500 mt-0.5">
                                 {new Date(next.date + 'T00:00:00').toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: '2-digit' })}
                                 {' · '}<span className={`font-medium ${next.shift === 'morning' ? 'text-amber-600' : next.shift === 'afternoon' ? 'text-orange-600' : next.shift === 'blue-600'}`}>{getShiftLabel(next.shift)}</span>
                                 {' · '}{next.startTime}–{next.endTime}
@@ -1427,13 +1424,13 @@ export default function AdminDashboard() {
                               {del.orderNumber && (
                                 <span className="bg-slate-100 text-slate-500 text-[10px] font-bold px-2 py-0.5 rounded-full">
                                   #{del.orderNumber}
-                                </span>
+                                )
                               )}
                             </div>
                             <p className="text-sm text-slate-600">Estabelecimento: {est?.name}</p>
                             <p className="text-xs text-slate-400 mt-1">
                               Data: {new Date(del.date + 'T00:00:00').toLocaleDateString('pt-BR')} às {del.time}
-                            </p>
+                            }
                           </div>
                           <div className="flex items-center space-x-4 self-end sm:self-center">
                             <span className={`font-bold text-lg ${del.status === 'cancelled' ? 'text-slate-400 line-through' : 'text-emerald-600'}`}>
