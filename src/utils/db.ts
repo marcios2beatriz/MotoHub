@@ -181,7 +181,14 @@ const mergeById = <T extends { id: string }>(local: T[], remote: T[]): T[] => {
   remote.forEach(item => {
     const existing = map.get(item.id);
     if (existing) {
-      map.set(item.id, { ...existing, ...item });
+      const merged = { ...existing };
+      (Object.keys(item) as (keyof T)[]).forEach(key => {
+        const value = item[key];
+        if (value !== undefined) {
+          merged[key] = value;
+        }
+      });
+      map.set(item.id, merged);
     } else {
       map.set(item.id, item);
     }
@@ -376,7 +383,22 @@ export const db = {
     } else {
       locations.push(newLoc);
     }
-    db.setRiderLocations(locations);
+    // Salva localmente
+    setStorageData('dm_rider_locations', locations);
+
+    // Envia direto ao Supabase (upsert em tempo real, sem batch)
+    supabase
+      .from('rider_locations')
+      .upsert({
+        rider_id: riderId,
+        rider_name: riderName,
+        lat,
+        lng,
+        updated_at: newLoc.updatedAt
+      }, { onConflict: 'rider_id' })
+      .then(({ error }) => {
+        if (error) console.warn('GPS sync error:', error.message);
+      });
   },
 
   getCurrentUser: (): User | null => {
@@ -591,6 +613,29 @@ export const db = {
         }
       } catch (err) {
         console.warn('Erro ao sincronizar tabela partner_requests:', err);
+      }
+    }
+
+    // ── RIDER LOCATIONS (pull only – escritas feitas direto pelo motoboy) ──
+    if (!disabledTables.has('rider_locations')) {
+      try {
+        const { data: locs, error: locsError } = await supabase.from('rider_locations').select('*');
+        if (!locsError && locs) {
+          const mappedLocs: RiderLocation[] = locs.map(l => ({
+            riderId: l.rider_id,
+            riderName: l.rider_name,
+            lat: l.lat,
+            lng: l.lng,
+            updatedAt: l.updated_at
+          }));
+          setStorageData('dm_rider_locations', mappedLocs);
+        } else {
+          if (locsError?.message?.includes('does not exist') || locsError?.code === '42P01') {
+            disabledTables.add('rider_locations');
+          }
+        }
+      } catch (err) {
+        console.warn('Erro ao sincronizar tabela rider_locations:', err);
       }
     }
 

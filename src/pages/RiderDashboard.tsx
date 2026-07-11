@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db, Schedule, Delivery, Notification } from '../utils/db';
 import { 
@@ -16,7 +16,10 @@ import {
   AlertCircle,
   History,
   Filter,
-  X
+  X,
+  Satellite,
+  WifiOff,
+  Radio
 } from 'lucide-react';
 
 export default function RiderDashboard() {
@@ -26,6 +29,9 @@ export default function RiderDashboard() {
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'schedules' | 'history' | 'notifications'>('dashboard');
+  const [gpsStatus, setGpsStatus] = useState<'requesting' | 'active' | 'error' | 'denied'>('requesting');
+  const [gpsCoords, setGpsCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const watchIdRef = useRef<number | null>(null);
 
   // Filtros das escalas futuras
   const [scheduleEstFilter, setScheduleEstFilter] = useState('');
@@ -61,6 +67,64 @@ export default function RiderDashboard() {
     window.addEventListener('db-sync-complete', handleSyncComplete);
     return () => {
       window.removeEventListener('db-sync-complete', handleSyncComplete);
+    };
+  }, [user]);
+
+  // Função para iniciar o rastreamento GPS de forma robusta
+  const startGpsTracking = () => {
+    if (!user || user.role !== 'rider') return;
+    
+    if (watchIdRef.current !== null) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+    }
+
+    if (!navigator.geolocation) {
+      setGpsStatus('error');
+      return;
+    }
+
+    // Verifica se está em um contexto seguro (localhost ou HTTPS)
+    if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+      console.warn("A API de Geolocalização requer um contexto seguro (HTTPS ou localhost).");
+    }
+
+    setGpsStatus('requesting');
+
+    const onSuccess = (pos: GeolocationPosition) => {
+      const { latitude, longitude } = pos.coords;
+      setGpsCoords({ lat: latitude, lng: longitude });
+      setGpsStatus('active');
+      db.updateRiderLocation(user.id, user.name, latitude, longitude);
+    };
+
+    const onError = (err: GeolocationPositionError) => {
+      if (err.code === GeolocationPositionError.PERMISSION_DENIED) {
+        setGpsStatus('denied');
+      } else {
+        setGpsStatus('error');
+      }
+      console.warn('GPS error:', err.message);
+    };
+
+    const options: PositionOptions = {
+      enableHighAccuracy: true,
+      maximumAge: 5000,
+      timeout: 15000
+    };
+
+    watchIdRef.current = navigator.geolocation.watchPosition(onSuccess, onError, options);
+  };
+
+  // Inicia o GPS automaticamente ao montar o componente
+  useEffect(() => {
+    startGpsTracking();
+
+    return () => {
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
+      }
     };
   }, [user]);
 
@@ -216,6 +280,60 @@ export default function RiderDashboard() {
         {/* Tab Content: Dashboard */}
         {activeTab === 'dashboard' && (
           <div className="space-y-6">
+            {/* Card de Status do GPS */}
+            <div className={`rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border ${
+              gpsStatus === 'active'
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                : gpsStatus === 'requesting'
+                ? 'bg-blue-50 border-blue-200 text-blue-800'
+                : 'bg-red-50 border-red-200 text-red-800'
+            }`}>
+              <div className="flex items-center gap-3">
+                <div className={`p-2 rounded-full ${
+                  gpsStatus === 'active' ? 'bg-emerald-100' : gpsStatus === 'requesting' ? 'bg-blue-100' : 'bg-red-100'
+                }`}>
+                  {gpsStatus === 'active' && <Radio className="h-5 w-5 text-emerald-600 animate-pulse" />}
+                  {gpsStatus === 'requesting' && <Satellite className="h-5 w-5 text-blue-600 animate-spin" />}
+                  {(gpsStatus === 'error' || gpsStatus === 'denied') && <WifiOff className="h-5 w-5 text-red-600" />}
+                </div>
+                <div className="min-w-0">
+                  {gpsStatus === 'active' && (
+                    <>
+                      <p className="font-bold text-sm">📡 GPS Ativo — Transmitindo localização</p>
+                      {gpsCoords && (
+                        <p className="text-xs opacity-75 font-mono truncate">
+                          {gpsCoords.lat.toFixed(5)}, {gpsCoords.lng.toFixed(5)}
+                        </p>
+                      )}
+                    </>
+                  )}
+                  {gpsStatus === 'requesting' && (
+                    <p className="font-bold text-sm">Aguardando permissão de localização...</p>
+                  )}
+                  {gpsStatus === 'denied' && (
+                    <>
+                      <p className="font-bold text-sm">⚠️ Permissão de GPS negada</p>
+                      <p className="text-xs opacity-75">Habilite a localização nas configurações do navegador.</p>
+                    </>
+                  )}
+                  {gpsStatus === 'error' && (
+                    <>
+                      <p className="font-bold text-sm">⚠️ GPS indisponível ou HTTP não seguro</p>
+                      <p className="text-xs opacity-75">Acesse via HTTPS ou ative o GPS do celular.</p>
+                    </>
+                  )}
+                </div>
+              </div>
+              {gpsStatus !== 'active' && (
+                <button
+                  onClick={startGpsTracking}
+                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg transition-colors self-start sm:self-auto"
+                >
+                  Ativar GPS Manualmente
+                </button>
+              )}
+            </div>
+
             {/* Cards de Faturamento */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-4">

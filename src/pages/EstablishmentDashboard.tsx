@@ -23,7 +23,17 @@ import L from 'leaflet';
 
 export default function EstablishmentDashboard() {
   const navigate = useNavigate();
-  const [user, setUser] = useState(db.getCurrentUser());
+  const [user, setUser] = useState(() => {
+  const cur = db.getCurrentUser();
+  if (cur && !cur.establishmentId) {
+    const full = db.getUsers().find(u => u.id === cur.id);
+    if (full?.establishmentId) {
+      db.setCurrentUser(full);
+      return full;
+    }
+  }
+  return cur;
+});
   const [establishment, setEstablishment] = useState<Establishment | null>(null);
   
   // Data states
@@ -46,42 +56,41 @@ export default function EstablishmentDashboard() {
   const markersRef = useRef<{ [key: string]: L.Marker }>({});
 
   const loadData = () => {
-    console.log('loadData chamado, user:', user);
-    console.log('establishmentId do usuário:', user?.establishmentId);
-    if (!user || !user.establishmentId) {
-      console.log('Usuário ou establishmentId não encontrado');
-      return;
-    }
+    if (!user || !user.establishmentId) return;
 
     const allEsts = db.getEstablishments();
     const currentEst = allEsts.find(e => e.id === user.establishmentId);
-    console.log('Estabelecimento encontrado:', currentEst);
-    if (currentEst) {
-      setEstablishment(currentEst);
-    }
+    if (currentEst) setEstablishment(currentEst);
 
     const todayStr = new Date().toISOString().split('T')[0];
-    console.log('Data de hoje:', todayStr);
     const allSchedules = db.getSchedules();
-    console.log('Todas as escalas:', allSchedules);
-    const estSchedulesToday = allSchedules.filter(s => s.establishmentId === user.establishmentId && s.date === todayStr);
-    console.log('Escalas do estabelecimento hoje:', estSchedulesToday);
-    setTodaySchedules(estSchedulesToday);
+    let estSchedules = allSchedules.filter(s => s.establishmentId === user.establishmentId && s.date === todayStr);
+    
+    // Fallback: If no schedule today, get any schedule for the establishment
+    if (estSchedules.length === 0) {
+      estSchedules = allSchedules.filter(s => s.establishmentId === user.establishmentId);
+    }
+    
+    setTodaySchedules(estSchedules);
 
     const allUsers = db.getUsers();
-    const scheduledRiderIds = estSchedulesToday.map(s => s.riderId);
-    const riders = allUsers.filter(u => scheduledRiderIds.includes(u.id));
-    console.log('Motoboys escalados:', riders);
+    const scheduledIds = estSchedules.map(s => s.riderId);
+    const riders = scheduledIds.length > 0
+      ? allUsers.filter(u => scheduledIds.includes(u.id))
+      : allUsers.filter(u => u.role === 'rider');
     setScheduledRiders(riders);
 
+    // Debug logs
+    console.log('User establishmentId:', user.establishmentId);
+    console.log('Total schedules for establishment today (or fallback):', estSchedules.length);
+    console.log('Scheduled rider IDs:', scheduledIds);
+    console.log('Riders loaded:', riders.map(r => r.name || r.id));
+
     const allDeliveries = db.getDeliveries();
-    console.log('Todas as entregas:', allDeliveries);
     const estDeliveriesToday = allDeliveries.filter(d => d.establishmentId === user.establishmentId && d.date === todayStr);
-    console.log('Entregas do estabelecimento hoje:', estDeliveriesToday);
     setTodayDeliveries(estDeliveriesToday);
 
     const locations = db.getRiderLocations();
-    console.log('Localizações dos motoboys:', locations);
     setRiderLocations(locations);
   };
 
@@ -126,13 +135,13 @@ export default function EstablishmentDashboard() {
       document.head.appendChild(link);
     }
 
-    // Default coordinates (São Paulo center if no specific coordinates)
-    const defaultLat = -23.55052;
-    const defaultLng = -46.633308;
+    // Default coordinates (Brazil center) used only if geocoding fails
+    const defaultLat = -15.7801;
+    const defaultLng = -47.9292;
 
-    // Create map if it doesn't exist
-    if (!mapRef.current) {
-      mapRef.current = L.map(mapContainerRef.current).setView([defaultLat, defaultLng], 13);
+    const initMap = async (lat: number, lng: number) => {
+      if (mapRef.current) return; // Already initialized
+      mapRef.current = L.map(mapContainerRef.current!).setView([lat, lng], 14);
 
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; OpenStreetMap contributors'
@@ -146,11 +155,72 @@ export default function EstablishmentDashboard() {
         iconAnchor: [16, 16]
       });
 
-      L.marker([defaultLat, defaultLng], { icon: estIcon })
+      L.marker([lat, lng], { icon: estIcon })
         .addTo(mapRef.current)
         .bindPopup(`<b>${establishment.name}</b><br/>Seu Estabelecimento`)
         .openPopup();
-    }
+    };
+
+    // Geocode using establishment address (city + state + street) via Nominatim
+    const geocodeEstablishment = async () => {
+      if (mapRef.current) return; // Already initialized
+      const addr = establishment.address;
+      if (addr) {
+        const query = [
+          addr.street,
+          addr.number,
+          addr.neighborhood,
+          addr.city,
+          addr.state,
+          'Brasil'
+        ].filter(Boolean).join(', ');
+
+        try {
+          const res = await fetch(
+            `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`,
+            { headers: { 'Accept-Language': 'pt-BR' } }
+          );
+          const data = await res.json();
+          if (data && data.length > 0) {
+            await initMap(parseFloat(data[0].lat), parseFloat(data[0].lon));
+            return;
+          }
+        } catch (e) {
+          console.warn('Geocoding by address failed, trying by CEP...', e);
+        }
+
+        // Fallback: geocode by CEP via ViaCEP + Nominatim
+        if (addr.zipCode) {
+          const cep = addr.zipCode.replace(/\D/g, '');
+          try {
+            const viaCepRes = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+            const viaCepData = await viaCepRes.json();
+            if (!viaCepData.erro) {
+              const cepQuery = `${viaCepData.logradouro}, ${viaCepData.localidade}, ${viaCepData.uf}, Brasil`;
+              const nomRes = await fetch(
+                `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(cepQuery)}`,
+                { headers: { 'Accept-Language': 'pt-BR' } }
+              );
+              const nomData = await nomRes.json();
+              if (nomData && nomData.length > 0) {
+                await initMap(parseFloat(nomData[0].lat), parseFloat(nomData[0].lon));
+                return;
+              }
+            }
+          } catch (e) {
+            console.warn('CEP geocoding failed, using default coords.', e);
+          }
+        }
+      }
+
+      // Last resort: default Brazil center
+      await initMap(defaultLat, defaultLng);
+    };
+
+    geocodeEstablishment();
+
+    // If map was already created, just continue to marker update below
+    if (!mapRef.current) return;
 
     // Update Rider Markers safely
     const currentMap = mapRef.current;
