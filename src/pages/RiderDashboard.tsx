@@ -70,12 +70,23 @@ export default function RiderDashboard() {
     };
   }, [user]);
 
-  // ── GPS em tempo real ──────────────────────────────────────────────────────
-  useEffect(() => {
+  // Função para iniciar o rastreamento GPS de forma robusta
+  const startGpsTracking = () => {
     if (!user || user.role !== 'rider') return;
+    
+    if (watchIdRef.current !== null) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+    }
+
     if (!navigator.geolocation) {
       setGpsStatus('error');
       return;
+    }
+
+    // Verifica se está em um contexto seguro (localhost ou HTTPS)
+    if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+      console.warn("A API de Geolocalização requer um contexto seguro (HTTPS ou localhost).");
     }
 
     setGpsStatus('requesting');
@@ -84,7 +95,6 @@ export default function RiderDashboard() {
       const { latitude, longitude } = pos.coords;
       setGpsCoords({ lat: latitude, lng: longitude });
       setGpsStatus('active');
-      // Envia localização para o Supabase (via db)
       db.updateRiderLocation(user.id, user.name, latitude, longitude);
     };
 
@@ -104,6 +114,11 @@ export default function RiderDashboard() {
     };
 
     watchIdRef.current = navigator.geolocation.watchPosition(onSuccess, onError, options);
+  };
+
+  // Inicia o GPS automaticamente ao montar o componente
+  useEffect(() => {
+    startGpsTracking();
 
     return () => {
       if (watchIdRef.current !== null) {
@@ -266,47 +281,57 @@ export default function RiderDashboard() {
         {activeTab === 'dashboard' && (
           <div className="space-y-6">
             {/* Card de Status do GPS */}
-            <div className={`rounded-xl p-4 flex items-center gap-3 border ${
+            <div className={`rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border ${
               gpsStatus === 'active'
                 ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
                 : gpsStatus === 'requesting'
                 ? 'bg-blue-50 border-blue-200 text-blue-800'
                 : 'bg-red-50 border-red-200 text-red-800'
             }`}>
-              <div className={`p-2 rounded-full ${
-                gpsStatus === 'active' ? 'bg-emerald-100' : gpsStatus === 'requesting' ? 'bg-blue-100' : 'bg-red-100'
-              }`}>
-                {gpsStatus === 'active' && <Radio className="h-5 w-5 text-emerald-600 animate-pulse" />}
-                {gpsStatus === 'requesting' && <Satellite className="h-5 w-5 text-blue-600 animate-spin" />}
-                {(gpsStatus === 'error' || gpsStatus === 'denied') && <WifiOff className="h-5 w-5 text-red-600" />}
+              <div className="flex items-center gap-3">
+                <div className={`p-2 rounded-full ${
+                  gpsStatus === 'active' ? 'bg-emerald-100' : gpsStatus === 'requesting' ? 'bg-blue-100' : 'bg-red-100'
+                }`}>
+                  {gpsStatus === 'active' && <Radio className="h-5 w-5 text-emerald-600 animate-pulse" />}
+                  {gpsStatus === 'requesting' && <Satellite className="h-5 w-5 text-blue-600 animate-spin" />}
+                  {(gpsStatus === 'error' || gpsStatus === 'denied') && <WifiOff className="h-5 w-5 text-red-600" />}
+                </div>
+                <div className="min-w-0">
+                  {gpsStatus === 'active' && (
+                    <>
+                      <p className="font-bold text-sm">📡 GPS Ativo — Transmitindo localização</p>
+                      {gpsCoords && (
+                        <p className="text-xs opacity-75 font-mono truncate">
+                          {gpsCoords.lat.toFixed(5)}, {gpsCoords.lng.toFixed(5)}
+                        </p>
+                      )}
+                    </>
+                  )}
+                  {gpsStatus === 'requesting' && (
+                    <p className="font-bold text-sm">Aguardando permissão de localização...</p>
+                  )}
+                  {gpsStatus === 'denied' && (
+                    <>
+                      <p className="font-bold text-sm">⚠️ Permissão de GPS negada</p>
+                      <p className="text-xs opacity-75">Habilite a localização nas configurações do navegador.</p>
+                    </>
+                  )}
+                  {gpsStatus === 'error' && (
+                    <>
+                      <p className="font-bold text-sm">⚠️ GPS indisponível ou HTTP não seguro</p>
+                      <p className="text-xs opacity-75">Acesse via HTTPS ou ative o GPS do celular.</p>
+                    </>
+                  )}
+                </div>
               </div>
-              <div className="flex-1 min-w-0">
-                {gpsStatus === 'active' && (
-                  <>
-                    <p className="font-bold text-sm">📡 GPS Ativo — Transmitindo localização</p>
-                    {gpsCoords && (
-                      <p className="text-xs opacity-75 font-mono truncate">
-                        {gpsCoords.lat.toFixed(5)}, {gpsCoords.lng.toFixed(5)}
-                      </p>
-                    )}
-                  </>
-                )}
-                {gpsStatus === 'requesting' && (
-                  <p className="font-bold text-sm">Aguardando permissão de localização...</p>
-                )}
-                {gpsStatus === 'denied' && (
-                  <>
-                    <p className="font-bold text-sm">⚠️ Permissão de GPS negada</p>
-                    <p className="text-xs opacity-75">Habilite a localização nas configurações do navegador.</p>
-                  </>
-                )}
-                {gpsStatus === 'error' && (
-                  <>
-                    <p className="font-bold text-sm">⚠️ GPS indisponível</p>
-                    <p className="text-xs opacity-75">Verifique se o GPS do celular está ativado.</p>
-                  </>
-                )}
-              </div>
+              {gpsStatus !== 'active' && (
+                <button
+                  onClick={startGpsTracking}
+                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg transition-colors self-start sm:self-auto"
+                >
+                  Ativar GPS Manualmente
+                </button>
+              )}
             </div>
 
             {/* Cards de Faturamento */}
