@@ -71,7 +71,7 @@ export default function Landing() {
       phone: form.phone,
       email: form.email,
       role: 'rider',
-      active: true,
+      active: false, // Changed to false - pending approval
       passwordHash: form.password
     };
 
@@ -82,7 +82,7 @@ export default function Landing() {
     setTimeout(() => {
       setShowRegisterModal(false);
       setSuccess(false);
-      navigate('/login');
+      // Do not redirect to login - user must wait for approval
     }, 2000);
   };
 
@@ -347,7 +347,7 @@ export default function Landing() {
 
             {success && (
               <div className="bg-emerald-50 border-l-4 border-emerald-500 p-3 rounded text-xs text-emerald-700 font-medium">
-                Cadastro realizado com sucesso! Redirecionando para o login...
+                Cadastro realizado com sucesso! Seu cadastro está pendente de aprovação do administrador. Você será notificado quando for aprovado.
               </div>
             )}
 

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db, Schedule, Delivery, Notification } from '../utils/db';
 import { 
@@ -16,7 +16,10 @@ import {
   AlertCircle,
   History,
   Filter,
-  X
+  X,
+  Satellite,
+  WifiOff,
+  Radio
 } from 'lucide-react';
 
 export default function RiderDashboard() {
@@ -26,6 +29,9 @@ export default function RiderDashboard() {
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'schedules' | 'history' | 'notifications'>('dashboard');
+  const [gpsStatus, setGpsStatus] = useState<'requesting' | 'active' | 'error' | 'denied'>('requesting');
+  const [gpsCoords, setGpsCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const watchIdRef = useRef<number | null>(null);
 
   // Filtros das escalas futuras
   const [scheduleEstFilter, setScheduleEstFilter] = useState('');
@@ -61,6 +67,49 @@ export default function RiderDashboard() {
     window.addEventListener('db-sync-complete', handleSyncComplete);
     return () => {
       window.removeEventListener('db-sync-complete', handleSyncComplete);
+    };
+  }, [user]);
+
+  // ── GPS em tempo real ──────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!user || user.role !== 'rider') return;
+    if (!navigator.geolocation) {
+      setGpsStatus('error');
+      return;
+    }
+
+    setGpsStatus('requesting');
+
+    const onSuccess = (pos: GeolocationPosition) => {
+      const { latitude, longitude } = pos.coords;
+      setGpsCoords({ lat: latitude, lng: longitude });
+      setGpsStatus('active');
+      // Envia localização para o Supabase (via db)
+      db.updateRiderLocation(user.id, user.name, latitude, longitude);
+    };
+
+    const onError = (err: GeolocationPositionError) => {
+      if (err.code === GeolocationPositionError.PERMISSION_DENIED) {
+        setGpsStatus('denied');
+      } else {
+        setGpsStatus('error');
+      }
+      console.warn('GPS error:', err.message);
+    };
+
+    const options: PositionOptions = {
+      enableHighAccuracy: true,
+      maximumAge: 5000,
+      timeout: 15000
+    };
+
+    watchIdRef.current = navigator.geolocation.watchPosition(onSuccess, onError, options);
+
+    return () => {
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
+      }
     };
   }, [user]);
 
@@ -216,6 +265,50 @@ export default function RiderDashboard() {
         {/* Tab Content: Dashboard */}
         {activeTab === 'dashboard' && (
           <div className="space-y-6">
+            {/* Card de Status do GPS */}
+            <div className={`rounded-xl p-4 flex items-center gap-3 border ${
+              gpsStatus === 'active'
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                : gpsStatus === 'requesting'
+                ? 'bg-blue-50 border-blue-200 text-blue-800'
+                : 'bg-red-50 border-red-200 text-red-800'
+            }`}>
+              <div className={`p-2 rounded-full ${
+                gpsStatus === 'active' ? 'bg-emerald-100' : gpsStatus === 'requesting' ? 'bg-blue-100' : 'bg-red-100'
+              }`}>
+                {gpsStatus === 'active' && <Radio className="h-5 w-5 text-emerald-600 animate-pulse" />}
+                {gpsStatus === 'requesting' && <Satellite className="h-5 w-5 text-blue-600 animate-spin" />}
+                {(gpsStatus === 'error' || gpsStatus === 'denied') && <WifiOff className="h-5 w-5 text-red-600" />}
+              </div>
+              <div className="flex-1 min-w-0">
+                {gpsStatus === 'active' && (
+                  <>
+                    <p className="font-bold text-sm">📡 GPS Ativo — Transmitindo localização</p>
+                    {gpsCoords && (
+                      <p className="text-xs opacity-75 font-mono truncate">
+                        {gpsCoords.lat.toFixed(5)}, {gpsCoords.lng.toFixed(5)}
+                      </p>
+                    )}
+                  </>
+                )}
+                {gpsStatus === 'requesting' && (
+                  <p className="font-bold text-sm">Aguardando permissão de localização...</p>
+                )}
+                {gpsStatus === 'denied' && (
+                  <>
+                    <p className="font-bold text-sm">⚠️ Permissão de GPS negada</p>
+                    <p className="text-xs opacity-75">Habilite a localização nas configurações do navegador.</p>
+                  </>
+                )}
+                {gpsStatus === 'error' && (
+                  <>
+                    <p className="font-bold text-sm">⚠️ GPS indisponível</p>
+                    <p className="text-xs opacity-75">Verifique se o GPS do celular está ativado.</p>
+                  </>
+                )}
+              </div>
+            </div>
+
             {/* Cards de Faturamento */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-4">

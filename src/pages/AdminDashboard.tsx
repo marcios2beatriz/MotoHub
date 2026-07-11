@@ -171,7 +171,7 @@ export default function AdminDashboard() {
         phone: riderForm.phone,
         email: riderForm.email,
         role: 'rider',
-        active: true,
+        active: true, // Keep active: true for edited riders (existing functionality)
         passwordHash: riderForm.password || 'moto123'
       };
       db.setUsers([...allUsers, newRider]);
@@ -187,6 +187,30 @@ export default function AdminDashboard() {
     const allUsers = db.getUsers();
     const updated = allUsers.map(u => u.id === id ? { ...u, active: !u.active } : u);
     db.setUsers(updated);
+    loadData();
+  };
+
+  // New function to approve a pending rider
+  const handleApproveRider = (id: string) => {
+    const allUsers = db.getUsers();
+    const updated = allUsers.map(u => u.id === id ? { ...u, active: true } : u);
+    db.setUsers(updated);
+    
+    // Create notification for the rider
+    const rider = allUsers.find(u => u.id === id);
+    if (rider) {
+      const allNotif = db.getNotifications();
+      const newNotif: Notification = {
+        id: 'n_' + Date.now(),
+        riderId: rider.id,
+        title: '🎉 Cadastro Aprovado!',
+        message: 'Seu cadastro foi aprovado! Você já pode acessar o sistema com seu e-mail e senha.',
+        date: new Date().toISOString(),
+        read: false
+      };
+      db.setNotifications([...allNotif, newNotif]);
+    }
+    
     loadData();
   };
 
@@ -824,9 +848,9 @@ export default function AdminDashboard() {
                         </td>
                         <td className="py-3 px-4">
                           <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
-                            rider.active ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'
+                            rider.active ? 'bg-emerald-100 text-emerald-800' : 'bg-blue-100 text-blue-800'
                           }`}>
-                            {rider.active ? 'Ativo' : 'Inativo'}
+                            {rider.active ? 'Ativo' : 'Pendente'}
                           </span>
                         </td>
                         <td className="py-3 px-4 text-right space-x-2">
@@ -867,17 +891,29 @@ export default function AdminDashboard() {
                           >
                             <Edit2 className="h-4 w-4" />
                           </button>
-                          <button
-                            onClick={() => toggleRiderStatus(rider.id)}
-                            className={`p-1.5 rounded transition-colors ${
-                              rider.active 
-                                ? 'text-red-500 hover:bg-red-50' 
-                                : 'text-emerald-500 hover:bg-emerald-50'
-                            }`}
-                            title={rider.active ? 'Desativar' : 'Ativar'}
-                          >
-                            {rider.active ? <X className="h-4 w-4" /> : <Check className="h-4 w-4" />}
-                          </button>
+                          {!rider.active && (
+                            <button
+                              onClick={() => handleApproveRider(rider.id)}
+                              className="p-1.5 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 rounded transition-colors inline-flex items-center space-x-1 text-xs font-bold"
+                              title="Aprovar Motoboy"
+                            >
+                              <Check className="h-3.5 w-3.5" />
+                              <span>Aprovar</span>
+                            </button>
+                          )}
+                          {rider.active && (
+                            <button
+                              onClick={() => toggleRiderStatus(rider.id)}
+                              className={`p-1.5 rounded transition-colors ${
+                                rider.active 
+                                  ? 'text-red-500 hover:bg-red-50' 
+                                  : 'text-emerald-500 hover:bg-emerald-50'
+                              }`}
+                              title={rider.active ? 'Desativar' : 'Ativar'}
+                            >
+                              {rider.active ? <X className="h-4 w-4" /> : <Check className="h-4 w-4" />}
+                            </button>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -1318,11 +1354,18 @@ export default function AdminDashboard() {
                               return (
                                 <div key={sch.id} className="flex items-center justify-between gap-3 bg-white border border-slate-200 rounded-xl px-4 py-3 hover:border-indigo-200 transition-colors">
                                   <div className="flex items-center gap-3 min-w-0">
-                                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0 ${rider?.active ? 'bg-indigo-600' : 'bg-slate-400'}`}>{rider?.name.charAt(0).toUpperCase() || '?'}</div>
-                                    <div className="min-w-0">
-                                      <p className="text-sm font-bold text-slate-800 truncate">{rider?.name || 'N/A'}</p>
-                                      <p className="text-xs text-slate-500 truncate">{est?.name || 'N/A'}</p>
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      {isTod && <span className="bg-emerald-100 text-emerald-700 text-[10px] font-bold px-1.5 py-0.5 rounded-full uppercase">Hoje</span>}
+                                      <p className="text-sm font-semibold text-slate-800 truncate">{est?.name || 'N/A'}</p>
                                     </div>
+                                    <p className="text-xs text-slate-500 mt-0.5 flex flex-wrap items-center gap-1">
+                                      <span>{new Date(sch.date + 'T00:00:00').toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
+                                      <span className="text-slate-300">•</span>
+                                      <Clock className="h-4 w-4 text-slate-400" />
+                                      <span className="font-medium text-indigo-600">{getShiftLabel(sch.shift)}</span>
+                                      <span className="text-slate-300">•</span>
+                                      <span className="font-semibold text-slate-700 bg-slate-100 px-2 py-0.5 rounded text-xs">{sch.startTime} - {sch.endTime}</span>
+                                    </p>
                                   </div>
                                   <div className="flex items-center gap-3 flex-shrink-0">
                                     <div className="text-right">
@@ -1439,6 +1482,28 @@ export default function AdminDashboard() {
 
           {/* TAB: RELATÓRIOS */}
           {activeTab === 'reports' && (
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <h2 className="text-xl font-bold text-slate-800">Relatórios Gerenciais</h2>
+                <button
+                  onClick={exportToCSV}
+                  className="flex items-center justify-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                >
+                  <Download className="h-4 w-4" />
+                  <span>Exportar CSV</span>
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-100">
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Tipo de Relatório</label>
+                  <select
+                    value={reportType}
+                    onChange={(e: any) => setReportType(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  >
+                    <option value="earnings">Faturamento por Motoboy</option>
+                    <option value="deliveries">Quant{activeTab === 'reports' && (
             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-6">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <h2 className="text-xl font-bold text-slate-800">Relatórios Gerenciais</h2>
@@ -1853,7 +1918,7 @@ export default function AdminDashboard() {
                     required
                     value={scheduleForm.startTime}
                     onChange={(e) => setScheduleForm({ ...scheduleForm, startTime: e.target.value })}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none"
+                    className="w-full px-3 py-2 border border border-slate-300 rounded-lg text-sm focus:outline-none"
                   />
                 </div>
                 <div>
