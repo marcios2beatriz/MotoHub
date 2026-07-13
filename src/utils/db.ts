@@ -292,9 +292,21 @@ const syncToSupabase = async (table: string, data: any[]) => {
       return item;
     });
 
-    const { error } = await supabase.from(table).upsert(formattedData);
+    let { error } = await supabase.from(table).upsert(formattedData);
+    
+    // Se o erro for por falta da coluna 'notes' na tabela 'deliveries', tentamos novamente sem ela!
+    if (error && table === 'deliveries' && error.message.includes("'notes'")) {
+      console.warn("⚠️ Coluna 'notes' não encontrada no Supabase. Sincronizando corridas sem o campo 'notes'...");
+      const cleanedData = formattedData.map(({ notes, ...rest }) => rest);
+      const retry = await supabase.from(table).upsert(cleanedData);
+      error = retry.error;
+    }
+
     if (error) {
       console.warn(`⚠️ Erro ao sincronizar tabela "${table}" com Supabase.`, error.message);
+      if (error.message.includes("404") || error.message.includes("not found") || error.message.includes("relation")) {
+        disabledTables.add(table);
+      }
     }
   } catch (err: any) {
     console.warn('Erro ao sincronizar com o Supabase:', err?.message || err);
@@ -664,6 +676,9 @@ export const db = {
         const merged = mergeById(localReqs, mappedReqs);
         setStorageData('dm_partner_requests', merged);
         await syncToSupabase('partner_requests', merged);
+      } else if (reqsError && (reqsError.message.includes("404") || reqsError.message.includes("not found") || reqsError.message.includes("relation"))) {
+        console.warn("⚠️ Tabela partner_requests não encontrada no Supabase. Usando apenas LocalStorage.");
+        disabledTables.add('partner_requests');
       }
 
       // 7. Carregar localizações dos motoboys
