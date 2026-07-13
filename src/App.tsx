@@ -17,6 +17,14 @@ function InactivityHandler({ children }: { children: React.ReactNode }) {
     // Puxar dados do Supabase na inicialização
     db.pullFromSupabase();
 
+    // Sincronização periódica a cada 10 segundos para manter os dados atualizados em tempo real
+    const syncInterval = setInterval(() => {
+      const currentUser = db.getCurrentUser();
+      if (currentUser) {
+        db.pullFromSupabase();
+      }
+    }, 10000);
+
     const checkInactivity = () => {
       const currentUser = db.getCurrentUser();
       if (currentUser) {
@@ -40,8 +48,8 @@ function InactivityHandler({ children }: { children: React.ReactNode }) {
       }
     };
 
-    // Verificar a cada 10 segundos
-    const interval = setInterval(checkInactivity, 10000);
+    // Verificar inatividade a cada 10 segundos
+    const inactivityInterval = setInterval(checkInactivity, 10000);
 
     // Escutar eventos de interação do usuário
     window.addEventListener('mousemove', updateActivity);
@@ -50,7 +58,8 @@ function InactivityHandler({ children }: { children: React.ReactNode }) {
     window.addEventListener('scroll', updateActivity);
 
     return () => {
-      clearInterval(interval);
+      clearInterval(syncInterval);
+      clearInterval(inactivityInterval);
       window.removeEventListener('mousemove', updateActivity);
       window.removeEventListener('keydown', updateActivity);
       window.removeEventListener('click', updateActivity);
