@@ -115,10 +115,12 @@ export default function EstablishmentDashboard() {
       setUser(freshUser);
     }
 
-    loadData();
+    // Sincronização ativa imediata ao carregar a página
+    db.pullFromSupabase().then(() => loadData());
 
+    // Sincronização ativa agressiva a cada 5 segundos para rastreamento em tempo real
     const interval = setInterval(() => {
-      loadData();
+      db.pullFromSupabase().then(() => loadData());
     }, 5000);
 
     const handleSyncComplete = () => {
@@ -375,7 +377,7 @@ export default function EstablishmentDashboard() {
   };
 
   const handleRejectDelivery = (id: string) => {
-    const reason = prompt('Digite o motivo da rejeição (opcional):');
+    const reason = prompt('Digite o motivo da rejection (opcional):');
     if (reason !== null) {
       const allDeliveries = db.getDeliveries();
       const delivery = allDeliveries.find(d => d.id === id);

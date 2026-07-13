@@ -124,10 +124,14 @@ export default function RiderDashboard() {
 
     const options: PositionOptions = {
       enableHighAccuracy: true,
-      maximumAge: 5000,
+      maximumAge: 0, // Força a busca de uma posição nova, não cacheada
       timeout: 15000
     };
 
+    // Captura imediata da posição atual para atualizar o mapa instantaneamente
+    navigator.geolocation.getCurrentPosition(onSuccess, onError, options);
+
+    // Inicia o monitoramento contínuo de mudanças de posição
     watchIdRef.current = navigator.geolocation.watchPosition(onSuccess, onError, options);
   };
 
@@ -616,18 +620,18 @@ export default function RiderDashboard() {
               <div className="space-y-4">
                 {filteredFutureSchedules.map((schedule) => {
                   const est = db.getEstablishments().find(e => e.id === schedule.establishmentId);
-                  const isToday = schedule.date === todayStr;
+                  const isTransition = schedule.date === todayStr;
 
                   return (
                     <div 
                       key={schedule.id} 
                       className={`bg-white p-5 rounded-xl shadow-sm border transition-all ${
-                        isToday ? 'border-indigo-500 ring-2 ring-indigo-100' : 'border-slate-200'
+                        isTransition ? 'border-indigo-500 ring-2 ring-indigo-100' : 'border-slate-200'
                       }`}
                     >
                       <div className="flex justify-between items-start mb-3">
                         <div>
-                          {isToday && (
+                          {isTransition && (
                             <span className="bg-indigo-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider mb-2 inline-block">
                               Hoje
                             </span>
