@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { db, Delivery, User, Establishment, RiderLocation } from '../utils/db';
-import { Bike, MapPin, Clock, ShieldCheck, RefreshCw, Phone, ChevronLeft } from 'lucide-react';
+import { Bike, MapPin, Clock, ShieldCheck, RefreshCw, Phone } from 'lucide-react';
 import L from 'leaflet';
 
 export default function CustomerTracking() {
@@ -13,16 +13,17 @@ export default function CustomerTracking() {
   const [rider, setRider] = useState<User | null>(null);
   const [establishment, setEstablishment] = useState<Establishment | null>(null);
   const [riderLocation, setRiderLocation] = useState<RiderLocation | null>(null);
+  const [estCoords, setEstCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [loading, setLoading] = useState(true);
 
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
+  const estMarkerRef = useRef<L.Marker | null>(null);
   const riderMarkerRef = useRef<L.Marker | null>(null);
 
   const loadTrackingData = () => {
     if (!deliveryId) return;
     
-    // Puxar dados atualizados
     const allDeliveries = db.getDeliveries();
     const currentDelivery = allDeliveries.find(d => d.id === deliveryId);
     
@@ -45,7 +46,6 @@ export default function CustomerTracking() {
   };
 
   useEffect(() => {
-    // Sincronização inicial e periódica a cada 5 segundos
     db.pullFromSupabase().then(() => loadTrackingData());
 
     const interval = setInterval(() => {
@@ -55,7 +55,7 @@ export default function CustomerTracking() {
     return () => clearInterval(interval);
   }, [deliveryId]);
 
-  // Inicialização do Mapa
+  // Inicialização do Mapa e Geocodificação do Estabelecimento
   useEffect(() => {
     if (!establishment || !mapContainerRef.current || mapRef.current) return;
 
@@ -70,16 +70,15 @@ export default function CustomerTracking() {
     const defaultLat = -23.56168;
     const defaultLng = -46.65598;
 
-    const initMap = async (lat: number, lng: number) => {
+    const initMap = (lat: number, lng: number) => {
       if (mapRef.current) return;
-      const mapInstance = L.map(mapContainerRef.current!).setView([lat, lng], 15);
+      const mapInstance = L.map(mapContainerRef.current!).setView([lat, lng], 14);
       mapRef.current = mapInstance;
 
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; OpenStreetMap contributors'
       }).addTo(mapInstance);
 
-      // Marcador do Estabelecimento (Ponto de Partida)
       const estIcon = L.divIcon({
         html: `<div style="background-color: #4f46e5; color: white; width: 36px; height: 36px; border-radius: 50%; border: 2px solid white; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); display: flex; align-items: center; justify-content: center;"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></div>`,
         className: 'custom-est-icon',
@@ -87,18 +86,21 @@ export default function CustomerTracking() {
         iconAnchor: [18, 18]
       });
 
-      L.marker([lat, lng], { icon: estIcon })
+      const marker = L.marker([lat, lng], { icon: estIcon })
         .addTo(mapInstance)
-        .bindPopup(`<b>${establishment.name}</b><br/>Ponto de Partida`)
-        .openPopup();
+        .bindPopup(`<b>${establishment.name}</b><br/>Ponto de Partida`);
+      
+      estMarkerRef.current = marker;
+      setEstCoords({ lat, lng });
     };
 
-    // Geocodificar estabelecimento
     const geocode = async () => {
       const addr = establishment.address;
-      const query = `${addr.street}, ${addr.number}, ${addr.neighborhood}, ${addr.city}, Brasil`;
+      
+      // Etapa 1: Endereço Completo
+      const queryFull = `${addr.street}, ${addr.number}, ${addr.neighborhood}, ${addr.city}, ${addr.state}, Brasil`;
       try {
-        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`);
+        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(queryFull)}`);
         const data = await res.json();
         if (data && data.length > 0) {
           initMap(parseFloat(data[0].lat), parseFloat(data[0].lon));
@@ -107,34 +109,82 @@ export default function CustomerTracking() {
       } catch (e) {
         console.warn(e);
       }
+
+      // Etapa 2: CEP
+      if (addr.zipCode) {
+        const cep = addr.zipCode.replace(/\D/g, '');
+        try {
+          const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&postalcode=${cep}&country=Brazil`);
+          const data = await res.json();
+          if (data && data.length > 0) {
+            initMap(parseFloat(data[0].lat), parseFloat(data[0].lon));
+            return;
+          }
+        } catch (e) {
+          console.warn(e);
+        }
+      }
+
+      // Etapa 3: Cidade e Estado
+      const queryCity = `${addr.city}, ${addr.state}, Brasil`;
+      try {
+        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(queryCity)}`);
+        const data = await res.json();
+        if (data && data.length > 0) {
+          initMap(parseFloat(data[0].lat), parseFloat(data[0].lon));
+          return;
+        }
+      } catch (e) {
+        console.warn(e);
+      }
+
       initMap(defaultLat, defaultLng);
     };
 
     geocode();
   }, [establishment]);
 
-  // Atualização do Marcador do Motoboy
+  // Atualização do Marcador do Motoboy e Ajuste de Zoom (Fit Bounds)
   useEffect(() => {
     const currentMap = mapRef.current;
-    if (!currentMap || !riderLocation) return;
+    if (!currentMap) return;
 
-    if (riderMarkerRef.current) {
-      riderMarkerRef.current.setLatLng([riderLocation.lat, riderLocation.lng]);
-    } else {
-      const riderIcon = L.divIcon({
-        html: `<div style="background-color: #10b981; color: white; width: 36px; height: 36px; border-radius: 50%; border: 2px solid white; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); display: flex; align-items: center; justify-content: center;"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="15" width="14" height="4" rx="1"/><path d="M12 15V5a2 2 0 0 0-2-2H4"/><path d="M12 5h7a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h-7"/></svg></div>`,
-        className: 'custom-rider-icon',
-        iconSize: [36, 36],
-        iconAnchor: [18, 18]
-      });
+    // Atualizar ou criar marcador do motoboy
+    if (riderLocation) {
+      if (riderMarkerRef.current) {
+        riderMarkerRef.current.setLatLng([riderLocation.lat, riderLocation.lng]);
+      } else {
+        const riderIcon = L.divIcon({
+          html: `<div style="background-color: #10b981; color: white; width: 36px; height: 36px; border-radius: 50%; border: 2px solid white; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); display: flex; align-items: center; justify-content: center;"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="15" width="14" height="4" rx="1"/><path d="M12 15V5a2 2 0 0 0-2-2H4"/><path d="M12 5h7a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h-7"/></svg></div>`,
+          className: 'custom-rider-icon',
+          iconSize: [36, 36],
+          iconAnchor: [18, 18]
+        });
 
-      const marker = L.marker([riderLocation.lat, riderLocation.lng], { icon: riderIcon })
-        .addTo(currentMap)
-        .bindPopup(`<b>${rider?.name || 'Entregador'}</b><br/>A caminho do seu endereço!`);
+        const marker = L.marker([riderLocation.lat, riderLocation.lng], { icon: riderIcon })
+          .addTo(currentMap)
+          .bindPopup(`<b>${rider?.name || 'Entregador'}</b><br/>A caminho do seu endereço!`);
 
-      riderMarkerRef.current = marker;
+        riderMarkerRef.current = marker;
+      }
     }
-  }, [riderLocation, rider]);
+
+    // Ajustar o enquadramento do mapa para mostrar AMBOS os pontos
+    const points: L.LatLngExpression[] = [];
+    if (estCoords) {
+      points.push([estCoords.lat, estCoords.lng]);
+    }
+    if (riderLocation) {
+      points.push([riderLocation.lat, riderLocation.lng]);
+    }
+
+    if (points.length === 2) {
+      const bounds = L.latLngBounds(points);
+      currentMap.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
+    } else if (points.length === 1) {
+      currentMap.setView(points[0], 15);
+    }
+  }, [riderLocation, rider, estCoords]);
 
   if (loading) {
     return (

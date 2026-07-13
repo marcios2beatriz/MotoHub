@@ -47,6 +47,7 @@ export default function EstablishmentDashboard() {
   const [todaySchedules, setTodaySchedules] = useState<Schedule[]>([]);
   const [todayDeliveries, setTodayDeliveries] = useState<Delivery[]>([]);
   const [riderLocations, setRiderLocations] = useState<RiderLocation[]>([]);
+  const [estCoords, setEstCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   // Map expansion state
@@ -168,6 +169,8 @@ export default function EstablishmentDashboard() {
         .addTo(mapInstance)
         .bindPopup(`<b>${establishment.name}</b><br/>Seu Estabelecimento`)
         .openPopup();
+
+      setEstCoords({ lat, lng });
     };
 
     const geocodeEstablishment = async () => {
@@ -234,7 +237,7 @@ export default function EstablishmentDashboard() {
     };
   }, [establishment?.id]); // Alterado para ID para evitar reinicialização do mapa a cada atualização de dados
 
-  // 2. Hook de Atualização Suave dos Marcadores dos Motoboys
+  // 2. Hook de Atualização Suave dos Marcadores dos Motoboys e Ajuste de Zoom (Fit Bounds)
   useEffect(() => {
     const currentMap = mapRef.current;
     if (!currentMap) return;
@@ -257,7 +260,6 @@ export default function EstablishmentDashboard() {
       const existingMarker = markersRef.current[loc.riderId];
 
       if (existingMarker) {
-        // Atualiza a posição suavemente sem recriar o marcador
         existingMarker.setLatLng([loc.lat, loc.lng]);
       } else {
         const riderIcon = L.divIcon({
@@ -274,7 +276,27 @@ export default function EstablishmentDashboard() {
         markersRef.current[loc.riderId] = marker;
       }
     });
-  }, [scheduledRiders, riderLocations]);
+
+    // Ajustar o enquadramento do mapa para mostrar AMBOS os pontos
+    const points: L.LatLngExpression[] = [];
+    if (estCoords) {
+      points.push([estCoords.lat, estCoords.lng]);
+    }
+    
+    // Adicionar localizações dos motoboys ativos
+    riderLocations.forEach(loc => {
+      if (scheduledRiderIds.includes(loc.riderId)) {
+        points.push([loc.lat, loc.lng]);
+      }
+    });
+
+    if (points.length >= 2) {
+      const bounds = L.latLngBounds(points);
+      currentMap.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
+    } else if (points.length === 1) {
+      currentMap.setView(points[0], 15);
+    }
+  }, [scheduledRiders, riderLocations, estCoords]);
 
   // 3. Forçar redimensionamento do mapa ao expandir/minimizar
   useEffect(() => {
