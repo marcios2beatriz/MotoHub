@@ -250,7 +250,6 @@ export default function EstablishmentDashboard() {
         });
         markersRef.current = {};
         mapRef.current.remove();
-        mapRef.currentMap.remove();
         mapRef.current = null;
       }
     };
@@ -601,7 +600,8 @@ export default function EstablishmentDashboard() {
             </h2>
 
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[500px] text-left border-collapse">                <thead>
+              <table className="w-full min-w-[500px] text-left border-collapse">
+                <thead>
                   <tr className="border-b border-slate-200 text-slate-500 text-xs uppercase font-semibold">
                     <th className="py-3 px-4">Motoboy</th>
                     <th className="py-3 px-4">Nº Pedido</th>
