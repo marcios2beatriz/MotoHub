@@ -357,13 +357,23 @@ export default function EstablishmentDashboard() {
   };
 
   const handleRejectDelivery = (id: string) => {
-    if (confirm('Deseja realmente rejeitar esta corrida?')) {
+    const reason = prompt('Digite o motivo da rejeição (opcional):');
+    if (reason !== null) {
       const allDeliveries = db.getDeliveries();
       const delivery = allDeliveries.find(d => d.id === id);
       if (!delivery) return;
 
       const nowStr = new Date().toISOString();
-      const updated = allDeliveries.map(d => d.id === id ? { ...d, status: 'rejected' as const, updatedAt: nowStr } : d);
+      const updatedNotes = delivery.notes 
+        ? `${delivery.notes} | Rejeitado: ${reason}` 
+        : `Motivo da rejeição: ${reason}`;
+
+      const updated = allDeliveries.map(d => d.id === id ? { 
+        ...d, 
+        status: 'rejected' as const, 
+        notes: updatedNotes,
+        updatedAt: nowStr 
+      } : d);
       db.setDeliveries(updated);
 
       // Notify Rider
@@ -372,7 +382,7 @@ export default function EstablishmentDashboard() {
         id: 'n_' + Date.now(),
         riderId: delivery.riderId,
         title: '❌ Corrida Rejeitada',
-        message: `Sua corrida no valor de R$ ${delivery.value.toFixed(2)} foi rejeitada pelo estabelecimento ${establishment?.name}.`,
+        message: `Sua corrida no valor de R$ ${delivery.value.toFixed(2)} foi rejeitada pelo estabelecimento ${establishment?.name}. Motivo: ${reason || 'Não especificado'}.`,
         date: new Date().toISOString(),
         read: false
       };
