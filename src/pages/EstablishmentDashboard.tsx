@@ -113,7 +113,15 @@ export default function EstablishmentDashboard() {
       loadData();
     }, 5000);
 
-    return () => clearInterval(interval);
+    const handleSyncComplete = () => {
+      loadData();
+    };
+    window.addEventListener('db-sync-complete', handleSyncComplete);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('db-sync-complete', handleSyncComplete);
+    };
   }, [user, navigate]);
 
   // Initialize Map and Handle Markers
@@ -273,6 +281,7 @@ export default function EstablishmentDashboard() {
     const todayStr = new Date().toISOString().split('T')[0];
     const activeSchedule = todaySchedules.find(s => s.riderId === deliveryForm.riderId);
     const allDeliveries = db.getDeliveries();
+    const nowStr = new Date().toISOString();
 
     if (editingDelivery) {
       const updated = allDeliveries.map(d => d.id === editingDelivery.id ? {
@@ -281,7 +290,8 @@ export default function EstablishmentDashboard() {
         value: val,
         orderNumber: deliveryForm.orderNumber.trim() || undefined,
         notes: deliveryForm.notes.trim() || undefined,
-        scheduleId: activeSchedule?.id || d.scheduleId
+        scheduleId: activeSchedule?.id || d.scheduleId,
+        updatedAt: nowStr
       } : d);
       db.setDeliveries(updated);
       alert('Corrida editada com sucesso!');
@@ -296,7 +306,8 @@ export default function EstablishmentDashboard() {
         status: 'active',
         scheduleId: activeSchedule?.id,
         orderNumber: deliveryForm.orderNumber.trim() || undefined,
-        notes: deliveryForm.notes.trim() || undefined
+        notes: deliveryForm.notes.trim() || undefined,
+        updatedAt: nowStr
       };
       db.setDeliveries([...allDeliveries, newDelivery]);
     }
@@ -310,7 +321,8 @@ export default function EstablishmentDashboard() {
   const handleCancelDelivery = (id: string) => {
     if (confirm('Deseja realmente cancelar esta corrida?')) {
       const allDeliveries = db.getDeliveries();
-      const updated = allDeliveries.map(d => d.id === id ? { ...d, status: 'cancelled' as const } : d);
+      const nowStr = new Date().toISOString();
+      const updated = allDeliveries.map(d => d.id === id ? { ...d, status: 'cancelled' as const, updatedAt: nowStr } : d);
       db.setDeliveries(updated);
       loadData();
     }
@@ -321,7 +333,8 @@ export default function EstablishmentDashboard() {
     const delivery = allDeliveries.find(d => d.id === id);
     if (!delivery) return;
 
-    const updated = allDeliveries.map(d => d.id === id ? { ...d, status: 'active' as const } : d);
+    const nowStr = new Date().toISOString();
+    const updated = allDeliveries.map(d => d.id === id ? { ...d, status: 'active' as const, updatedAt: nowStr } : d);
     db.setDeliveries(updated);
 
     // Notify Rider
@@ -346,7 +359,701 @@ export default function EstablishmentDashboard() {
       const delivery = allDeliveries.find(d => d.id === id);
       if (!delivery) return;
 
-      const updated = allDeliveries.map(d => d.id === id ? { ...d, status: 'rejected' as const } : d);
+      const nowStr = new Date().toISOString();
+      const updated = allDeliveries.map(d => d.id === id ? { ...d, status: 'rejected' as const, updatedAt: nowStr } : d);
+      db.setDeliveries(updated);
+
+      // Notify Rider
+      const allNotif = db.getNotifications();
+      const newNotif: Notification = {
+        id: 'n_' + Date.now(),
+        riderId: delivery.riderId,
+        title: '❌ Corrida Rejeitada',
+        message: `Sua corrida no valor de R$ ${delivery.value.toFixed(2)} foi rejeitada pelo estabelecimento ${establishment?.name}.`,
+        date: new Date().toISOString(),
+        read: false
+      };
+      db.setNotifications([...allNotif, newNotif]);
+
+      loadData();
+    }
+  };
+
+  // Calculations
+  const getRiderTotalEarnings = (riderId: string) => {
+    return todayDeliveries
+      .filter(d => d.riderId === riderId && d.status === 'active')
+      .reduce((sum, d) => sum + d.value, 0);
+  };
+
+  const getRiderDeliveryCount = (riderId: string) => {
+    return todayDeliveries.filter(d => d.riderId === riderId && d.status === 'active').length;
+  };
+
+  const totalEstEarningsToday = todayDeliveries
+    .filter(d => d.status === 'active')
+    .reduce((sum, d) => sum + d.value, 0);
+
+  const pendingDeliveries = todayDeliveries.filter(d => d.status === 'pending');
+  const processedDeliveries = todayDeliveries.filter(d => d.status !== 'pending');
+
+  return (
+    <div className="min-h-screen bg-slate-50 flex flex-col">
+      {/* Header */}
+      <header className="bg-slate-900 text-white shadow-md sticky top-0 z-20">
+        <div className="max-w-7xl mx-auto px-4 py-3 flex justify-between items-center">
+          <div className="flex items-center space-x-3">
+            <div className="bg-indigo-600 p-1.5 rounded-lg">
+              <Bike className="h-5 w-5 text-white" />
+            </div>
+            <div>
+              <h1 className="text-base font-bold leading-tight">{establishment?.name || 'Painel Estabelecimento'}</h1>
+              <p className="text-xs text-slate-400">Lançamento de Corridas e Rastreamento</p>
+            </div>
+          </div>
+          <div className="flex items-center space-x-3">
+            <button 
+              onClick={handleLogout}
+              className="p-2 hover:bg-slate-800 rounded-lg transition-colors flex items-center space-x-1 text-sm text-red-400"
+            >
+              <LogOut className="h-5 w-5" />
+              <span>Sair</span>
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <main className="max-w-7xl w-full mx-auto px-4 py-6 flex-1 grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Left Column: Scheduled Riders & Delivery Launching */}
+        <div className="lg:col-span-2 space-y-6">
+          {/* Overview Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-4">
+              <div className="p-3 bg-indigo-100 text-indigo-600 rounded-lg">
+                <Users className="h-6 w-6" />
+              </div>
+              <div>
+                <p className="text-xs text-slate-500 font-medium uppercase">Motoboys Escalados</p>
+                <p className="text-2xl font-bold text-slate-800">{scheduledRiders.length}</p>
+              </div>
+            </div>
+
+            <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-4">
+              <div className="p-3 bg-emerald-100 text-emerald-600 rounded-lg">
+                <DollarSign className="h-6 w-6" />
+              </div>
+              <div>
+                <p className="text-xs text-slate-500 font-medium uppercase">Total Hoje</p>
+                <p className="text-2xl font-bold text-slate-800">R$ {totalEstEarningsToday.toFixed(2)}</p>
+              </div>
+            </div>
+
+            <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-4">
+              <div className="p-3 bg-blue-100 text-blue-600 rounded-lg">
+                <Bike className="h-6 w-6" />
+              </div>
+              <div>
+                <p className="text-xs text-slate-500 font-medium uppercase">Corridas Hoje</p>
+                <p className="text-2xl font-bold text-slate-800">
+                  {todayDeliveries.filter(d => d.status === 'active').length}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Pending Deliveries Approval Section */}
+          {pendingDeliveries.length > 0 && (
+            <div className="bg-amber-50/50 p-6 rounded-xl shadow-sm border border-amber-200 space-y-4">
+              <h2 className="text-lg font-bold text-amber-800 flex items-center space-x-2">
+                <Clock className="h-5 w-5 text-amber-600 animate-pulse" />
+                <span>Corridas Pendentes de Aprovação ({pendingDeliveries.length})</span>
+              </h2>
+
+              <div className="divide-y divide-amber-100">
+                {pendingDeliveries.map(del => {
+                  const rider = db.getUsers().find(u => u.id === del.riderId);
+                  return (
+                    <div key={del.id} className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="min-w-0 flex-1 pr-4">
+                        <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                          <p className="font-bold text-slate-800">{rider?.name || 'Motoboy'}</p>
+                          {del.orderNumber && (
+                            <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded">
+                              #{del.orderNumber}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-slate-500 flex items-center space-x-1 mt-1">
+                          <Clock className="h-3.5 w-3.5" />
+                          <span>Lançada às {del.time}</span>
+                        </p>
+                        {del.notes && (
+                          <p className="text-xs text-slate-600 bg-white border border-amber-100 rounded px-2 py-1 mt-1.5 italic">
+                            Obs: {del.notes}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex items-center space-x-3 self-end sm:self-center flex-shrink-0">
+                        <span className="font-bold text-amber-700 text-lg">R$ {del.value.toFixed(2)}</span>
+                        <div className="flex items-center space-x-1">
+                          <button
+                            onClick={() => {
+                              setEditingDelivery(del);
+                              setDeliveryForm({
+                                riderId: del.riderId,
+                                value: del.value.toString(),
+                                orderNumber: del.orderNumber || '',
+                                notes: del.notes || ''
+                              });
+                              setShowDeliveryModal(true);
+                            }}
+                            className="bg-slate-100 hover:bg-slate-200 text-slate-700 p-1.5 rounded-lg transition-colors flex items-center space-x-1 text-xs font-bold"
+                            title="Editar Corrida Pendente"
+                          >
+                            <Edit2 className="h-4 w-4" />
+                            <span className="hidden sm:inline">Editar</span>
+                          </button>
+                          <button
+                            onClick={() => handleApproveDelivery(del.id)}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white p-1.5 rounded-lg transition-colors flex items-center space-x-1 text-xs font-bold"
+                            title="Aprovar Corrida"
+                          >
+                            <Check className="h-4 w-4" />
+                            <span className="hidden sm:inline">Aprovar</span>
+                          </button>
+                          <button
+                            onClick={() => handleRejectDelivery(del.id)}
+                            className="bg-red-600 hover:bg-red-700 text-white p-1.5 rounded-lg transition-colors flex items-center space-x-1 text-xs font-bold"
+                            title="Rejeitar Corrida"
+                          >
+                            <X className="h-4 w-4" />
+                            <span className="hidden sm:inline">Rejeitar</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Scheduled Riders List */}
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
+            <div className="flex justify-between items-center">
+              <h2 className="text-lg font-bold text-slate-800 flex items-center space-x-2">
+                <Users className="h-5 w-5 text-indigo-600" />
+                <span>Motoboys Escalados Hoje</span>
+              </h2>
+              <button
+                onClick={() => {
+                  if (scheduledRiders.length === 0) {
+                    alert('Não há motoboys escalados para hoje.');
+                    return;
+                  }
+                  setEditingDelivery(null);
+                  setDeliveryForm({ riderId: scheduledRiders[0].id, value: '', orderNumber: '', notes: '' });
+                  setShowDeliveryModal(true);
+                }}
+                className="flex items-center space-x-1.5 bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+              >
+                <Plus className="h-4 w-4" />
+                <span>Lançar Corrida</span>
+              </button>
+            </div>
+
+            {scheduledRiders.length === 0 ? (
+              <div className="text-center py-8 text-slate-400 text-sm">
+                Nenhum motoboy escalado para hoje. Fale com o administrador para criar escalas.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {scheduledRiders.map(rider => {
+                  const total = getRiderTotalEarnings(rider.id);
+                  const count = getRiderDeliveryCount(rider.id);
+                  const isOnline = riderLocations.some(l => l.riderId === rider.id && (Date.now() - new Date(l.updatedAt).getTime() < 60000));
+
+                  return (
+                    <div key={rider.id} className="border border-slate-200 rounded-xl p-4 bg-slate-50/50 flex flex-col justify-between space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-2.5">
+                          <div className="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold text-sm">
+                            {rider.name.charAt(0).toUpperCase()}
+                          </div>
+                          <div>
+                            <p className="font-bold text-slate-800 text-sm">{rider.name}</p>
+                            <p className="text-xs text-slate-500">{rider.phone}</p>
+                          </div>
+                        </div>
+                        <span className={`h-2.5 w-2.5 rounded-full ${isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`} title={isOnline ? 'Online' : 'Offline'} />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100">
+                        <div className="bg-white p-2 rounded-lg border border-slate-100 text-center">
+                          <p className="text-xs text-slate-400">Corridas</p>
+                          <p className="text-sm font-bold text-slate-700">{count}</p>
+                        </div>
+                        <div className="bg-white p-2 rounded-lg border border-slate-100 text-center">
+                          <p className="text-xs text-slate-400">Total</p>
+                          <p className="text-sm font-bold text-emerald-600">R$ {total.toFixed(2)}</p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Today's Deliveries History */}
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
+            <h2 className="text-lg font-bold text-slate-800 flex items-center space-x-2">
+              <TrendingUp className="h-5 w-5 text-indigo-600" />
+              <span>Histórico de Corridas de Hoje</span>
+            </h2>
+
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[500px] text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-200 text-slate-500 text-xs uppercase font-semibold">
+                    <th className="py-3 px-4">Motoboy</th>
+                    <th className="py-3 px-4">Nº Pedido</th>
+                    <th className="py-3 px-4">Horário</th>
+                    <th className="py-3 px-4">Valor</th>
+                    <th className="py-3 px-4">Status</th>
+                    <th className="py-3 px-4 text-right">Ações</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-sm">
+                  {processedDeliveries.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="py-8 text-center text-slate-400">
+                        Nenhuma corrida lançada hoje.
+                      </td>
+                    </tr>
+                  ) : (
+                    processedDeliveries.map(del => {
+                      const rider = db.getUsers().find(u => u.id === del.riderId);
+                      return (
+                        <tr key={del.id} className="hover:bg-slate-50/50">
+                          <td className="py-3 px-4">
+                            <p className="font-medium text-slate-800">{rider?.name || 'Motoboy'}</p>
+                            {del.notes && (
+                              <p className="text-xs text-slate-500 italic mt-0.5">Obs: {del.notes}</p>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-slate-600 font-mono">
+                            {del.orderNumber ? (
+                              <span className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded text-xs font-semibold">
+                                #{del.orderNumber}
+                              </span>
+                            ) : (
+                              <span className="text-slate-400 text-xs">—</span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-slate-500 flex items-center space-x-1">
+                            <Clock className="h-3.5 w-3.5" />
+                            <span>{del.time}</span>
+                          </td>
+                          <td className="py-3 px-4 font-bold text-emerald-600">R$ {del.value.toFixed(2)}</td>
+                          <td className="py-3 px-4">
+                            <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+                              del.status === 'active' 
+                                ? 'bg-emerald-100 text-emerald-800' 
+                                : del.status === 'rejected'
+                                ? 'bg-red-100 text-red-800'
+                                : 'bg-slate-100 text-slate-800'
+                            }`}>
+                              {del.status === 'active' && 'Ativa'}
+                              {del.status === 'rejected' && 'Rejeitada'}
+                              {del.status === 'cancelled' && 'Cancelada'}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 text-right whitespace-nowrap">
+                            {del.status === 'active' && (
+                              <div className="flex items-center justify-end space-x-1">
+                                <button
+                                  onClick={() => {
+                                    setEditingDelivery(del);
+                                    setDeliveryForm({
+                                      riderId: del.riderId,
+                                      value: del.value.toString(),
+                                      orderNumber: del.orderNumber || '',
+                                      notes: del.notes || ''
+                                    });
+                                    setShowDeliveryModal(true);
+                                  }}
+                                  className="text-slate-500 hover:bg-slate-100 p-1.5 rounded transition-colors"
+                                  title="Editar Corrida"
+                                >
+                                  <Edit2 className="h-4 w-4" />
+                                </button>
+                                <button
+<dyad-write path="src/pages/EstablishmentDashboard.tsx" description="Reescrevendo o arquivo EstablishmentDashboard.tsx por completo para garantir que esteja sintaticamente correto e sem cortes">
+"use client";
+
+import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { db, User, Establishment, Schedule, Delivery, RiderLocation, Notification } from '../utils/db';
+import { 
+  Bike, 
+  LogOut, 
+  Plus, 
+  Trash2, 
+  Clock, 
+  DollarSign, 
+  MapPin, 
+  Users, 
+  TrendingUp, 
+  Map as MapIcon,
+  RefreshCw,
+  Hash,
+  Check,
+  X,
+  Edit2
+} from 'lucide-react';
+
+// Leaflet imports
+import L from 'leaflet';
+
+export default function EstablishmentDashboard() {
+  const navigate = useNavigate();
+  const [user, setUser] = useState(() => {
+    const cur = db.getCurrentUser();
+    if (cur && !cur.establishmentId) {
+      const full = db.getUsers().find(u => u.id === cur.id);
+      if (full?.establishmentId) {
+        db.setCurrentUser(full);
+        return full;
+      }
+    }
+    return cur;
+  });
+  const [establishment, setEstablishment] = useState<Establishment | null>(null);
+  
+  // Data states
+  const [scheduledRiders, setScheduledRiders] = useState<User[]>([]);
+  const [todaySchedules, setTodaySchedules] = useState<Schedule[]>([]);
+  const [todayDeliveries, setTodayDeliveries] = useState<Delivery[]>([]);
+  const [riderLocations, setRiderLocations] = useState<RiderLocation[]>([]);
+
+  // Form state
+  const [showDeliveryModal, setShowDeliveryModal] = useState(false);
+  const [editingDelivery, setEditingDelivery] = useState<Delivery | null>(null);
+  const [deliveryForm, setDeliveryForm] = useState({
+    riderId: '',
+    value: '',
+    orderNumber: '',
+    notes: ''
+  });
+
+  // Map reference
+  const mapContainerRef = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<L.Map | null>(null);
+  const markersRef = useRef<{ [key: string]: L.Marker }>({});
+
+  const loadData = () => {
+    if (!user || !user.establishmentId) return;
+
+    const allEsts = db.getEstablishments();
+    const currentEst = allEsts.find(e => e.id === user.establishmentId);
+    if (currentEst) setEstablishment(currentEst);
+
+    const todayStr = new Date().toISOString().split('T')[0];
+    const allSchedules = db.getSchedules();
+    let estSchedules = allSchedules.filter(s => s.establishmentId === user.establishmentId && s.date === todayStr);
+    
+    if (estSchedules.length === 0) {
+      estSchedules = allSchedules.filter(s => s.establishmentId === user.establishmentId);
+    }
+    
+    setTodaySchedules(estSchedules);
+
+    const allUsers = db.getUsers();
+    const scheduledIds = estSchedules.map(s => s.riderId);
+    const riders = scheduledIds.length > 0
+      ? allUsers.filter(u => scheduledIds.includes(u.id))
+      : allUsers.filter(u => u.role === 'rider');
+    setScheduledRiders(riders);
+
+    const allDeliveries = db.getDeliveries();
+    const estDeliveriesToday = allDeliveries.filter(d => d.establishmentId === user.establishmentId && d.date === todayStr);
+    setTodayDeliveries(estDeliveriesToday);
+
+    const locations = db.getRiderLocations();
+    setRiderLocations(locations);
+  };
+
+  useEffect(() => {
+    if (!user || user.role !== 'establishment') {
+      navigate('/login');
+      return;
+    }
+
+    if (!user.establishmentId) {
+      const allUsers = db.getUsers();
+      const updatedUser = allUsers.find(u => u.id === user.id);
+      if (updatedUser && updatedUser.establishmentId) {
+        db.setCurrentUser(updatedUser);
+        setUser(updatedUser);
+      }
+    }
+
+    loadData();
+
+    const interval = setInterval(() => {
+      loadData();
+    }, 5000);
+
+    const handleSyncComplete = () => {
+      loadData();
+    };
+    window.addEventListener('db-sync-complete', handleSyncComplete);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('db-sync-complete', handleSyncComplete);
+    };
+  }, [user, navigate]);
+
+  // Initialize Map and Handle Markers
+  useEffect(() => {
+    if (!establishment || !mapContainerRef.current) return;
+
+    if (!document.getElementById('leaflet-css')) {
+      const link = document.createElement('link');
+      link.id = 'leaflet-css';
+      link.rel = 'stylesheet';
+      link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+      document.head.appendChild(link);
+    }
+
+    const defaultLat = -15.7801;
+    const defaultLng = -47.9292;
+
+    const initMap = async (lat: number, lng: number) => {
+      if (mapRef.current) return;
+      mapRef.current = L.map(mapContainerRef.current!).setView([lat, lng], 14);
+
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(mapRef.current);
+
+      const estIcon = L.divIcon({
+        html: `<div class="bg-indigo-600 text-white p-2 rounded-full shadow-lg border-2 border-white flex items-center justify-center"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></div>`,
+        className: 'custom-div-icon',
+        iconSize: [32, 32],
+        iconAnchor: [16, 16]
+      });
+
+      L.marker([lat, lng], { icon: estIcon })
+        .addTo(mapRef.current)
+        .bindPopup(`<b>${establishment.name}</b><br/>Seu Estabelecimento`)
+        .openPopup();
+    };
+
+    const geocodeEstablishment = async () => {
+      if (mapRef.current) return;
+      const addr = establishment.address;
+      if (addr) {
+        const query = [
+          addr.street,
+          addr.number,
+          addr.neighborhood,
+          addr.city,
+          addr.state,
+          'Brasil'
+        ].filter(Boolean).join(', ');
+
+        try {
+          const res = await fetch(
+            `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`,
+            { headers: { 'Accept-Language': 'pt-BR' } }
+          );
+          const data = await res.json();
+          if (data && data.length > 0) {
+            await initMap(parseFloat(data[0].lat), parseFloat(data[0].lon));
+            return;
+          }
+        } catch (e) {
+          console.warn('Geocoding by address failed, trying by CEP...', e);
+        }
+
+        if (addr.zipCode) {
+          const cep = addr.zipCode.replace(/\D/g, '');
+          try {
+            const viaCepRes = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+            const viaCepData = await viaCepRes.json();
+            if (!viaCepData.erro) {
+              const cepQuery = `${viaCepData.logradouro}, ${viaCepData.localidade}, ${viaCepData.uf}, Brasil`;
+              const nomRes = await fetch(
+                `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(cepQuery)}`,
+                { headers: { 'Accept-Language': 'pt-BR' } }
+              );
+              const nomData = await nomRes.json();
+              if (nomData && nomData.length > 0) {
+                await initMap(parseFloat(nomData[0].lat), parseFloat(nomData[0].lon));
+                return;
+              }
+            }
+          } catch (e) {
+            console.warn('CEP geocoding failed, using default coords.', e);
+          }
+        }
+      }
+
+      await initMap(defaultLat, defaultLng);
+    };
+
+    geocodeEstablishment();
+
+    if (!mapRef.current) return;
+
+    const currentMap = mapRef.current;
+    const scheduledRiderIds = scheduledRiders.map(r => r.id);
+
+    Object.keys(markersRef.current).forEach(riderId => {
+      if (!scheduledRiderIds.includes(riderId)) {
+        markersRef.current[riderId].remove();
+        delete markersRef.current[riderId];
+      }
+    });
+
+    riderLocations.forEach(loc => {
+      if (!scheduledRiderIds.includes(loc.riderId)) return;
+
+      const riderName = loc.riderName;
+      const existingMarker = markersRef.current[loc.riderId];
+
+      if (existingMarker && currentMap.hasLayer(existingMarker)) {
+        existingMarker.setLatLng([loc.lat, loc.lng]);
+      } else {
+        const riderIcon = L.divIcon({
+          html: `<div class="bg-emerald-500 text-white p-2 rounded-full shadow-lg border-2 border-white flex items-center justify-center animate-bounce"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="15" width="14" height="4" rx="1"/><path d="M12 15V5a2 2 0 0 0-2-2H4"/><path d="M12 5h7a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h-7"/></svg></div>`,
+          className: 'custom-div-icon',
+          iconSize: [32, 32],
+          iconAnchor: [16, 16]
+        });
+
+        const marker = L.marker([loc.lat, loc.lng], { icon: riderIcon })
+          .addTo(currentMap)
+          .bindPopup(`<b>${riderName}</b><br/>Entregador em Rota`);
+
+        markersRef.current[loc.riderId] = marker;
+      }
+    });
+
+    return () => {
+      if (mapRef.current) {
+        Object.keys(markersRef.current).forEach(riderId => {
+          markersRef.current[riderId].remove();
+        });
+        markersRef.current = {};
+        mapRef.current.remove();
+        mapRef.current = null;
+      }
+    };
+  }, [establishment, scheduledRiders, riderLocations]);
+
+  const handleLogout = () => {
+    db.setCurrentUser(null);
+    navigate('/login');
+  };
+
+  const handleSaveDelivery = (e: React.FormEvent) => {
+    e.preventDefault();
+    const val = parseFloat(deliveryForm.value);
+    if (isNaN(val) || val <= 0) {
+      alert('Erro: O valor da corrida deve ser maior que zero.');
+      return;
+    }
+
+    if (!user?.establishmentId) return;
+
+    const todayStr = new Date().toISOString().split('T')[0];
+    const activeSchedule = todaySchedules.find(s => s.riderId === deliveryForm.riderId);
+    const allDeliveries = db.getDeliveries();
+    const nowStr = new Date().toISOString();
+
+    if (editingDelivery) {
+      const updated = allDeliveries.map(d => d.id === editingDelivery.id ? {
+        ...d,
+        riderId: deliveryForm.riderId,
+        value: val,
+        orderNumber: deliveryForm.orderNumber.trim() || undefined,
+        notes: deliveryForm.notes.trim() || undefined,
+        scheduleId: activeSchedule?.id || d.scheduleId,
+        updatedAt: nowStr
+      } : d);
+      db.setDeliveries(updated);
+      alert('Corrida editada com sucesso!');
+    } else {
+      const newDelivery: Delivery = {
+        id: 'd_' + Date.now(),
+        riderId: deliveryForm.riderId,
+        establishmentId: user.establishmentId,
+        date: todayStr,
+        time: new Date().toTimeString().slice(0, 5),
+        value: val,
+        status: 'active',
+        scheduleId: activeSchedule?.id,
+        orderNumber: deliveryForm.orderNumber.trim() || undefined,
+        notes: deliveryForm.notes.trim() || undefined,
+        updatedAt: nowStr
+      };
+      db.setDeliveries([...allDeliveries, newDelivery]);
+    }
+
+    setShowDeliveryModal(false);
+    setEditingDelivery(null);
+    setDeliveryForm({ riderId: '', value: '', orderNumber: '', notes: '' });
+    loadData();
+  };
+
+  const handleCancelDelivery = (id: string) => {
+    if (confirm('Deseja realmente cancelar esta corrida?')) {
+      const allDeliveries = db.getDeliveries();
+      const nowStr = new Date().toISOString();
+      const updated = allDeliveries.map(d => d.id === id ? { ...d, status: 'cancelled' as const, updatedAt: nowStr } : d);
+      db.setDeliveries(updated);
+      loadData();
+    }
+  };
+
+  const handleApproveDelivery = (id: string) => {
+    const allDeliveries = db.getDeliveries();
+    const delivery = allDeliveries.find(d => d.id === id);
+    if (!delivery) return;
+
+    const nowStr = new Date().toISOString();
+    const updated = allDeliveries.map(d => d.id === id ? { ...d, status: 'active' as const, updatedAt: nowStr } : d);
+    db.setDeliveries(updated);
+
+    // Notify Rider
+    const allNotif = db.getNotifications();
+    const newNotif: Notification = {
+      id: 'n_' + Date.now(),
+      riderId: delivery.riderId,
+      title: '✅ Corrida Aprovada!',
+      message: `Sua corrida no valor de R$ ${delivery.value.toFixed(2)} foi aprovada pelo estabelecimento ${establishment?.name}.`,
+      date: new Date().toISOString(),
+      read: false
+    };
+    db.setNotifications([...allNotif, newNotif]);
+
+    loadData();
+    alert('Corrida aprovada com sucesso!');
+  };
+
+  const handleRejectDelivery = (id: string) => {
+    if (confirm('Deseja realmente rejeitar esta corrida?')) {
+      const allDeliveries = db.getDeliveries();
+      const delivery = allDeliveries.find(d => d.id === id);
+      if (!delivery) return;
+
+      const nowStr = new Date().toISOString();
+      const updated = allDeliveries.map(d => d.id === id ? { ...d, status: 'rejected' as const, updatedAt: nowStr } : d);
       db.setDeliveries(updated);
 
       // Notify Rider
