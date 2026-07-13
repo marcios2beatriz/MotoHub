@@ -21,7 +21,8 @@ import {
   WifiOff,
   Radio,
   Plus,
-  Hash
+  Hash,
+  Edit2
 } from 'lucide-react';
 
 export default function RiderDashboard() {
@@ -36,12 +37,14 @@ export default function RiderDashboard() {
   const [gpsCoords, setGpsCoords] = useState<{ lat: number; lng: number } | null>(null);
   const watchIdRef = useRef<number | null>(null);
 
-  // Modal de Lançar Corrida
+  // Modal de Lançar/Editar Corrida
   const [showLaunchModal, setShowLaunchModal] = useState(false);
+  const [editingDelivery, setEditingDelivery] = useState<Delivery | null>(null);
   const [launchForm, setLaunchForm] = useState({
     establishmentId: '',
     value: '',
-    orderNumber: ''
+    orderNumber: '',
+    notes: ''
   });
 
   // Filtros das escalas futuras
@@ -210,6 +213,13 @@ export default function RiderDashboard() {
     db.setNotifications(updatedAll);
   };
 
+  // Filtrar estabelecimentos onde o motoboy está escalado HOJE
+  const getScheduledEstablishmentsToday = () => {
+    const todaySchedules = schedules.filter(s => s.date === todayStr);
+    const scheduledIds = todaySchedules.map(s => s.establishmentId);
+    return establishments.filter(e => scheduledIds.includes(e.id));
+  };
+
   const handleLaunchDelivery = (e: React.FormEvent) => {
     e.preventDefault();
     const val = parseFloat(launchForm.value);
@@ -222,25 +232,49 @@ export default function RiderDashboard() {
 
     const activeSchedule = schedules.find(s => s.establishmentId === launchForm.establishmentId && s.date === todayStr);
 
-    const newDelivery: Delivery = {
-      id: 'd_' + Date.now(),
-      riderId: user.id,
-      establishmentId: launchForm.establishmentId,
-      date: todayStr,
-      time: new Date().toTimeString().slice(0, 5),
-      value: val,
-      status: 'pending',
-      scheduleId: activeSchedule?.id,
-      orderNumber: launchForm.orderNumber.trim() || undefined
-    };
-
     const allDeliveries = db.getDeliveries();
-    db.setDeliveries([...allDeliveries, newDelivery]);
+
+    if (editingDelivery) {
+      // Editar corrida existente (apenas se estiver pendente)
+      if (editingDelivery.status !== 'pending') {
+        alert('Erro: Apenas corridas pendentes podem ser editadas.');
+        return;
+      }
+
+      const updated = allDeliveries.map(d => d.id === editingDelivery.id ? {
+        ...d,
+        establishmentId: launchForm.establishmentId,
+        value: val,
+        orderNumber: launchForm.orderNumber.trim() || undefined,
+        notes: launchForm.notes.trim() || undefined,
+        scheduleId: activeSchedule?.id || d.scheduleId
+      } : d);
+
+      db.setDeliveries(updated);
+      alert('Corrida atualizada com sucesso! Aguardando aprovação.');
+    } else {
+      // Criar nova corrida
+      const newDelivery: Delivery = {
+        id: 'd_' + Date.now(),
+        riderId: user.id,
+        establishmentId: launchForm.establishmentId,
+        date: todayStr,
+        time: new Date().toTimeString().slice(0, 5),
+        value: val,
+        status: 'pending',
+        scheduleId: activeSchedule?.id,
+        orderNumber: launchForm.orderNumber.trim() || undefined,
+        notes: launchForm.notes.trim() || undefined
+      };
+
+      db.setDeliveries([...allDeliveries, newDelivery]);
+      alert('Corrida lançada com sucesso! Aguardando aprovação do estabelecimento ou administrador.');
+    }
 
     setShowLaunchModal(false);
-    setLaunchForm({ establishmentId: '', value: '', orderNumber: '' });
+    setEditingDelivery(null);
+    setLaunchForm({ establishmentId: '', value: '', orderNumber: '', notes: '' });
     loadData();
-    alert('Corrida lançada com sucesso! Aguardando aprovação do estabelecimento ou administrador.');
   };
 
   const unreadCount = notifications.filter(n => !n.read).length;
@@ -254,6 +288,8 @@ export default function RiderDashboard() {
     }
   };
 
+  const scheduledEstsToday = getScheduledEstablishmentsToday();
+
   return (
     <div className="min-h-screen bg-slate-50 pb-16">
       {/* Header */}
@@ -266,9 +302,12 @@ export default function RiderDashboard() {
           <div className="flex items-center space-x-2">
             <button
               onClick={() => {
-                const todaySchedules = schedules.filter(s => s.date === todayStr);
-                const defaultEstId = todaySchedules.length > 0 ? todaySchedules[0].establishmentId : '';
-                setLaunchForm({ establishmentId: defaultEstId, value: '', orderNumber: '' });
+                if (scheduledEstsToday.length === 0) {
+                  alert('Aviso: Você não possui escalas ativas para hoje. Não é possível lançar corridas.');
+                  return;
+                }
+                setEditingDelivery(null);
+                setLaunchForm({ establishmentId: scheduledEstsToday[0].id, value: '', orderNumber: '', notes: '' });
                 setShowLaunchModal(true);
               }}
               className="bg-emerald-500 hover:bg-emerald-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-1 transition-colors shadow-sm"
@@ -446,8 +485,8 @@ export default function RiderDashboard() {
                     const est = db.getEstablishments().find(e => e.id === delivery.establishmentId);
                     return (
                       <div key={delivery.id} className="py-3 flex justify-between items-center">
-                        <div>
-                          <div className="flex items-center space-x-2">
+                        <div className="min-w-0 flex-1 pr-4">
+                          <div className="flex items-center space-x-2 flex-wrap gap-y-1">
                             <p className="font-semibold text-slate-700">{est?.name || 'Estabelecimento'}</p>
                             {delivery.orderNumber && (
                               <span className="bg-slate-100 text-slate-500 text-[10px] font-bold px-1.5 py-0.5 rounded">
@@ -473,10 +512,35 @@ export default function RiderDashboard() {
                             <Clock className="h-3 w-3" />
                             <span>{delivery.time}</span>
                           </p>
+                          {delivery.notes && (
+                            <p className="text-xs text-slate-500 bg-slate-50 border border-slate-100 rounded px-2 py-1 mt-1 italic">
+                              Obs: {delivery.notes}
+                            </p>
+                          )}
                         </div>
-                        <span className={`font-bold ${delivery.status === 'active' ? 'text-emerald-600' : 'text-slate-400'}`}>
-                          R$ {delivery.value.toFixed(2)}
-                        </span>
+                        <div className="flex items-center space-x-3">
+                          <span className={`font-bold ${delivery.status === 'active' ? 'text-emerald-600' : 'text-slate-400'}`}>
+                            R$ {delivery.value.toFixed(2)}
+                          </span>
+                          {delivery.status === 'pending' && (
+                            <button
+                              onClick={() => {
+                                setEditingDelivery(delivery);
+                                setLaunchForm({
+                                  establishmentId: delivery.establishmentId,
+                                  value: delivery.value.toString(),
+                                  orderNumber: delivery.orderNumber || '',
+                                  notes: delivery.notes || ''
+                                });
+                                setShowLaunchModal(true);
+                              }}
+                              className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
+                              title="Editar Corrida Pendente"
+                            >
+                              <Edit2 className="h-4 w-4" />
+                            </button>
+                          )}
+                        </div>
                       </div>
                     );
                   })}
@@ -785,8 +849,10 @@ export default function RiderDashboard() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl max-w-md w-full p-6 space-y-4 shadow-xl">
             <div className="flex justify-between items-center">
-              <h3 className="text-lg font-bold text-slate-800">Lançar Nova Corrida</h3>
-              <button onClick={() => setShowLaunchModal(false)} className="text-slate-400 hover:text-slate-600">
+              <h3 className="text-lg font-bold text-slate-800">
+                {editingDelivery ? 'Editar Corrida Pendente' : 'Lançar Nova Corrida'}
+              </h3>
+              <button onClick={() => { setShowLaunchModal(false); setEditingDelivery(null); }} className="text-slate-400 hover:text-slate-600">
                 <X className="h-5 w-5" />
               </button>
             </div>
@@ -799,8 +865,7 @@ export default function RiderDashboard() {
                   onChange={(e) => setLaunchForm({ ...launchForm, establishmentId: e.target.value })}
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none"
                 >
-                  <option value="">Selecione um Estabelecimento</option>
-                  {establishments.map(e => (
+                  {scheduledEstsToday.map(e => (
                     <option key={e.id} value={e.id}>{e.name}</option>
                   ))}
                 </select>
@@ -832,10 +897,20 @@ export default function RiderDashboard() {
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none"
                 />
               </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Observações (Opcional)</label>
+                <textarea
+                  placeholder="Ex: Troco para R$ 100,00, condomínio bloco C..."
+                  value={launchForm.notes}
+                  onChange={(e) => setLaunchForm({ ...launchForm, notes: e.target.value })}
+                  rows={2}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none resize-none"
+                />
+              </div>
               <div className="flex justify-end space-x-2 pt-3">
                 <button
                   type="button"
-                  onClick={() => setShowLaunchModal(false)}
+                  onClick={() => { setShowLaunchModal(false); setEditingDelivery(null); }}
                   className="px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50"
                 >
                   Cancelar
@@ -844,7 +919,7 @@ export default function RiderDashboard() {
                   type="submit"
                   className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-medium"
                 >
-                  Lançar Corrida
+                  {editingDelivery ? 'Salvar Alterações' : 'Lançar Corrida'}
                 </button>
               </div>
             </form>

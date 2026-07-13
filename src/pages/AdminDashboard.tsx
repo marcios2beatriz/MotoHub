@@ -100,7 +100,7 @@ export default function AdminDashboard() {
 
   const [showDeliveryModal, setShowDeliveryModal] = useState(false);
   const [editingDelivery, setEditingDelivery] = useState<Delivery | null>(null);
-  const [deliveryForm, setDeliveryForm] = useState({ riderId: '', establishmentId: '', date: '', time: '', value: '', orderNumber: '' });
+  const [deliveryForm, setDeliveryForm] = useState({ riderId: '', establishmentId: '', date: '', time: '', value: '', orderNumber: '', notes: '' });
 
   // Relatórios
   const [reportType, setReportType] = useState<'earnings' | 'deliveries' | 'schedules'>('earnings');
@@ -464,7 +464,8 @@ export default function AdminDashboard() {
         time: deliveryForm.time,
         value: val,
         scheduleId: activeSchedule?.id || d.scheduleId,
-        orderNumber: deliveryForm.orderNumber.trim() || undefined
+        orderNumber: deliveryForm.orderNumber.trim() || undefined,
+        notes: deliveryForm.notes.trim() || undefined
       } : d);
       db.setDeliveries(updated);
     } else {
@@ -477,14 +478,15 @@ export default function AdminDashboard() {
         value: val,
         status: 'active',
         scheduleId: activeSchedule?.id,
-        orderNumber: deliveryForm.orderNumber.trim() || undefined
+        orderNumber: deliveryForm.orderNumber.trim() || undefined,
+        notes: deliveryForm.notes.trim() || undefined
       };
       db.setDeliveries([...deliveries, newDelivery]);
     }
 
     setShowDeliveryModal(false);
     setEditingDelivery(null);
-    setDeliveryForm({ riderId: '', establishmentId: '', date: '', time: '', value: '', orderNumber: '' });
+    setDeliveryForm({ riderId: '', establishmentId: '', date: '', time: '', value: '', orderNumber: '', notes: '' });
     loadData();
   };
 
@@ -1464,6 +1466,11 @@ export default function AdminDashboard() {
                               <Clock className="h-3.5 w-3.5" />
                               <span>Lançada em {new Date(del.date + 'T00:00:00').toLocaleDateString('pt-BR')} às {del.time}</span>
                             </p>
+                            {del.notes && (
+                              <p className="text-xs text-slate-500 bg-slate-50 border border-slate-100 rounded px-2 py-1 mt-1.5 italic">
+                                Obs: {del.notes}
+                              </p>
+                            )}
                           </div>
                           <div className="flex items-center space-x-3 self-end sm:self-center">
                             <span className="font-bold text-amber-700 text-lg">R$ {del.value.toFixed(2)}</span>
@@ -1499,7 +1506,7 @@ export default function AdminDashboard() {
                   <button
                     onClick={() => {
                       setEditingDelivery(null);
-                      setDeliveryForm({ riderId: '', establishmentId: '', date: new Date().toISOString().split('T')[0], time: new Date().toTimeString().slice(0,5), value: '', orderNumber: '' });
+                      setDeliveryForm({ riderId: '', establishmentId: '', date: new Date().toISOString().split('T')[0], time: new Date().toTimeString().slice(0,5), value: '', orderNumber: '', notes: '' });
                       setShowDeliveryModal(true);
                     }}
                     className="flex items-center justify-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
@@ -1543,6 +1550,11 @@ export default function AdminDashboard() {
                               <p className="text-xs text-slate-400 mt-1">
                                 Data: {new Date(del.date + 'T00:00:00').toLocaleDateString('pt-BR')} às {del.time}
                               </p>
+                              {del.notes && (
+                                <p className="text-xs text-slate-500 bg-slate-50 border border-slate-100 rounded px-2 py-1 mt-1.5 italic">
+                                  Obs: {del.notes}
+                                </p>
+                              )}
                             </div>
                             <div className="flex items-center space-x-4 self-end sm:self-center">
                               <span className={`font-bold text-lg ${del.status === 'cancelled' || del.status === 'rejected' ? 'text-slate-400 line-through' : 'text-emerald-600'}`}>
@@ -1559,7 +1571,8 @@ export default function AdminDashboard() {
                                         date: del.date,
                                         time: del.time,
                                         value: del.value.toString(),
-                                        orderNumber: del.orderNumber || ''
+                                        orderNumber: del.orderNumber || '',
+                                        notes: del.notes || ''
                                       });
                                       setShowDeliveryModal(true);
                                     }}

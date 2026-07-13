@@ -53,6 +53,7 @@ export interface Delivery {
   status: 'active' | 'cancelled' | 'pending' | 'rejected';
   scheduleId?: string;
   orderNumber?: string; // Optional order number
+  notes?: string; // Campo opcional de observações
 }
 
 export interface Notification {
@@ -256,7 +257,8 @@ const syncToSupabase = async (table: string, data: any[]) => {
           value: item.value,
           status: item.status,
           schedule_id: item.scheduleId || null,
-          order_number: item.orderNumber || null
+          order_number: item.orderNumber || null,
+          notes: item.notes || null
         };
       }
       if (table === 'notifications') {
@@ -539,7 +541,8 @@ export const db = {
             value: Number(d.value),
             status: d.status as any,
             scheduleId: d.schedule_id || undefined,
-            orderNumber: d.order_number || undefined
+            orderNumber: d.order_number || undefined,
+            notes: d.notes || undefined
           }));
           const localDels = getStorageData<Delivery[]>('dm_deliveries', []);
           const merged = mergeById(localDels, mappedDels);
