@@ -7,6 +7,7 @@ import Login from './pages/Login';
 import AdminDashboard from './pages/AdminDashboard';
 import RiderDashboard from './pages/RiderDashboard';
 import EstablishmentDashboard from './pages/EstablishmentDashboard';
+import CustomerTracking from './pages/CustomerTracking';
 import { db } from './utils/db';
 
 // Componente para gerenciar a inatividade do usuário (30 minutos)
@@ -110,6 +111,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Landing />} />
           <Route path="/login" element={<Login />} />
+          <Route path="/track/:deliveryId" element={<CustomerTracking />} />
           
           <Route 
             path="/admin" 

@@ -22,7 +22,8 @@ import {
   Radio,
   Plus,
   Hash,
-  Edit2
+  Edit2,
+  Share2
 } from 'lucide-react';
 
 export default function RiderDashboard() {
@@ -35,6 +36,7 @@ export default function RiderDashboard() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'schedules' | 'history' | 'notifications'>('dashboard');
   const [gpsStatus, setGpsStatus] = useState<'requesting' | 'active' | 'error' | 'denied'>('requesting');
   const [gpsCoords, setGpsCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const watchIdRef = useRef<number | null>(null);
 
   // Modal de Lançar/Editar Corrida
@@ -149,6 +151,14 @@ export default function RiderDashboard() {
   const handleLogout = () => {
     db.setCurrentUser(null);
     navigate('/login');
+  };
+
+  const handleShareTracking = (deliveryId: string) => {
+    const link = `${window.location.origin}/#/track/${deliveryId}`;
+    navigator.clipboard.writeText(link).then(() => {
+      setCopiedId(deliveryId);
+      setTimeout(() => setCopiedId(null), 2000);
+    });
   };
 
   // Cálculos de faturamento
@@ -524,7 +534,21 @@ export default function RiderDashboard() {
                             </p>
                           )}
                         </div>
-                        <div className="flex items-center space-x-3">
+                        <div className="flex items-center space-x-2">
+                          {delivery.status === 'active' && (
+                            <button
+                              onClick={() => handleShareTracking(delivery.id)}
+                              className={`px-2 py-1 rounded text-xs font-bold flex items-center gap-1 transition-colors ${
+                                copiedId === delivery.id 
+                                  ? 'bg-emerald-100 text-emerald-800' 
+                                  : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700'
+                              }`}
+                              title="Compartilhar Link de Rastreamento"
+                            >
+                              <Share2 className="h-3.5 w-3.5" />
+                              <span>{copiedId === delivery.id ? 'Copiado!' : 'Enviar Link'}</span>
+                            </button>
+                          )}
                           <span className={`font-bold ${delivery.status === 'active' ? 'text-emerald-600' : 'text-slate-400'}`}>
                             R$ {delivery.value.toFixed(2)}
                           </span>

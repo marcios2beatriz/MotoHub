@@ -20,7 +20,8 @@ import {
   X,
   Edit2,
   Maximize2,
-  Minimize2
+  Minimize2,
+  Share2
 } from 'lucide-react';
 
 // Leaflet imports
@@ -46,6 +47,7 @@ export default function EstablishmentDashboard() {
   const [todaySchedules, setTodaySchedules] = useState<Schedule[]>([]);
   const [todayDeliveries, setTodayDeliveries] = useState<Delivery[]>([]);
   const [riderLocations, setRiderLocations] = useState<RiderLocation[]>([]);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   // Map expansion state
   const [isMapExpanded, setIsMapExpanded] = useState(false);
@@ -409,6 +411,14 @@ export default function EstablishmentDashboard() {
     }
   };
 
+  const handleCopyTrackingLink = (deliveryId: string) => {
+    const link = `${window.location.origin}/#/track/${deliveryId}`;
+    navigator.clipboard.writeText(link).then(() => {
+      setCopiedId(deliveryId);
+      setTimeout(() => setCopiedId(null), 2000);
+    });
+  };
+
   // Calculations
   const getRiderTotalEarnings = (riderId: string) => {
     return todayDeliveries
@@ -692,7 +702,7 @@ export default function EstablishmentDashboard() {
                           <td className="py-3 px-4">
                             <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${
                               del.status === 'active' 
-                                				? 'bg-emerald-100 text-emerald-800' 
+                                ? 'bg-emerald-100 text-emerald-800' 
                                 : del.status === 'rejected'
                                 ? 'bg-red-100 text-red-800'
                                 : 'bg-slate-100 text-slate-800'
@@ -703,33 +713,49 @@ export default function EstablishmentDashboard() {
                             </span>
                           </td>
                           <td className="py-3 px-4 text-right whitespace-nowrap">
-                            {del.status === 'active' && (
-                              <div className="flex items-center justify-end space-x-1">
+                            <div className="flex items-center justify-end space-x-1">
+                              {del.status === 'active' && (
                                 <button
-                                  onClick={() => {
-                                    setEditingDelivery(del);
-                                    setDeliveryForm({
-                                      riderId: del.riderId,
-                                      value: del.value.toString(),
-                                      orderNumber: del.orderNumber || '',
-                                      notes: del.notes || ''
-                                    });
-                                    setShowDeliveryModal(true);
-                                  }}
-                                  className="text-slate-500 hover:bg-slate-100 p-1.5 rounded transition-colors"
-                                  title="Editar Corrida"
+                                  onClick={() => handleCopyTrackingLink(del.id)}
+                                  className={`px-2 py-1 rounded text-xs font-bold flex items-center gap-1 transition-colors ${
+                                    copiedId === del.id 
+                                      ? 'bg-emerald-100 text-emerald-800' 
+                                      : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700'
+                                  }`}
+                                  title="Copiar Link de Rastreamento"
                                 >
-                                  <Edit2 className="h-4 w-4" />
+                                  <Share2 className="h-3.5 w-3.5" />
+                                  <span>{copiedId === del.id ? 'Copiado!' : 'Rastrear'}</span>
                                 </button>
-                                <button
-                                  onClick={() => handleCancelDelivery(del.id)}
-                                  className="text-red-500 hover:bg-red-50 p-1.5 rounded transition-colors"
-                                  title="Cancelar Corrida"
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </button>
-                              </div>
-                            )}
+                              )}
+                              {del.status === 'active' && (
+                                <>
+                                  <button
+                                    onClick={() => {
+                                      setEditingDelivery(del);
+                                      setDeliveryForm({
+                                        riderId: del.riderId,
+                                        value: del.value.toString(),
+                                        orderNumber: del.orderNumber || '',
+                                        notes: del.notes || ''
+                                      });
+                                      setShowDeliveryModal(true);
+                                    }}
+                                    className="text-slate-500 hover:bg-slate-100 p-1.5 rounded transition-colors"
+                                    title="Editar Corrida"
+                                  >
+                                    <Edit2 className="h-4 w-4" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleCancelDelivery(del.id)}
+                                    className="text-red-500 hover:bg-red-50 p-1.5 rounded transition-colors"
+                                    title="Cancelar Corrida"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </button>
+                                </>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       );
