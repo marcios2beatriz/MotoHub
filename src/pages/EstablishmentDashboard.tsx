@@ -127,7 +127,7 @@ export default function EstablishmentDashboard() {
     };
   }, [user, navigate]);
 
-  // Initialize Map and Handle Markers
+  // 1. Hook de Inicialização Única do Mapa
   useEffect(() => {
     if (!establishment || !mapContainerRef.current) return;
 
@@ -144,11 +144,12 @@ export default function EstablishmentDashboard() {
 
     const initMap = async (lat: number, lng: number) => {
       if (mapRef.current) return;
-      mapRef.current = L.map(mapContainerRef.current!).setView([lat, lng], 14);
+      const mapInstance = L.map(mapContainerRef.current!).setView([lat, lng], 14);
+      mapRef.current = mapInstance;
 
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; OpenStreetMap contributors'
-      }).addTo(mapRef.current);
+      }).addTo(mapInstance);
 
       const estIcon = L.divIcon({
         html: `<div class="bg-indigo-600 text-white p-2 rounded-full shadow-lg border-2 border-white flex items-center justify-center"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></div>`,
@@ -158,7 +159,7 @@ export default function EstablishmentDashboard() {
       });
 
       L.marker([lat, lng], { icon: estIcon })
-        .addTo(mapRef.current)
+        .addTo(mapInstance)
         .bindPopup(`<b>${establishment.name}</b><br/>Seu Estabelecimento`)
         .openPopup();
     };
@@ -218,11 +219,23 @@ export default function EstablishmentDashboard() {
 
     geocodeEstablishment();
 
-    if (!mapRef.current) return;
+    return () => {
+      if (mapRef.current) {
+        mapRef.current.remove();
+        mapRef.current = null;
+        markersRef.current = {};
+      }
+    };
+  }, [establishment]);
 
+  // 2. Hook de Atualização Suave dos Marcadores dos Motoboys
+  useEffect(() => {
     const currentMap = mapRef.current;
+    if (!currentMap) return;
+
     const scheduledRiderIds = scheduledRiders.map(r => r.id);
 
+    // Remover marcadores de motoboys que não estão mais escalados
     Object.keys(markersRef.current).forEach(riderId => {
       if (!scheduledRiderIds.includes(riderId)) {
         markersRef.current[riderId].remove();
@@ -230,17 +243,19 @@ export default function EstablishmentDashboard() {
       }
     });
 
+    // Adicionar ou atualizar marcadores de motoboys escalados
     riderLocations.forEach(loc => {
       if (!scheduledRiderIds.includes(loc.riderId)) return;
 
       const riderName = loc.riderName;
       const existingMarker = markersRef.current[loc.riderId];
 
-      if (existingMarker && currentMap.hasLayer(existingMarker)) {
+      if (existingMarker) {
+        // Atualiza a posição suavemente sem recriar o marcador
         existingMarker.setLatLng([loc.lat, loc.lng]);
       } else {
         const riderIcon = L.divIcon({
-          html: `<div class="bg-emerald-500 text-white p-2 rounded-full shadow-lg border-2 border-white flex items-center justify-center animate-bounce"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="15" width="14" height="4" rx="1"/><path d="M12 15V5a2 2 0 0 0-2-2H4"/><path d="M12 5h7a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h-7"/></svg></div>`,
+          html: `<div class="bg-emerald-500 text-white p-2 rounded-full shadow-lg border-2 border-white flex items-center justify-center transition-all duration-500"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="15" width="14" height="4" rx="1"/><path d="M12 15V5a2 2 0 0 0-2-2H4"/><path d="M12 5h7a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h-7"/></svg></div>`,
           className: 'custom-div-icon',
           iconSize: [32, 32],
           iconAnchor: [16, 16]
@@ -253,18 +268,7 @@ export default function EstablishmentDashboard() {
         markersRef.current[loc.riderId] = marker;
       }
     });
-
-    return () => {
-      if (mapRef.current) {
-        Object.keys(markersRef.current).forEach(riderId => {
-          markersRef.current[riderId].remove();
-        });
-        markersRef.current = {};
-        mapRef.current.remove();
-        mapRef.current = null;
-      }
-    };
-  }, [establishment, scheduledRiders, riderLocations]);
+  }, [scheduledRiders, riderLocations]);
 
   const handleLogout = () => {
     db.setCurrentUser(null);
@@ -357,13 +361,23 @@ export default function EstablishmentDashboard() {
   };
 
   const handleRejectDelivery = (id: string) => {
-    if (confirm('Deseja realmente rejeitar esta corrida?')) {
+    const reason = prompt('Digite o motivo da rejeição (opcional):');
+    if (reason !== null) {
       const allDeliveries = db.getDeliveries();
       const delivery = allDeliveries.find(d => d.id === id);
       if (!delivery) return;
 
       const nowStr = new Date().toISOString();
-      const updated = allDeliveries.map(d => d.id === id ? { ...d, status: 'rejected' as const, updatedAt: nowStr } : d);
+      const updatedNotes = delivery.notes 
+        ? `${delivery.notes} | Rejeitado: ${reason}` 
+        : `Motivo da rejeição: ${reason}`;
+
+      const updated = allDeliveries.map(d => d.id === id ? { 
+        ...d, 
+        status: 'rejected' as const, 
+        notes: updatedNotes,
+        updatedAt: nowStr 
+      } : d);
       db.setDeliveries(updated);
 
       // Notify Rider
@@ -372,7 +386,7 @@ export default function EstablishmentDashboard() {
         id: 'n_' + Date.now(),
         riderId: delivery.riderId,
         title: '❌ Corrida Rejeitada',
-        message: `Sua corrida no valor de R$ ${delivery.value.toFixed(2)} foi rejeitada pelo estabelecimento ${establishment?.name}.`,
+        message: `Sua corrida no valor de R$ ${delivery.value.toFixed(2)} foi rejeitada pelo estabelecimento ${establishment?.name}. Motivo: ${reason || 'Não especificado'}.`,
         date: new Date().toISOString(),
         read: false
       };
@@ -663,7 +677,7 @@ export default function EstablishmentDashboard() {
                           </td>
                           <td className="py-3 px-4 font-bold text-emerald-600">R$ {del.value.toFixed(2)}</td>
                           <td className="py-3 px-4">
-                            <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+                            <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${
                               del.status === 'active' 
                                 ? 'bg-emerald-100 text-emerald-800' 
                                 : del.status === 'rejected'

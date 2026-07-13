@@ -299,9 +299,6 @@ export default function Landing() {
             <p className="text-xs text-slate-300 font-medium">
               Desenvolvido por <span className="text-indigo-400 font-semibold">Juveniciu's Tech Soluções Automatizada</span>
             </p>
-            <p className="text-xs text-slate-400">
-              Contato: <span className="text-slate-300 font-mono">(83) 9 8862 - 3431</span>
-            </p>
           </div>
 
           <p className="text-xs">

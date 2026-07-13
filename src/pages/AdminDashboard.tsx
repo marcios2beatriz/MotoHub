@@ -34,6 +34,10 @@ import WeeklyScheduleModal from '../components/WeeklyScheduleModal';
 import RiderSchedulesModal from '../components/RiderSchedulesModal';
 import DeliveryModal from '../components/DeliveryModal';
 
+// Constantes para a escala semanal automática
+const DAY_KEYS = ['seg', 'ter', 'qua', 'qui', 'sex', 'sab', 'dom'] as const;
+const DAY_LABELS = ['Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado', 'Domingo'];
+
 export default function AdminDashboard() {
   const navigate = useNavigate();
   const [adminUser, setAdminUser] = useState(db.getCurrentUser());
@@ -360,9 +364,6 @@ export default function AdminDashboard() {
   };
 
   // --- ESCALA SEMANAL AUTOMÁTICA ---
-  const DAY_KEYS = ['seg', 'ter', 'qua', 'qui', 'sex', 'sab', 'dom'] as const;
-  const DAY_LABELS = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'];
-
   const getThisMonday = () => {
     const today = new Date();
     const day = today.getDay();
@@ -531,11 +532,16 @@ export default function AdminDashboard() {
   };
 
   const handleRejectDelivery = (id: string) => {
-    if (confirm('Deseja realmente rejeitar esta corrida?')) {
+    const reason = prompt('Digite o motivo da rejeição (opcional):');
+    if (reason !== null) {
       const delivery = deliveries.find(d => d.id === id);
       if (!delivery) return;
 
-      const updated = deliveries.map(d => d.id === id ? { ...d, status: 'rejected' as const } : d);
+      const updatedNotes = delivery.notes 
+        ? `${delivery.notes} | Rejeitado: ${reason}` 
+        : `Motivo da rejeição: ${reason}`;
+
+      const updated = deliveries.map(d => d.id === id ? { ...d, status: 'rejected' as const, notes: updatedNotes } : d);
       db.setDeliveries(updated);
 
       const est = establishments.find(e => e.id === delivery.establishmentId);
@@ -544,7 +550,7 @@ export default function AdminDashboard() {
         id: 'n_' + Date.now(),
         riderId: delivery.riderId,
         title: '❌ Corrida Rejeitada',
-        message: `Sua corrida no valor de R$ ${delivery.value.toFixed(2)} foi rejeitada pelo administrador para o estabelecimento ${est?.name}.`,
+        message: `Sua corrida no valor de R$ ${delivery.value.toFixed(2)} foi rejeitada pelo administrador para o estabelecimento ${est?.name}. Motivo: ${reason || 'Não especificado'}.`,
         date: new Date().toISOString(),
         read: false
       };
