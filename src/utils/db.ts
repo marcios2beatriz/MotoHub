@@ -294,12 +294,26 @@ const syncToSupabase = async (table: string, data: any[]) => {
 
     let { error } = await supabase.from(table).upsert(formattedData);
     
-    // Se o erro for por falta da coluna 'notes' na tabela 'deliveries', tentamos novamente sem ela!
-    if (error && table === 'deliveries' && error.message.includes("'notes'")) {
-      console.warn("⚠️ Coluna 'notes' não encontrada no Supabase. Sincronizando corridas sem o campo 'notes'...");
-      const cleanedData = formattedData.map(({ notes, ...rest }) => rest);
-      const retry = await supabase.from(table).upsert(cleanedData);
-      error = retry.error;
+    // Algoritmo Auto-Regenerativo: Se houver erro de coluna inexistente, removemos e tentamos novamente
+    if (error) {
+      let currentData = [...formattedData];
+      let attempts = 0;
+      while (error && error.message.includes("Could not find the '") && attempts < 10) {
+        attempts++;
+        const match = error.message.match(/Could not find the '([^']+)' column/);
+        if (match && match[1]) {
+          const missingCol = match[1];
+          console.warn(`⚠️ Coluna '${missingCol}' não encontrada na tabela '${table}' do Supabase. Removendo do envio...`);
+          currentData = currentData.map(item => {
+            const { [missingCol]: _, ...rest } = item;
+            return rest;
+          });
+          const retry = await supabase.from(table).upsert(currentData);
+          error = retry.error;
+        } else {
+          break;
+        }
+      }
     }
 
     if (error) {
