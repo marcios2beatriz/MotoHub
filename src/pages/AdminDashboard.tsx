@@ -1055,7 +1055,8 @@ export default function AdminDashboard() {
                                 neighborhood: est.address.neighborhood,
                                 city: est.address.city,
                                 state: est.address.state,
-                                zipCode: est.address.zipCode
+                                zipCode: est.address.zipCode,
+                                phone: est.phone || ''
                               });
                               setShowEstModal(true);
                             }}
@@ -1361,7 +1362,7 @@ export default function AdminDashboard() {
                             <div className="bg-slate-50 border border-slate-100 rounded-lg px-3 py-2 text-center text-xs text-slate-400">Sem escalas futuras</div>
                           )}
                           <div className="flex gap-2 mt-auto">
-                            <button onClick={() => { setScheduleForm({ riderId: rider.id, establishmentId: '', date: todayStr, shift: 'morning', startTime: '08:00', text: '08:00', endTime: '12:00' }); setScheduleConflictWarning(''); setShowScheduleModal(true); }} className="flex-1 flex items-center justify-center gap-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-medium py-2 rounded-lg transition-colors">
+                            <button onClick={() => { setScheduleForm({ riderId: rider.id, establishmentId: '', date: todayStr, shift: 'morning', startTime: '08:00', endTime: '12:00' }); setScheduleConflictWarning(''); setShowScheduleModal(true); }} className="flex-1 flex items-center justify-center gap-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-medium py-2 rounded-lg transition-colors">
                               <Plus className="h-3.5 w-3.5" />Nova Escala
                             </button>
                             <button onClick={() => setRiderSchedulesModal(rider.id)} className="flex-1 flex items-center justify-center gap-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 text-xs font-medium py-2 rounded-lg transition-colors">
@@ -1606,7 +1607,7 @@ export default function AdminDashboard() {
                   <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Tipo de Relatório</label>
                   <select
                     value={reportType}
-                    onChange={(e) => setReportType(e.target.value)}
+                    onChange={(e) => setReportType(e.target.value as any)}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
                   >
                     <option value="earnings">Faturamento por Motoboy</option>
@@ -1618,7 +1619,7 @@ export default function AdminDashboard() {
                   <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Período</label>
                   <select
                     value={reportPeriod}
-                    onChange={(e) => setReportPeriod(e.target.value)}
+                    onChange={(e) => setReportPeriod(e.target.value as any)}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
                   >
                     <option value="daily">Diário</option>
