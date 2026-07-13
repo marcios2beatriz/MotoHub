@@ -28,9 +28,9 @@ export default function EstablishmentDashboard() {
   const navigate = useNavigate();
   const [user, setUser] = useState(() => {
     const cur = db.getCurrentUser();
-    if (cur && !cur.establishmentId) {
+    if (cur) {
       const full = db.getUsers().find(u => u.id === cur.id);
-      if (full?.establishmentId) {
+      if (full) {
         db.setCurrentUser(full);
         return full;
       }
@@ -61,18 +61,24 @@ export default function EstablishmentDashboard() {
   const markersRef = useRef<{ [key: string]: L.Marker }>({});
 
   const loadData = () => {
-    if (!user || !user.establishmentId) return;
+    const currentUser = db.getCurrentUser();
+    if (!currentUser) return;
+
+    // Buscar dados sempre atualizados do usuário para garantir o establishmentId
+    const freshUser = db.getUsers().find(u => u.id === currentUser.id) || currentUser;
+    const estId = freshUser.establishmentId;
+    if (!estId) return;
 
     const allEsts = db.getEstablishments();
-    const currentEst = allEsts.find(e => e.id === user.establishmentId);
+    const currentEst = allEsts.find(e => e.id === estId);
     if (currentEst) setEstablishment(currentEst);
 
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = db.getLocalDateString();
     const allSchedules = db.getSchedules();
-    let estSchedules = allSchedules.filter(s => s.establishmentId === user.establishmentId && s.date === todayStr);
+    let estSchedules = allSchedules.filter(s => s.establishmentId === estId && s.date === todayStr);
     
     if (estSchedules.length === 0) {
-      estSchedules = allSchedules.filter(s => s.establishmentId === user.establishmentId);
+      estSchedules = allSchedules.filter(s => s.establishmentId === estId);
     }
     
     setTodaySchedules(estSchedules);
@@ -85,7 +91,7 @@ export default function EstablishmentDashboard() {
     setScheduledRiders(riders);
 
     const allDeliveries = db.getDeliveries();
-    const estDeliveriesToday = allDeliveries.filter(d => d.establishmentId === user.establishmentId && d.date === todayStr);
+    const estDeliveriesToday = allDeliveries.filter(d => d.establishmentId === estId && d.date === todayStr);
     setTodayDeliveries(estDeliveriesToday);
 
     const locations = db.getRiderLocations();
@@ -98,13 +104,10 @@ export default function EstablishmentDashboard() {
       return;
     }
 
-    if (!user.establishmentId) {
-      const allUsers = db.getUsers();
-      const updatedUser = allUsers.find(u => u.id === user.id);
-      if (updatedUser && updatedUser.establishmentId) {
-        db.setCurrentUser(updatedUser);
-        setUser(updatedUser);
-      }
+    // Garantir que temos os dados mais recentes do usuário com o ID do estabelecimento
+    const freshUser = db.getUsers().find(u => u.id === user.id);
+    if (freshUser && freshUser.establishmentId !== user.establishmentId) {
+      setUser(freshUser);
     }
 
     loadData();
@@ -278,7 +281,7 @@ export default function EstablishmentDashboard() {
 
     if (!user?.establishmentId) return;
 
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = db.getLocalDateString();
     const activeSchedule = todaySchedules.find(s => s.riderId === deliveryForm.riderId);
     const allDeliveries = db.getDeliveries();
     const nowStr = new Date().toISOString();
@@ -394,7 +397,9 @@ export default function EstablishmentDashboard() {
     .filter(d => d.status === 'active')
     .reduce((sum, d) => sum + d.value, 0);
 
-  const pendingDeliveries = todayDeliveries.filter(d => d.status === 'pending');
+  // Buscar TODAS as corridas pendentes do estabelecimento (sem filtro de data para evitar problemas de fuso horário)
+  const allDeliveries = db.getDeliveries();
+  const pendingDeliveries = allDeliveries.filter(d => d.establishmentId === user?.establishmentId && d.status === 'pending');
   const processedDeliveries = todayDeliveries.filter(d => d.status !== 'pending');
 
   return (
@@ -486,7 +491,7 @@ export default function EstablishmentDashboard() {
                         </div>
                         <p className="text-xs text-slate-500 flex items-center space-x-1 mt-1">
                           <Clock className="h-3.5 w-3.5" />
-                          <span>Lançada às {del.time}</span>
+                          <span>Lançada às {del.time} ({new Date(del.date + 'T00:00:00').toLocaleDateString('pt-BR')})</span>
                         </p>
                         {del.notes && (
                           <p className="text-xs text-slate-600 bg-white border border-amber-100 rounded px-2 py-1 mt-1.5 italic">

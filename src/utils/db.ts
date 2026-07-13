@@ -84,7 +84,7 @@ export interface RiderLocation {
   updatedAt: string;
 }
 
-// Tables that don't exist in Supabase will be disabled dynamically to use only LocalStorage
+// Tables that don't exist or fail in Supabase will be disabled dynamically to use only LocalStorage
 const disabledTables = new Set<string>();
 
 // Seed Data with an initial establishment user for testing
@@ -186,8 +186,9 @@ const mergeById = <T extends { id: string; updatedAt?: string }>(local: T[], rem
       const localTime = existing.updatedAt ? new Date(existing.updatedAt).getTime() : 0;
       const remoteTime = item.updatedAt ? new Date(item.updatedAt).getTime() : 0;
       
-      // Only overwrite if remote is newer or equal
-      if (remoteTime >= localTime) {
+      // Se o item remoto não tiver updatedAt (porque a coluna não existe no Supabase),
+      // nós sempre mesclamos para garantir que atualizações de status de outros usuários sejam aplicadas.
+      if (!item.updatedAt || remoteTime >= localTime) {
         const merged = { ...existing };
         (Object.keys(item) as (keyof T)[]).forEach(key => {
           const value = item[key];
@@ -293,13 +294,34 @@ const syncToSupabase = async (table: string, data: any[]) => {
       return item;
     });
 
-    const { error } = await supabase.from(table).upsert(formattedData);
+    let { error } = await supabase.from(table).upsert(formattedData);
+    
+    // Algoritmo Auto-Regenerativo: Se houver erro de coluna inexistente, removemos e tentamos novamente
     if (error) {
-      if (error.message?.includes('schema cache') || error.message?.includes('does not exist') || error.code === '42P01') {
-        console.warn(`⚠️ Tabela "${table}" não existe no Supabase. Usando LocalStorage como fallback.`);
+      let currentData = [...formattedData];
+      let attempts = 0;
+      while (error && error.message.includes("Could not find the '") && attempts < 10) {
+        attempts++;
+        const match = error.message.match(/Could not find the '([^']+)' column/);
+        if (match && match[1]) {
+          const missingCol = match[1];
+          console.warn(`⚠️ Coluna '${missingCol}' não encontrada na tabela '${table}' do Supabase. Removendo do envio...`);
+          currentData = currentData.map(item => {
+            const { [missingCol]: _, ...rest } = item;
+            return rest;
+          });
+          const retry = await supabase.from(table).upsert(currentData);
+          error = retry.error;
+        } else {
+          break;
+        }
+      }
+    }
+
+    if (error) {
+      console.warn(`⚠️ Erro ao sincronizar tabela "${table}" com Supabase.`, error.message);
+      if (error.message.includes("404") || error.message.includes("not found") || error.message.includes("relation")) {
         disabledTables.add(table);
-      } else {
-        console.error(`Erro ao sincronizar tabela ${table}:`, error.message);
       }
     }
   } catch (err: any) {
@@ -308,6 +330,12 @@ const syncToSupabase = async (table: string, data: any[]) => {
 };
 
 export const db = {
+  getLocalDateString: (date = new Date()) => {
+    const offset = date.getTimezoneOffset();
+    const localDate = new Date(date.getTime() - (offset * 60 * 1000));
+    return localDate.toISOString().split('T')[0];
+  },
+
   getUsers: () => {
     const users = getStorageData<User[]>('dm_users', INITIAL_USERS);
     let updated = false;
@@ -375,7 +403,6 @@ export const db = {
   getRiderLocations: (): RiderLocation[] => getStorageData<RiderLocation[]>('dm_rider_locations', []),
   setRiderLocations: (locations: RiderLocation[]) => {
     setStorageData('dm_rider_locations', locations);
-    // Also sync to Supabase if table exists
     syncToSupabase('rider_locations', locations).catch(() => {});
   },
   updateRiderLocation: (riderId: string, riderName: string, lat: number, lng: number) => {
@@ -393,10 +420,8 @@ export const db = {
     } else {
       locations.push(newLoc);
     }
-    // Salva localmente
     setStorageData('dm_rider_locations', locations);
 
-    // Envia direto ao Supabase (upsert em tempo real, sem batch)
     supabase
       .from('rider_locations')
       .upsert({
@@ -434,221 +459,259 @@ export const db = {
   },
 
   pullFromSupabase: async () => {
-    // ── USERS ──────────────────────────────────────────────────────────────
-    if (!disabledTables.has('users')) {
-      try {
-        const { data: users, error: usersError } = await supabase.from('users').select('*');
-        if (!usersError && users) {
-          const mappedUsers: User[] = users.map(u => ({
-            id: u.id,
-            name: u.name,
-            cpf: u.cpf,
-            phone: u.phone || '',
-            email: u.email,
-            role: u.role as any,
-            active: u.active,
-            passwordHash: u.password_hash,
-            mustResetPassword: u.must_reset_password,
-            establishmentId: u.establishment_id || undefined
-          }));
-          const localUsers = getStorageData<User[]>('dm_users', INITIAL_USERS);
-          const merged = mergeById(localUsers, mappedUsers);
-          setStorageData('dm_users', merged);
-          await syncToSupabase('users', merged);
-        } else {
-          if (usersError?.message?.includes('schema cache') || usersError?.message?.includes('does not exist') || usersError?.code === '42P01') {
-            disabledTables.add('users');
-          }
-          const localUsers = getStorageData<User[]>('dm_users', INITIAL_USERS);
-          await syncToSupabase('users', localUsers);
-        }
-      } catch (err) {
-        console.warn('Erro ao sincronizar tabela users:', err);
-      }
-    }
+    try {
+      // 1. Carregar estabelecimentos primeiro
+      const { data: ests, error: estsError } = await supabase.from('establishments').select('*');
+      let localEsts = getStorageData<Establishment[]>('dm_establishments', INITIAL_ESTABLISHMENTS);
+      const estIdMap = new Map<string, string>(); // De ID antigo para ID novo do Supabase
 
-    // ── ESTABLISHMENTS ─────────────────────────────────────────────────────
-    if (!disabledTables.has('establishments')) {
-      try {
-        const { data: ests, error: estsError } = await supabase.from('establishments').select('*');
-        if (!estsError && ests) {
-          const mappedEsts: Establishment[] = ests.map(e => ({
-            id: e.id,
-            name: e.name,
-            address: {
-              street: e.street,
-              number: e.number,
-              complement: e.complement || '',
-              neighborhood: e.neighborhood,
-              city: e.city,
-              state: e.state,
-              zipCode: e.zip_code
-            },
-            phone: e.phone || '',
-            active: e.active
-          }));
-          const localEsts = getStorageData<Establishment[]>('dm_establishments', INITIAL_ESTABLISHMENTS);
-          const merged = mergeById(localEsts, mappedEsts);
-          setStorageData('dm_establishments', merged);
-          await syncToSupabase('establishments', merged);
-        } else {
-          if (estsError?.message?.includes('schema cache') || estsError?.message?.includes('does not exist') || estsError?.code === '42P01') {
-            disabledTables.add('establishments');
-          }
-          const localEsts = getStorageData<Establishment[]>('dm_establishments', INITIAL_ESTABLISHMENTS);
-          await syncToSupabase('establishments', localEsts);
-        }
-      } catch (err) {
-        console.warn('Erro ao sincronizar tabela establishments:', err);
-      }
-    }
+      if (!estsError && ests) {
+        const mappedEsts: Establishment[] = ests.map(e => ({
+          id: e.id,
+          name: e.name,
+          address: {
+            street: e.street,
+            number: e.number,
+            complement: e.complement || '',
+            neighborhood: e.neighborhood,
+            city: e.city,
+            state: e.state,
+            zipCode: e.zip_code
+          },
+          phone: e.phone || '',
+          active: e.active
+        }));
 
-    // ── SCHEDULES ──────────────────────────────────────────────────────────
-    if (!disabledTables.has('schedules')) {
-      try {
-        const { data: schs, error: schsError } = await supabase.from('schedules').select('*');
-        if (!schsError && schs) {
-          const mappedSchs: Schedule[] = schs.map(s => ({
-            id: s.id,
-            riderId: s.rider_id,
-            establishmentId: s.establishment_id,
-            date: s.date,
-            shift: s.shift as any,
-            startTime: s.start_time,
-            endTime: s.end_time,
-            createdBy: s.created_by || 'Admin',
-            createdAt: s.created_at
-          }));
-          const localSchs = getStorageData<Schedule[]>('dm_schedules', []);
-          const merged = mergeById(localSchs, mappedSchs);
-          setStorageData('dm_schedules', merged);
-          await syncToSupabase('schedules', merged);
-        } else {
-          if (schsError?.message?.includes('schema cache') || schsError?.message?.includes('does not exist') || schsError?.code === '42P01') {
-            disabledTables.add('schedules');
+        // Mesclar estabelecimentos por nome único para evitar duplicados
+        const mergedEsts: Establishment[] = [];
+        localEsts.forEach(local => {
+          const remoteMatch = mappedEsts.find(r => r.name.toLowerCase() === local.name.toLowerCase());
+          if (remoteMatch) {
+            if (local.id !== remoteMatch.id) {
+              estIdMap.set(local.id, remoteMatch.id);
+            }
+            mergedEsts.push({ ...local, id: remoteMatch.id });
+          } else {
+            mergedEsts.push(local);
           }
-          const localSchs = getStorageData<Schedule[]>('dm_schedules', []);
-          if (localSchs.length > 0) await syncToSupabase('schedules', localSchs);
-        }
-      } catch (err) {
-        console.warn('Erro ao sincronizar tabela schedules:', err);
-      }
-    }
+        });
 
-    // ── DELIVERIES ─────────────────────────────────────────────────────────
-    if (!disabledTables.has('deliveries')) {
-      try {
-        const { data: dels, error: delsError } = await supabase.from('deliveries').select('*');
-        if (!delsError && dels) {
-          const mappedDels: Delivery[] = dels.map(d => ({
-            id: d.id,
-            riderId: d.rider_id,
-            establishmentId: d.establishment_id,
-            date: d.date,
-            time: d.time,
-            value: Number(d.value),
-            status: d.status as any,
-            scheduleId: d.schedule_id || undefined,
-            orderNumber: d.order_number || undefined,
-            notes: d.notes || undefined,
-            updatedAt: d.updated_at || undefined
-          }));
-          const localDels = getStorageData<Delivery[]>('dm_deliveries', []);
-          const merged = mergeById(localDels, mappedDels);
-          setStorageData('dm_deliveries', merged);
-          await syncToSupabase('deliveries', merged);
-        } else {
-          if (delsError?.message?.includes('schema cache') || delsError?.message?.includes('does not exist') || delsError?.code === '42P01') {
-            disabledTables.add('deliveries');
+        mappedEsts.forEach(remote => {
+          if (!mergedEsts.some(e => e.id === remote.id)) {
+            mergedEsts.push(remote);
           }
-          const localDels = getStorageData<Delivery[]>('dm_deliveries', []);
-          if (localDels.length > 0) await syncToSupabase('deliveries', localDels);
-        }
-      } catch (err) {
-        console.warn('Erro ao sincronizar tabela deliveries:', err);
-      }
-    }
+        });
 
-    // ── NOTIFICATIONS ──────────────────────────────────────────────────────
-    if (!disabledTables.has('notifications')) {
-      try {
-        const { data: notifs, error: notifsError } = await supabase.from('notifications').select('*');
-        if (!notifsError && notifs) {
-          const mappedNotifs: Notification[] = notifs.map(n => ({
-            id: n.id,
-            riderId: n.rider_id,
-            title: n.title,
-            message: n.message,
-            date: n.date,
-            read: n.read
-          }));
-          const localNotifs = getStorageData<Notification[]>('dm_notifications', []);
-          const merged = mergeById(localNotifs, mappedNotifs);
-          setStorageData('dm_notifications', merged);
-          await syncToSupabase('notifications', merged);
-        } else {
-          if (notifsError?.message?.includes('schema cache') || notifsError?.message?.includes('does not exist') || notifsError?.code === '42P01') {
-            disabledTables.add('notifications');
-          }
-          const localNotifs = getStorageData<Notification[]>('dm_notifications', []);
-          if (localNotifs.length > 0) await syncToSupabase('notifications', localNotifs);
-        }
-      } catch (err) {
-        console.warn('Erro ao sincronizar tabela notifications:', err);
+        localEsts = mergedEsts;
+        setStorageData('dm_establishments', localEsts);
+        await syncToSupabase('establishments', localEsts);
       }
-    }
 
-    // ── PARTNER REQUESTS ───────────────────────────────────────────────────
-    if (!disabledTables.has('partner_requests')) {
-      try {
-        const { data: reqs, error: reqsError } = await supabase.from('partner_requests').select('*');
-        if (!reqsError && reqs) {
-          const mappedReqs: PartnerRequest[] = reqs.map(r => ({
-            id: r.id,
-            establishmentName: r.establishment_name,
-            ownerName: r.owner_name,
-            phone: r.phone,
-            address: r.address,
-            status: r.status as any,
-            createdAt: r.created_at
-          }));
-          const localReqs = getStorageData<PartnerRequest[]>('dm_partner_requests', []);
-          const merged = mergeById(localReqs, mappedReqs);
-          setStorageData('dm_partner_requests', merged);
-          await syncToSupabase('partner_requests', merged);
-        } else {
-          if (reqsError?.message?.includes('schema cache') || reqsError?.message?.includes('does not exist') || reqsError?.code === '42P01') {
-            disabledTables.add('partner_requests');
-          }
-          const localReqs = getStorageData<PartnerRequest[]>('dm_partner_requests', []);
-          if (localReqs.length > 0) await syncToSupabase('partner_requests', localReqs);
-        }
-      } catch (err) {
-        console.warn('Erro ao sincronizar tabela partner_requests:', err);
-      }
-    }
+      // 2. Carregar usuários
+      const { data: users, error: usersError } = await supabase.from('users').select('*');
+      let localUsers = getStorageData<User[]>('dm_users', INITIAL_USERS);
+      const userIdMap = new Map<string, string>(); // De ID antigo para ID novo do Supabase
 
-    // ── RIDER LOCATIONS (pull only – escritas feitas direto pelo motoboy) ──
-    if (!disabledTables.has('rider_locations')) {
-      try {
-        const { data: locs, error: locsError } = await supabase.from('rider_locations').select('*');
-        if (!locsError && locs) {
-          const mappedLocs: RiderLocation[] = locs.map(l => ({
-            riderId: l.rider_id,
-            riderName: l.rider_name,
-            lat: l.lat,
-            lng: l.lng,
-            updatedAt: l.updated_at
-          }));
-          setStorageData('dm_rider_locations', mappedLocs);
-        } else {
-          if (locsError?.message?.includes('does not exist') || locsError?.code === '42P01') {
-            disabledTables.add('rider_locations');
+      if (!usersError && users) {
+        const mappedUsers: User[] = users.map(u => ({
+          id: u.id,
+          name: u.name,
+          cpf: u.cpf,
+          phone: u.phone || '',
+          email: u.email,
+          role: u.role as any,
+          active: u.active,
+          passwordHash: u.password_hash,
+          mustResetPassword: u.must_reset_password,
+          establishmentId: u.establishment_id || undefined
+        }));
+
+        // Mesclar usuários por e-mail ou CPF único para evitar duplicados
+        const mergedUsers: User[] = [];
+        localUsers.forEach(local => {
+          const remoteMatch = mappedUsers.find(
+            r => r.email.toLowerCase() === local.email.toLowerCase() || r.cpf === local.cpf
+          );
+          if (remoteMatch) {
+            if (local.id !== remoteMatch.id) {
+              userIdMap.set(local.id, remoteMatch.id);
+            }
+            mergedUsers.push({ 
+              ...local, 
+              id: remoteMatch.id,
+              establishmentId: remoteMatch.establishmentId || local.establishmentId 
+            });
+          } else {
+            mergedUsers.push(local);
+          }
+        });
+
+        mappedUsers.forEach(remote => {
+          if (!mergedUsers.some(u => u.id === remote.id)) {
+            mergedUsers.push(remote);
+          }
+        });
+
+        localUsers = mergedUsers;
+
+        // Atualizar referências de estabelecimentos nos usuários
+        if (estIdMap.size > 0) {
+          localUsers = localUsers.map(u => {
+            if (u.establishmentId && estIdMap.has(u.establishmentId)) {
+              return { ...u, establishmentId: estIdMap.get(u.establishmentId) };
+            }
+            return u;
+          });
+        }
+
+        setStorageData('dm_users', localUsers);
+
+        // Atualizar usuário logado se o ID dele mudou
+        const currentUser = db.getCurrentUser();
+        if (currentUser) {
+          const updatedCurrent = localUsers.find(u => u.email.toLowerCase() === currentUser.email.toLowerCase());
+          if (updatedCurrent) {
+            db.setCurrentUser(updatedCurrent);
           }
         }
-      } catch (err) {
-        console.warn('Erro ao sincronizar tabela rider_locations:', err);
+
+        await syncToSupabase('users', localUsers);
       }
+
+      // 3. Carregar escalas e atualizar referências de IDs
+      const { data: schs, error: schsError } = await supabase.from('schedules').select('*');
+      let localSchs = getStorageData<Schedule[]>('dm_schedules', []);
+
+      // Atualizar referências de IDs antigos para novos nas escalas locais
+      if (userIdMap.size > 0 || estIdMap.size > 0) {
+        localSchs = localSchs.map(s => ({
+          ...s,
+          riderId: userIdMap.get(s.riderId) || s.riderId,
+          establishmentId: estIdMap.get(s.establishmentId) || s.establishmentId
+        }));
+      }
+
+      if (!schsError && schs) {
+        const mappedSchs: Schedule[] = schs.map(s => ({
+          id: s.id,
+          riderId: s.rider_id,
+          establishmentId: s.establishment_id,
+          date: s.date,
+          shift: s.shift as any,
+          startTime: s.start_time,
+          endTime: s.end_time,
+          createdBy: s.created_by || 'Admin',
+          createdAt: s.created_at
+        }));
+
+        const merged = mergeById(localSchs, mappedSchs);
+        localSchs = merged;
+        setStorageData('dm_schedules', localSchs);
+        await syncToSupabase('schedules', localSchs);
+      } else {
+        setStorageData('dm_schedules', localSchs);
+      }
+
+      // 4. Carregar corridas e atualizar referências de IDs
+      const { data: dels, error: delsError } = await supabase.from('deliveries').select('*');
+      let localDels = getStorageData<Delivery[]>('dm_deliveries', []);
+
+      if (userIdMap.size > 0 || estIdMap.size > 0) {
+        localDels = localDels.map(d => ({
+          ...d,
+          riderId: userIdMap.get(d.riderId) || d.riderId,
+          establishmentId: estIdMap.get(d.establishmentId) || d.establishmentId
+        }));
+      }
+
+      if (!delsError && dels) {
+        const mappedDels: Delivery[] = dels.map(d => ({
+          id: d.id,
+          riderId: d.rider_id,
+          establishmentId: d.establishment_id,
+          date: d.date,
+          time: d.time,
+          value: Number(d.value),
+          status: d.status as any,
+          scheduleId: d.schedule_id || undefined,
+          orderNumber: d.order_number || undefined,
+          notes: d.notes || undefined,
+          updatedAt: d.updated_at || undefined
+        }));
+
+        const merged = mergeById(localDels, mappedDels);
+        localDels = merged;
+        setStorageData('dm_deliveries', localDels);
+        await syncToSupabase('deliveries', localDels);
+      } else {
+        setStorageData('dm_deliveries', localDels);
+      }
+
+      // 5. Carregar notificações e atualizar referências de IDs
+      const { data: notifs, error: notifsError } = await supabase.from('notifications').select('*');
+      let localNotifs = getStorageData<Notification[]>('dm_notifications', []);
+
+      if (userIdMap.size > 0) {
+        localNotifs = localNotifs.map(n => ({
+          ...n,
+          riderId: userIdMap.get(n.riderId) || n.riderId
+        }));
+      }
+
+      if (!notifsError && notifs) {
+        const mappedNotifs: Notification[] = notifs.map(n => ({
+          id: n.id,
+          riderId: n.rider_id,
+          title: n.title,
+          message: n.message,
+          date: n.date,
+          read: n.read
+        }));
+
+        const merged = mergeById(localNotifs, mappedNotifs);
+        localNotifs = merged;
+        setStorageData('dm_notifications', localNotifs);
+        await syncToSupabase('notifications', localNotifs);
+      } else {
+        setStorageData('dm_notifications', localNotifs);
+      }
+
+      // 6. Carregar solicitações de parceria
+      const { data: reqs, error: reqsError } = await supabase.from('partner_requests').select('*');
+      if (!reqsError && reqs) {
+        const mappedReqs: PartnerRequest[] = reqs.map(r => ({
+          id: r.id,
+          establishmentName: r.establishment_name,
+          ownerName: r.owner_name,
+          phone: r.phone,
+          address: r.address,
+          status: r.status as any,
+          createdAt: r.created_at
+        }));
+        const localReqs = getStorageData<PartnerRequest[]>('dm_partner_requests', []);
+        const merged = mergeById(localReqs, mappedReqs);
+        setStorageData('dm_partner_requests', merged);
+        await syncToSupabase('partner_requests', merged);
+      } else if (reqsError && (reqsError.message.includes("404") || reqsError.message.includes("not found") || reqsError.message.includes("relation"))) {
+        console.warn("⚠️ Tabela partner_requests não encontrada no Supabase. Usando apenas LocalStorage.");
+        disabledTables.add('partner_requests');
+      }
+
+      // 7. Carregar localizações dos motoboys
+      const { data: locs, error: locsError } = await supabase.from('rider_locations').select('*');
+      if (!locsError && locs) {
+        const mappedLocs: RiderLocation[] = locs.map(l => ({
+          riderId: l.rider_id,
+          riderName: l.rider_name,
+          lat: l.lat,
+          lng: l.lng,
+          updatedAt: l.updated_at
+        }));
+        setStorageData('dm_rider_locations', mappedLocs);
+      }
+
+    } catch (err) {
+      console.warn('Erro geral na sincronização com o Supabase:', err);
     }
 
     console.log('✅ Sincronização com Supabase concluída de forma robusta.');
