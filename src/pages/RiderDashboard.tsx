@@ -148,7 +148,7 @@ export default function RiderDashboard() {
   };
 
   // Cálculos de faturamento
-  const getTodayDateString = () => new Date().toISOString().split('T')[0];
+  const getTodayDateString = () => db.getLocalDateString();
 
   const getStartOfWeek = () => {
     const today = new Date();

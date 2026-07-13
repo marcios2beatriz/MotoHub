@@ -308,6 +308,12 @@ const syncToSupabase = async (table: string, data: any[]) => {
 };
 
 export const db = {
+  getLocalDateString: (date = new Date()) => {
+    const offset = date.getTimezoneOffset();
+    const localDate = new Date(date.getTime() - (offset * 60 * 1000));
+    return localDate.toISOString().split('T')[0];
+  },
+
   getUsers: () => {
     const users = getStorageData<User[]>('dm_users', INITIAL_USERS);
     let updated = false;
