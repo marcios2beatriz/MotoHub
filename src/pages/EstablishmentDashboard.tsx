@@ -127,7 +127,7 @@ export default function EstablishmentDashboard() {
     };
   }, [user, navigate]);
 
-  // 1. Hook de Inicialização Única do Mapa
+  // 1. Hook de Inicialização Única do Mapa (Vinculado apenas ao ID do estabelecimento)
   useEffect(() => {
     if (!establishment || !mapContainerRef.current) return;
 
@@ -226,7 +226,7 @@ export default function EstablishmentDashboard() {
         markersRef.current = {};
       }
     };
-  }, [establishment]);
+  }, [establishment?.id]); // Alterado para ID para evitar reinicialização do mapa a cada atualização de dados
 
   // 2. Hook de Atualização Suave dos Marcadores dos Motoboys
   useEffect(() => {
