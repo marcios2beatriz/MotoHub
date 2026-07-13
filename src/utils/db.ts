@@ -163,6 +163,24 @@ const INITIAL_ESTABLISHMENTS: Establishment[] = [
   }
 ];
 
+// Coordenadas iniciais de teste próximas à Avenida Paulista, SP
+const INITIAL_LOCATIONS: RiderLocation[] = [
+  {
+    riderId: 'u2',
+    riderName: 'Carlos Silva (Motoqueiro)',
+    lat: -23.5631,
+    lng: -46.6542,
+    updatedAt: new Date().toISOString()
+  },
+  {
+    riderId: 'u3',
+    riderName: 'Lucas Souza (Motoqueiro)',
+    lat: -23.5582,
+    lng: -46.6591,
+    updatedAt: new Date().toISOString()
+  }
+];
+
 export const getStorageData = <T>(key: string, initialData: T): T => {
   const data = localStorage.getItem(key);
   if (!data) {
@@ -405,7 +423,7 @@ export const db = {
     syncToSupabase('partner_requests', reqs);
   },
 
-  getRiderLocations: (): RiderLocation[] => getStorageData<RiderLocation[]>('dm_rider_locations', []),
+  getRiderLocations: (): RiderLocation[] => getStorageData<RiderLocation[]>('dm_rider_locations', INITIAL_LOCATIONS),
   setRiderLocations: (locations: RiderLocation[]) => {
     setStorageData('dm_rider_locations', locations);
     syncToSupabase('rider_locations', locations).catch(() => {});

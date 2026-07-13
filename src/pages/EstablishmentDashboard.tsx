@@ -18,7 +18,9 @@ import {
   Hash,
   Check,
   X,
-  Edit2
+  Edit2,
+  Maximize2,
+  Minimize2
 } from 'lucide-react';
 
 // Leaflet imports
@@ -44,6 +46,9 @@ export default function EstablishmentDashboard() {
   const [todaySchedules, setTodaySchedules] = useState<Schedule[]>([]);
   const [todayDeliveries, setTodayDeliveries] = useState<Delivery[]>([]);
   const [riderLocations, setRiderLocations] = useState<RiderLocation[]>([]);
+
+  // Map expansion state
+  const [isMapExpanded, setIsMapExpanded] = useState(false);
 
   // Form state
   const [showDeliveryModal, setShowDeliveryModal] = useState(false);
@@ -139,8 +144,8 @@ export default function EstablishmentDashboard() {
       document.head.appendChild(link);
     }
 
-    const defaultLat = -15.7801;
-    const defaultLng = -47.9292;
+    const defaultLat = -23.56168; // São Paulo (Avenida Paulista)
+    const defaultLng = -46.65598;
 
     const initMap = async (lat: number, lng: number) => {
       if (mapRef.current) return;
@@ -152,10 +157,10 @@ export default function EstablishmentDashboard() {
       }).addTo(mapInstance);
 
       const estIcon = L.divIcon({
-        html: `<div class="bg-indigo-600 text-white p-2 rounded-full shadow-lg border-2 border-white flex items-center justify-center"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></div>`,
-        className: 'custom-div-icon',
-        iconSize: [32, 32],
-        iconAnchor: [16, 16]
+        html: `<div style="background-color: #4f46e5; color: white; width: 36px; height: 36px; border-radius: 50%; border: 2px solid white; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); display: flex; align-items: center; justify-content: center;"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></div>`,
+        className: 'custom-est-icon',
+        iconSize: [36, 36],
+        iconAnchor: [18, 18]
       });
 
       L.marker([lat, lng], { icon: estIcon })
@@ -255,10 +260,10 @@ export default function EstablishmentDashboard() {
         existingMarker.setLatLng([loc.lat, loc.lng]);
       } else {
         const riderIcon = L.divIcon({
-          html: `<div class="bg-emerald-500 text-white p-2 rounded-full shadow-lg border-2 border-white flex items-center justify-center transition-all duration-500"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="15" width="14" height="4" rx="1"/><path d="M12 15V5a2 2 0 0 0-2-2H4"/><path d="M12 5h7a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h-7"/></svg></div>`,
-          className: 'custom-div-icon',
-          iconSize: [32, 32],
-          iconAnchor: [16, 16]
+          html: `<div style="background-color: #10b981; color: white; width: 36px; height: 36px; border-radius: 50%; border: 2px solid white; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); display: flex; align-items: center; justify-content: center;"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="15" width="14" height="4" rx="1"/><path d="M12 15V5a2 2 0 0 0-2-2H4"/><path d="M12 5h7a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h-7"/></svg></div>`,
+          className: 'custom-rider-icon',
+          iconSize: [36, 36],
+          iconAnchor: [18, 18]
         });
 
         const marker = L.marker([loc.lat, loc.lng], { icon: riderIcon })
@@ -269,6 +274,15 @@ export default function EstablishmentDashboard() {
       }
     });
   }, [scheduledRiders, riderLocations]);
+
+  // 3. Forçar redimensionamento do mapa ao expandir/minimizar
+  useEffect(() => {
+    if (mapRef.current) {
+      setTimeout(() => {
+        mapRef.current?.invalidateSize();
+      }, 300);
+    }
+  }, [isMapExpanded]);
 
   const handleLogout = () => {
     db.setCurrentUser(null);
@@ -730,19 +744,42 @@ export default function EstablishmentDashboard() {
 
         {/* Right Column: Real-time GPS Tracking Map */}
         <div className="space-y-6">
-          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col h-[500px]">
+          <div className={`bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col transition-all duration-300 ${
+            isMapExpanded 
+              ? 'fixed inset-4 z-50 h-[calc(100vh-32px)]' 
+              : 'h-[500px]'
+          }`}>
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-lg font-bold text-slate-800 flex items-center space-x-2">
                 <MapIcon className="h-5 w-5 text-indigo-600" />
                 <span>Rastreamento em Tempo Real</span>
               </h2>
-              <button 
-                onClick={loadData}
-                className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
-                title="Atualizar Mapa"
-              >
-                <RefreshCw className="h-4 w-4" />
-              </button>
+              <div className="flex items-center space-x-2">
+                <button 
+                  onClick={() => setIsMapExpanded(!isMapExpanded)}
+                  className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors flex items-center gap-1 text-xs font-semibold"
+                  title={isMapExpanded ? "Minimizar Mapa" : "Expandir Mapa"}
+                >
+                  {isMapExpanded ? (
+                    <>
+                      <Minimize2 className="h-4 w-4" />
+                      <span className="hidden sm:inline">Minimizar</span>
+                    </>
+                  ) : (
+                    <>
+                      <Maximize2 className="h-4 w-4" />
+                      <span className="hidden sm:inline">Expandir Mapa</span>
+                    </>
+                  )}
+                </button>
+                <button 
+                  onClick={loadData}
+                  className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
+                  title="Atualizar Mapa"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                </button>
+              </div>
             </div>
 
             {/* Map Container */}
@@ -752,12 +789,18 @@ export default function EstablishmentDashboard() {
               style={{ minHeight: '300px' }}
             />
 
-            <div className="mt-4 text-xs text-slate-500 flex items-center space-x-2">
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-              </span>
-              <span>O mapa atualiza automaticamente a posição dos motoboys ativos.</span>
+            <div className="mt-4 text-xs text-slate-500 flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </span>
+                <span>O mapa atualiza automaticamente a posição dos motoboys ativos.</span>
+              </div>
+              <div className="flex items-center gap-3 text-[10px] font-semibold">
+                <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-indigo-600 inline-block" /> Estabelecimento</span>
+                <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block" /> Motoboy</span>
+              </div>
             </div>
           </div>
         </div>
