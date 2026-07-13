@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { db, User, Establishment, Schedule, Delivery, RiderLocation } from '../utils/db';
+import { db, User, Establishment, Schedule, Delivery, RiderLocation, Notification } from '../utils/db';
 import { 
   Bike, 
   LogOut, 
@@ -15,7 +15,10 @@ import {
   TrendingUp, 
   Map as MapIcon,
   RefreshCw,
-  Hash
+  Hash,
+  Check,
+  X,
+  Edit2
 } from 'lucide-react';
 
 // Leaflet imports
@@ -24,16 +27,16 @@ import L from 'leaflet';
 export default function EstablishmentDashboard() {
   const navigate = useNavigate();
   const [user, setUser] = useState(() => {
-  const cur = db.getCurrentUser();
-  if (cur && !cur.establishmentId) {
-    const full = db.getUsers().find(u => u.id === cur.id);
-    if (full?.establishmentId) {
-      db.setCurrentUser(full);
-      return full;
+    const cur = db.getCurrentUser();
+    if (cur && !cur.establishmentId) {
+      const full = db.getUsers().find(u => u.id === cur.id);
+      if (full?.establishmentId) {
+        db.setCurrentUser(full);
+        return full;
+      }
     }
-  }
-  return cur;
-});
+    return cur;
+  });
   const [establishment, setEstablishment] = useState<Establishment | null>(null);
   
   // Data states
@@ -44,10 +47,12 @@ export default function EstablishmentDashboard() {
 
   // Form state
   const [showDeliveryModal, setShowDeliveryModal] = useState(false);
+  const [editingDelivery, setEditingDelivery] = useState<Delivery | null>(null);
   const [deliveryForm, setDeliveryForm] = useState({
     riderId: '',
     value: '',
-    orderNumber: ''
+    orderNumber: '',
+    notes: ''
   });
 
   // Map reference
@@ -66,7 +71,6 @@ export default function EstablishmentDashboard() {
     const allSchedules = db.getSchedules();
     let estSchedules = allSchedules.filter(s => s.establishmentId === user.establishmentId && s.date === todayStr);
     
-    // Fallback: If no schedule today, get any schedule for the establishment
     if (estSchedules.length === 0) {
       estSchedules = allSchedules.filter(s => s.establishmentId === user.establishmentId);
     }
@@ -79,12 +83,6 @@ export default function EstablishmentDashboard() {
       ? allUsers.filter(u => scheduledIds.includes(u.id))
       : allUsers.filter(u => u.role === 'rider');
     setScheduledRiders(riders);
-
-    // Debug logs
-    console.log('User establishmentId:', user.establishmentId);
-    console.log('Total schedules for establishment today (or fallback):', estSchedules.length);
-    console.log('Scheduled rider IDs:', scheduledIds);
-    console.log('Riders loaded:', riders.map(r => r.name || r.id));
 
     const allDeliveries = db.getDeliveries();
     const estDeliveriesToday = allDeliveries.filter(d => d.establishmentId === user.establishmentId && d.date === todayStr);
@@ -100,21 +98,17 @@ export default function EstablishmentDashboard() {
       return;
     }
 
-    // Se o usuário não tiver establishmentId, atualizar com o valor correto
     if (!user.establishmentId) {
-      console.log('Usuário sem establishmentId, atualizando...');
       const allUsers = db.getUsers();
       const updatedUser = allUsers.find(u => u.id === user.id);
       if (updatedUser && updatedUser.establishmentId) {
         db.setCurrentUser(updatedUser);
         setUser(updatedUser);
-        console.log('Usuário atualizado com establishmentId:', updatedUser.establishmentId);
       }
     }
 
     loadData();
 
-    // Poll for rider locations every 5 seconds
     const interval = setInterval(() => {
       loadData();
     }, 5000);
@@ -122,11 +116,10 @@ export default function EstablishmentDashboard() {
     return () => clearInterval(interval);
   }, [user, navigate]);
 
-  // Initialize Map and Handle Markers in a single robust effect
+  // Initialize Map and Handle Markers
   useEffect(() => {
     if (!establishment || !mapContainerRef.current) return;
 
-    // Dynamically load Leaflet CSS
     if (!document.getElementById('leaflet-css')) {
       const link = document.createElement('link');
       link.id = 'leaflet-css';
@@ -135,19 +128,17 @@ export default function EstablishmentDashboard() {
       document.head.appendChild(link);
     }
 
-    // Default coordinates (Brazil center) used only if geocoding fails
     const defaultLat = -15.7801;
     const defaultLng = -47.9292;
 
     const initMap = async (lat: number, lng: number) => {
-      if (mapRef.current) return; // Already initialized
+      if (mapRef.current) return;
       mapRef.current = L.map(mapContainerRef.current!).setView([lat, lng], 14);
 
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; OpenStreetMap contributors'
       }).addTo(mapRef.current);
 
-      // Add establishment marker
       const estIcon = L.divIcon({
         html: `<div class="bg-indigo-600 text-white p-2 rounded-full shadow-lg border-2 border-white flex items-center justify-center"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></div>`,
         className: 'custom-div-icon',
@@ -161,9 +152,8 @@ export default function EstablishmentDashboard() {
         .openPopup();
     };
 
-    // Geocode using establishment address (city + state + street) via Nominatim
     const geocodeEstablishment = async () => {
-      if (mapRef.current) return; // Already initialized
+      if (mapRef.current) return;
       const addr = establishment.address;
       if (addr) {
         const query = [
@@ -189,7 +179,6 @@ export default function EstablishmentDashboard() {
           console.warn('Geocoding by address failed, trying by CEP...', e);
         }
 
-        // Fallback: geocode by CEP via ViaCEP + Nominatim
         if (addr.zipCode) {
           const cep = addr.zipCode.replace(/\D/g, '');
           try {
@@ -213,20 +202,16 @@ export default function EstablishmentDashboard() {
         }
       }
 
-      // Last resort: default Brazil center
       await initMap(defaultLat, defaultLng);
     };
 
     geocodeEstablishment();
 
-    // If map was already created, just continue to marker update below
     if (!mapRef.current) return;
 
-    // Update Rider Markers safely
     const currentMap = mapRef.current;
     const scheduledRiderIds = scheduledRiders.map(r => r.id);
 
-    // 1. Remove markers for riders that are no longer scheduled or active
     Object.keys(markersRef.current).forEach(riderId => {
       if (!scheduledRiderIds.includes(riderId)) {
         markersRef.current[riderId].remove();
@@ -234,7 +219,6 @@ export default function EstablishmentDashboard() {
       }
     });
 
-    // 2. Add or update active rider markers
     riderLocations.forEach(loc => {
       if (!scheduledRiderIds.includes(loc.riderId)) return;
 
@@ -242,10 +226,8 @@ export default function EstablishmentDashboard() {
       const existingMarker = markersRef.current[loc.riderId];
 
       if (existingMarker && currentMap.hasLayer(existingMarker)) {
-        // Update position safely
         existingMarker.setLatLng([loc.lat, loc.lng]);
       } else {
-        // Create new marker
         const riderIcon = L.divIcon({
           html: `<div class="bg-emerald-500 text-white p-2 rounded-full shadow-lg border-2 border-white flex items-center justify-center animate-bounce"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="15" width="14" height="4" rx="1"/><path d="M12 15V5a2 2 0 0 0-2-2H4"/><path d="M12 5h7a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h-7"/></svg></div>`,
           className: 'custom-div-icon',
@@ -262,14 +244,13 @@ export default function EstablishmentDashboard() {
     });
 
     return () => {
-      // Cleanup map on unmount
       if (mapRef.current) {
-        // Remove all markers
         Object.keys(markersRef.current).forEach(riderId => {
           markersRef.current[riderId].remove();
         });
         markersRef.current = {};
         mapRef.current.remove();
+        mapRef.currentMap.remove();
         mapRef.current = null;
       }
     };
@@ -292,24 +273,38 @@ export default function EstablishmentDashboard() {
 
     const todayStr = new Date().toISOString().split('T')[0];
     const activeSchedule = todaySchedules.find(s => s.riderId === deliveryForm.riderId);
-
-    const newDelivery: Delivery = {
-      id: 'd_' + Date.now(),
-      riderId: deliveryForm.riderId,
-      establishmentId: user.establishmentId,
-      date: todayStr,
-      time: new Date().toTimeString().slice(0, 5),
-      value: val,
-      status: 'active',
-      scheduleId: activeSchedule?.id,
-      orderNumber: deliveryForm.orderNumber.trim() || undefined
-    };
-
     const allDeliveries = db.getDeliveries();
-    db.setDeliveries([...allDeliveries, newDelivery]);
+
+    if (editingDelivery) {
+      const updated = allDeliveries.map(d => d.id === editingDelivery.id ? {
+        ...d,
+        riderId: deliveryForm.riderId,
+        value: val,
+        orderNumber: deliveryForm.orderNumber.trim() || undefined,
+        notes: deliveryForm.notes.trim() || undefined,
+        scheduleId: activeSchedule?.id || d.scheduleId
+      } : d);
+      db.setDeliveries(updated);
+      alert('Corrida editada com sucesso!');
+    } else {
+      const newDelivery: Delivery = {
+        id: 'd_' + Date.now(),
+        riderId: deliveryForm.riderId,
+        establishmentId: user.establishmentId,
+        date: todayStr,
+        time: new Date().toTimeString().slice(0, 5),
+        value: val,
+        status: 'active',
+        scheduleId: activeSchedule?.id,
+        orderNumber: deliveryForm.orderNumber.trim() || undefined,
+        notes: deliveryForm.notes.trim() || undefined
+      };
+      db.setDeliveries([...allDeliveries, newDelivery]);
+    }
 
     setShowDeliveryModal(false);
-    setDeliveryForm({ riderId: '', value: '', orderNumber: '' });
+    setEditingDelivery(null);
+    setDeliveryForm({ riderId: '', value: '', orderNumber: '', notes: '' });
     loadData();
   };
 
@@ -318,6 +313,55 @@ export default function EstablishmentDashboard() {
       const allDeliveries = db.getDeliveries();
       const updated = allDeliveries.map(d => d.id === id ? { ...d, status: 'cancelled' as const } : d);
       db.setDeliveries(updated);
+      loadData();
+    }
+  };
+
+  const handleApproveDelivery = (id: string) => {
+    const allDeliveries = db.getDeliveries();
+    const delivery = allDeliveries.find(d => d.id === id);
+    if (!delivery) return;
+
+    const updated = allDeliveries.map(d => d.id === id ? { ...d, status: 'active' as const } : d);
+    db.setDeliveries(updated);
+
+    // Notify Rider
+    const allNotif = db.getNotifications();
+    const newNotif: Notification = {
+      id: 'n_' + Date.now(),
+      riderId: delivery.riderId,
+      title: '✅ Corrida Aprovada!',
+      message: `Sua corrida no valor de R$ ${delivery.value.toFixed(2)} foi aprovada pelo estabelecimento ${establishment?.name}.`,
+      date: new Date().toISOString(),
+      read: false
+    };
+    db.setNotifications([...allNotif, newNotif]);
+
+    loadData();
+    alert('Corrida aprovada com sucesso!');
+  };
+
+  const handleRejectDelivery = (id: string) => {
+    if (confirm('Deseja realmente rejeitar esta corrida?')) {
+      const allDeliveries = db.getDeliveries();
+      const delivery = allDeliveries.find(d => d.id === id);
+      if (!delivery) return;
+
+      const updated = allDeliveries.map(d => d.id === id ? { ...d, status: 'rejected' as const } : d);
+      db.setDeliveries(updated);
+
+      // Notify Rider
+      const allNotif = db.getNotifications();
+      const newNotif: Notification = {
+        id: 'n_' + Date.now(),
+        riderId: delivery.riderId,
+        title: '❌ Corrida Rejeitada',
+        message: `Sua corrida no valor de R$ ${delivery.value.toFixed(2)} foi rejeitada pelo estabelecimento ${establishment?.name}.`,
+        date: new Date().toISOString(),
+        read: false
+      };
+      db.setNotifications([...allNotif, newNotif]);
+
       loadData();
     }
   };
@@ -336,6 +380,9 @@ export default function EstablishmentDashboard() {
   const totalEstEarningsToday = todayDeliveries
     .filter(d => d.status === 'active')
     .reduce((sum, d) => sum + d.value, 0);
+
+  const pendingDeliveries = todayDeliveries.filter(d => d.status === 'pending');
+  const processedDeliveries = todayDeliveries.filter(d => d.status !== 'pending');
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
@@ -402,6 +449,83 @@ export default function EstablishmentDashboard() {
             </div>
           </div>
 
+          {/* Pending Deliveries Approval Section */}
+          {pendingDeliveries.length > 0 && (
+            <div className="bg-amber-50/50 p-6 rounded-xl shadow-sm border border-amber-200 space-y-4">
+              <h2 className="text-lg font-bold text-amber-800 flex items-center space-x-2">
+                <Clock className="h-5 w-5 text-amber-600 animate-pulse" />
+                <span>Corridas Pendentes de Aprovação ({pendingDeliveries.length})</span>
+              </h2>
+
+              <div className="divide-y divide-amber-100">
+                {pendingDeliveries.map(del => {
+                  const rider = db.getUsers().find(u => u.id === del.riderId);
+                  return (
+                    <div key={del.id} className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="min-w-0 flex-1 pr-4">
+                        <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                          <p className="font-bold text-slate-800">{rider?.name || 'Motoboy'}</p>
+                          {del.orderNumber && (
+                            <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded">
+                              #{del.orderNumber}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-slate-500 flex items-center space-x-1 mt-1">
+                          <Clock className="h-3.5 w-3.5" />
+                          <span>Lançada às {del.time}</span>
+                        </p>
+                        {del.notes && (
+                          <p className="text-xs text-slate-600 bg-white border border-amber-100 rounded px-2 py-1 mt-1.5 italic">
+                            Obs: {del.notes}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex items-center space-x-3 self-end sm:self-center flex-shrink-0">
+                        <span className="font-bold text-amber-700 text-lg">R$ {del.value.toFixed(2)}</span>
+                        <div className="flex items-center space-x-1">
+                          <button
+                            onClick={() => {
+                              setEditingDelivery(del);
+                              setDeliveryForm({
+                                riderId: del.riderId,
+                                value: del.value.toString(),
+                                orderNumber: del.orderNumber || '',
+                                notes: del.notes || ''
+                              });
+                              setShowDeliveryModal(true);
+                            }}
+                            className="bg-slate-100 hover:bg-slate-200 text-slate-700 p-1.5 rounded-lg transition-colors flex items-center space-x-1 text-xs font-bold"
+                            title="Editar Corrida Pendente"
+                          >
+                            <Edit2 className="h-4 w-4" />
+                            <span className="hidden sm:inline">Editar</span>
+                          </button>
+                          <button
+                            onClick={() => handleApproveDelivery(del.id)}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white p-1.5 rounded-lg transition-colors flex items-center space-x-1 text-xs font-bold"
+                            title="Aprovar Corrida"
+                          >
+                            <Check className="h-4 w-4" />
+                            <span className="hidden sm:inline">Aprovar</span>
+                          </button>
+                          <button
+                            onClick={() => handleRejectDelivery(del.id)}
+                            className="bg-red-600 hover:bg-red-700 text-white p-1.5 rounded-lg transition-colors flex items-center space-x-1 text-xs font-bold"
+                            title="Rejeitar Corrida"
+                          >
+                            <X className="h-4 w-4" />
+                            <span className="hidden sm:inline">Rejeitar</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Scheduled Riders List */}
           <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
             <div className="flex justify-between items-center">
@@ -415,7 +539,8 @@ export default function EstablishmentDashboard() {
                     alert('Não há motoboys escalados para hoje.');
                     return;
                   }
-                  setDeliveryForm({ riderId: scheduledRiders[0].id, value: '', orderNumber: '' });
+                  setEditingDelivery(null);
+                  setDeliveryForm({ riderId: scheduledRiders[0].id, value: '', orderNumber: '', notes: '' });
                   setShowDeliveryModal(true);
                 }}
                 className="flex items-center space-x-1.5 bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
@@ -476,8 +601,7 @@ export default function EstablishmentDashboard() {
             </h2>
 
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[500px] text-left border-collapse">
-                <thead>
+              <table className="w-full min-w-[500px] text-left border-collapse">                <thead>
                   <tr className="border-b border-slate-200 text-slate-500 text-xs uppercase font-semibold">
                     <th className="py-3 px-4">Motoboy</th>
                     <th className="py-3 px-4">Nº Pedido</th>
@@ -488,18 +612,23 @@ export default function EstablishmentDashboard() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-sm">
-                  {todayDeliveries.length === 0 ? (
+                  {processedDeliveries.length === 0 ? (
                     <tr>
                       <td colSpan={6} className="py-8 text-center text-slate-400">
                         Nenhuma corrida lançada hoje.
                       </td>
                     </tr>
                   ) : (
-                    todayDeliveries.map(del => {
-                      const rider = scheduledRiders.find(r => r.id === del.riderId);
+                    processedDeliveries.map(del => {
+                      const rider = db.getUsers().find(u => u.id === del.riderId);
                       return (
                         <tr key={del.id} className="hover:bg-slate-50/50">
-                          <td className="py-3 px-4 font-medium text-slate-800">{rider?.name || 'Motoboy'}</td>
+                          <td className="py-3 px-4">
+                            <p className="font-medium text-slate-800">{rider?.name || 'Motoboy'}</p>
+                            {del.notes && (
+                              <p className="text-xs text-slate-500 italic mt-0.5">Obs: {del.notes}</p>
+                            )}
+                          </td>
                           <td className="py-3 px-4 text-slate-600 font-mono">
                             {del.orderNumber ? (
                               <span className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded text-xs font-semibold">
@@ -516,20 +645,44 @@ export default function EstablishmentDashboard() {
                           <td className="py-3 px-4 font-bold text-emerald-600">R$ {del.value.toFixed(2)}</td>
                           <td className="py-3 px-4">
                             <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
-                              del.status === 'active' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'
+                              del.status === 'active' 
+                                ? 'bg-emerald-100 text-emerald-800' 
+                                : del.status === 'rejected'
+                                ? 'bg-red-100 text-red-800'
+                                : 'bg-slate-100 text-slate-800'
                             }`}>
-                              {del.status === 'active' ? 'Ativa' : 'Cancelada'}
+                              {del.status === 'active' && 'Ativa'}
+                              {del.status === 'rejected' && 'Rejeitada'}
+                              {del.status === 'cancelled' && 'Cancelada'}
                             </span>
                           </td>
-                          <td className="py-3 px-4 text-right">
+                          <td className="py-3 px-4 text-right whitespace-nowrap">
                             {del.status === 'active' && (
-                              <button
-                                onClick={() => handleCancelDelivery(del.id)}
-                                className="text-red-500 hover:bg-red-50 p-1.5 rounded transition-colors"
-                                title="Cancelar Corrida"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </button>
+                              <div className="flex items-center justify-end space-x-1">
+                                <button
+                                  onClick={() => {
+                                    setEditingDelivery(del);
+                                    setDeliveryForm({
+                                      riderId: del.riderId,
+                                      value: del.value.toString(),
+                                      orderNumber: del.orderNumber || '',
+                                      notes: del.notes || ''
+                                    });
+                                    setShowDeliveryModal(true);
+                                  }}
+                                  className="text-slate-500 hover:bg-slate-100 p-1.5 rounded transition-colors"
+                                  title="Editar Corrida"
+                                >
+                                  <Edit2 className="h-4 w-4" />
+                                </button>
+                                <button
+                                  onClick={() => handleCancelDelivery(del.id)}
+                                  className="text-red-500 hover:bg-red-50 p-1.5 rounded transition-colors"
+                                  title="Cancelar Corrida"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
+                              </div>
                             )}
                           </td>
                         </tr>
@@ -582,9 +735,11 @@ export default function EstablishmentDashboard() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl max-w-md w-full p-6 space-y-4 shadow-xl">
             <div className="flex justify-between items-center">
-              <h3 className="text-lg font-bold text-slate-800">Lançar Nova Corrida</h3>
-              <button onClick={() => setShowDeliveryModal(false)} className="text-slate-400 hover:text-slate-600">
-                <Trash2 className="h-5 w-5" />
+              <h3 className="text-lg font-bold text-slate-800">
+                {editingDelivery ? 'Editar Corrida' : 'Lançar Nova Corrida'}
+              </h3>
+              <button onClick={() => { setShowDeliveryModal(false); setEditingDelivery(null); }} className="text-slate-400 hover:text-slate-600">
+                <X className="h-5 w-5" />
               </button>
             </div>
             <form onSubmit={handleSaveDelivery} className="space-y-3">
@@ -628,10 +783,20 @@ export default function EstablishmentDashboard() {
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none"
                 />
               </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Observações (Opcional)</label>
+                <textarea
+                  placeholder="Ex: Troco para R$ 50,00, condomínio bloco B..."
+                  value={deliveryForm.notes}
+                  onChange={(e) => setDeliveryForm({ ...deliveryForm, notes: e.target.value })}
+                  rows={2}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none resize-none"
+                />
+              </div>
               <div className="flex justify-end space-x-2 pt-3">
                 <button
                   type="button"
-                  onClick={() => setShowDeliveryModal(false)}
+                  onClick={() => { setShowDeliveryModal(false); setEditingDelivery(null); }}
                   className="px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50"
                 >
                   Cancelar
@@ -640,7 +805,7 @@ export default function EstablishmentDashboard() {
                   type="submit"
                   className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-medium"
                 >
-                  Lançar Corrida
+                  {editingDelivery ? 'Salvar Alterações' : 'Lançar Corrida'}
                 </button>
               </div>
             </form>

@@ -17,6 +17,7 @@ interface DeliveryModalProps {
     time: string;
     value: string;
     orderNumber: string;
+    notes: string;
   };
   setDeliveryForm: React.Dispatch<React.SetStateAction<{
     riderId: string;
@@ -25,6 +26,7 @@ interface DeliveryModalProps {
     time: string;
     value: string;
     orderNumber: string;
+    notes: string;
   }>>;
   onSave: (e: React.FormEvent) => void;
 }
@@ -127,6 +129,16 @@ export default function DeliveryModal({
                 className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none"
               />
             </div>
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Observações (Opcional)</label>
+            <textarea
+              placeholder="Ex: Troco para R$ 50,00, condomínio bloco B..."
+              value={deliveryForm.notes}
+              onChange={(e) => setDeliveryForm({ ...deliveryForm, notes: e.target.value })}
+              rows={2}
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none resize-none"
+            />
           </div>
           <div className="flex justify-end space-x-2 pt-3">
             <button

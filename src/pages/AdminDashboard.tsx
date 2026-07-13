@@ -100,7 +100,7 @@ export default function AdminDashboard() {
 
   const [showDeliveryModal, setShowDeliveryModal] = useState(false);
   const [editingDelivery, setEditingDelivery] = useState<Delivery | null>(null);
-  const [deliveryForm, setDeliveryForm] = useState({ riderId: '', establishmentId: '', date: '', time: '', value: '', orderNumber: '' });
+  const [deliveryForm, setDeliveryForm] = useState({ riderId: '', establishmentId: '', date: '', time: '', value: '', orderNumber: '', notes: '' });
 
   // Relatórios
   const [reportType, setReportType] = useState<'earnings' | 'deliveries' | 'schedules'>('earnings');
@@ -461,10 +461,11 @@ export default function AdminDashboard() {
         riderId: deliveryForm.riderId,
         establishmentId: deliveryForm.establishmentId,
         date: deliveryForm.date,
-        time: deliveryForm.time,  // CORRIGIDO: garante que usa o valor do formulário, não 'del'
+        time: deliveryForm.time,
         value: val,
         scheduleId: activeSchedule?.id || d.scheduleId,
-        orderNumber: deliveryForm.orderNumber.trim() || undefined
+        orderNumber: deliveryForm.orderNumber.trim() || undefined,
+        notes: deliveryForm.notes.trim() || undefined
       } : d);
       db.setDeliveries(updated);
     } else {
@@ -477,14 +478,15 @@ export default function AdminDashboard() {
         value: val,
         status: 'active',
         scheduleId: activeSchedule?.id,
-        orderNumber: deliveryForm.orderNumber.trim() || undefined
+        orderNumber: deliveryForm.orderNumber.trim() || undefined,
+        notes: deliveryForm.notes.trim() || undefined
       };
       db.setDeliveries([...deliveries, newDelivery]);
     }
 
     setShowDeliveryModal(false);
     setEditingDelivery(null);
-    setDeliveryForm({ riderId: '', establishmentId: '', date: '', time: '', value: '', orderNumber: '' });
+    setDeliveryForm({ riderId: '', establishmentId: '', date: '', time: '', value: '', orderNumber: '', notes: '' });
     loadData();
   };
 
@@ -501,6 +503,53 @@ export default function AdminDashboard() {
     if (confirm('Deseja realmente cancelar esta corrida? O valor será deduzido do faturamento do motoboy.')) {
       const updated = deliveries.map(d => d.id === id ? { ...d, status: 'cancelled' as const } : d);
       db.setDeliveries(updated);
+      loadData();
+    }
+  };
+
+  const handleApproveDelivery = (id: string) => {
+    const delivery = deliveries.find(d => d.id === id);
+    if (!delivery) return;
+
+    const updated = deliveries.map(d => d.id === id ? { ...d, status: 'active' as const } : d);
+    db.setDeliveries(updated);
+
+    const est = establishments.find(e => e.id === delivery.establishmentId);
+    const allNotif = db.getNotifications();
+    const newNotif: Notification = {
+      id: 'n_' + Date.now(),
+      riderId: delivery.riderId,
+      title: '✅ Corrida Aprovada!',
+      message: `Sua corrida no valor de R$ ${delivery.value.toFixed(2)} foi aprovada pelo administrador para o estabelecimento ${est?.name}.`,
+      date: new Date().toISOString(),
+      read: false
+    };
+    db.setNotifications([...allNotif, newNotif]);
+
+    loadData();
+    alert('Corrida aprovada com sucesso!');
+  };
+
+  const handleRejectDelivery = (id: string) => {
+    if (confirm('Deseja realmente rejeitar esta corrida?')) {
+      const delivery = deliveries.find(d => d.id === id);
+      if (!delivery) return;
+
+      const updated = deliveries.map(d => d.id === id ? { ...d, status: 'rejected' as const } : d);
+      db.setDeliveries(updated);
+
+      const est = establishments.find(e => e.id === delivery.establishmentId);
+      const allNotif = db.getNotifications();
+      const newNotif: Notification = {
+        id: 'n_' + Date.now(),
+        riderId: delivery.riderId,
+        title: '❌ Corrida Rejeitada',
+        message: `Sua corrida no valor de R$ ${delivery.value.toFixed(2)} foi rejeitada pelo administrador para o estabelecimento ${est?.name}.`,
+        date: new Date().toISOString(),
+        read: false
+      };
+      db.setNotifications([...allNotif, newNotif]);
+
       loadData();
     }
   };
@@ -665,6 +714,9 @@ export default function AdminDashboard() {
   });
 
   const pendingRequestsCount = partnerRequests.filter(r => r.status === 'pending').length;
+
+  const pendingDeliveries = deliveries.filter(d => d.status === 'pending');
+  const processedDeliveries = deliveries.filter(d => d.status !== 'pending');
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
@@ -1005,7 +1057,8 @@ export default function AdminDashboard() {
                                 neighborhood: est.address.neighborhood,
                                 city: est.address.city,
                                 state: est.address.state,
-                                zipCode: est.address.zipCode
+                                zipCode: est.address.zipCode,
+                                phone: est.phone || ''
                               });
                               setShowEstModal(true);
                             }}
@@ -1026,7 +1079,7 @@ export default function AdminDashboard() {
                           </button>
                         </td>
                       </tr>
-                    )}
+                    ))}
                   </tbody>
                 </table>
               </div>
@@ -1072,7 +1125,7 @@ export default function AdminDashboard() {
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[600px] text-left border-collapse">
                   <thead>
-                    <tr className="border-b border-slate-200 text-sale-500 text-xs uppercase font-semibold">
+                    <tr className="border-b border-slate-200 text-slate-500 text-xs uppercase font-semibold">
                       <th className="py-3 px-4">Estabelecimento</th>
                       <th className="py-3 px-4">Proprietário</th>
                       <th className="py-3 px-4">Contato</th>
@@ -1303,7 +1356,7 @@ export default function AdminDashboard() {
                               <p className="text-sm font-semibold text-slate-800 truncate">{nextEst?.name || 'N/A'}</p>
                               <p className="text-sm font-semibold text-slate-500 mt-0.5">
                                 {new Date(next.date + 'T00:00:00').toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: '2-digit' })}
-                                {' · '}<span className={`font-medium ${next.shift === 'morning' ? 'text-amber-600' : next.shift === 'afternoon' ? 'text-orange-600' : next.shift === 'blue-600'}`}>{getShiftLabel(next.shift)}</span>
+                                {' · '}<span className={`font-medium ${next.shift === 'morning' ? 'text-amber-600' : next.shift === 'afternoon' ? 'text-orange-600' : 'text-blue-600'}`}>{getShiftLabel(next.shift)}</span>
                                 {' · '}{next.startTime}–{next.endTime}
                               </p>
                             </div>
@@ -1384,92 +1437,165 @@ export default function AdminDashboard() {
 
           {/* TAB: REGISTRO DE CORRIDAS */}
           {activeTab === 'deliveries' && (
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <h2 className="text-xl font-bold text-slate-800">Registro de Corridas</h2>
-                <button
-                  onClick={() => {
-                    setEditingDelivery(null);
-                    setDeliveryForm({ riderId: '', establishmentId: '', date: new Date().toISOString().split('T')[0], time: new Date().toTimeString().slice(0,5), value: '', orderNumber: '' });
-                    setShowDeliveryModal(true);
-                  }}
-                  className="flex items-center justify-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-                >
-                  <Plus className="h-4 w-4" />
-                  <span>Lançar Corrida</span>
-                </button>
-              </div>
+            <div className="space-y-6">
+              {/* Pending Deliveries Approval Section */}
+              {pendingDeliveries.length > 0 && (
+                <div className="bg-amber-50/50 p-6 rounded-xl shadow-sm border border-amber-200 space-y-4">
+                  <h2 className="text-lg font-bold text-amber-800 flex items-center space-x-2">
+                    <Clock className="h-5 w-5 text-amber-600 animate-pulse" />
+                    <span>Corridas Pendentes de Aprovação ({pendingDeliveries.length})</span>
+                  </h2>
 
-              <div className="border border-slate-200 rounded-xl overflow-hidden">
-                <div className="bg-slate-50 p-4 border-b border-slate-200">
-                  <h3 className="font-bold text-slate-700">Histórico de Lançamentos</h3>
-                </div>
-                <div className="divide-y divide-slate-100">
-                  {deliveries.length === 0 ? (
-                    <div className="p-8 text-center text-slate-400">Nenhuma corrida registrada.</div>
-                  ) : (
-                    deliveries.map(del => {
+                  <div className="divide-y divide-amber-100">
+                    {pendingDeliveries.map(del => {
                       const rider = riders.find(r => r.id === del.riderId);
                       const est = establishments.find(e => e.id === del.establishmentId);
-                      const isToday = del.date === new Date().toISOString().split('T')[0];
-
                       return (
-                        <div key={del.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/50">
+                        <div key={del.id} className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                           <div>
                             <div className="flex items-center space-x-2">
                               <p className="font-bold text-slate-800">{rider?.name || 'Motoboy'}</p>
-                              {del.status === 'cancelled' && (
-                                <span className="bg-red-100 text-red-800 text-[10px] font-bold px-2 py-0.5 rounded-full">Cancelada</span>
-                              )}
                               {del.orderNumber && (
-                                <span className="bg-slate-100 text-slate-500 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                                <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded">
                                   #{del.orderNumber}
-                                )
+                                </span>
                               )}
                             </div>
-                            <p className="text-sm text-slate-600">Estabelecimento: {est?.name}</p>
-                            <p className="text-xs text-slate-400 mt-1">
-                              Data: {new Date(del.date + 'T00:00:00').toLocaleDateString('pt-BR')} às {del.time}
-                            }
-                          </div>
-                          <div className="flex items-center space-x-4 self-end sm:self-center">
-                            <span className={`font-bold text-lg ${del.status === 'cancelled' ? 'text-slate-400 line-through' : 'text-emerald-600'}`}>
-                              R$ {del.value.toFixed(2)}
-                            </span>
-                            {isToday && del.status === 'active' && (
-                              <div className="flex items-center space-x-1">
-                                <button
-                                  onClick={() => {
-                                    setEditingDelivery(del);
-                                    setDeliveryForm({
-                                      riderId: del.riderId,
-                                      establishmentId: del.establishmentId,
-                                      date: del.date,
-                                      time: del.time,
-                                      value: del.value.toString(),
-                                      orderNumber: del.orderNumber || ''
-                                    });
-                                    setShowDeliveryModal(true);
-                                  }}
-                                  className="text-slate-500 hover:bg-slate-100 p-2 rounded transition-colors"
-                                  title="Editar Corrida"
-                                >
-                                  <Edit2 className="h-4 w-4" />
-                                </button>
-                                <button
-                                  onClick={() => handleCancelDelivery(del.id)}
-                                  className="text-red-500 hover:bg-red-50 p-2 rounded transition-colors"
-                                  title="Cancelar Corrida"
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </button>
-                              </div>
+                            <p className="text-xs text-slate-600 mt-0.5">Estabelecimento: {est?.name}</p>
+                            <p className="text-xs text-slate-400 flex items-center space-x-1 mt-1">
+                              <Clock className="h-3.5 w-3.5" />
+                              <span>Lançada em {new Date(del.date + 'T00:00:00').toLocaleDateString('pt-BR')} às {del.time}</span>
+                            </p>
+                            {del.notes && (
+                              <p className="text-xs text-slate-500 bg-slate-50 border border-slate-100 rounded px-2 py-1 mt-1.5 italic">
+                                Obs: {del.notes}
+                              </p>
                             )}
+                          </div>
+                          <div className="flex items-center space-x-3 self-end sm:self-center">
+                            <span className="font-bold text-amber-700 text-lg">R$ {del.value.toFixed(2)}</span>
+                            <div className="flex items-center space-x-1">
+                              <button
+                                onClick={() => handleApproveDelivery(del.id)}
+                                className="bg-emerald-600 hover:bg-emerald-700 text-white p-1.5 rounded-lg transition-colors flex items-center space-x-1 text-xs font-bold"
+                                title="Aprovar Corrida"
+                              >
+                                <Check className="h-4 w-4" />
+                                <span className="hidden sm:inline">Aprovar</span>
+                              </button>
+                              <button
+                                onClick={() => handleRejectDelivery(del.id)}
+                                className="bg-red-600 hover:bg-red-700 text-white p-1.5 rounded-lg transition-colors flex items-center space-x-1 text-xs font-bold"
+                                title="Rejeitar Corrida"
+                              >
+                                <X className="h-4 w-4" />
+                                <span className="hidden sm:inline">Rejeitar</span>
+                              </button>
+                            </div>
                           </div>
                         </div>
                       );
-                    })
-                  )}
+                    })}
+                  </div>
+                </div>
+              )}
+
+              <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <h2 className="text-xl font-bold text-slate-800">Registro de Corridas</h2>
+                  <button
+                    onClick={() => {
+                      setEditingDelivery(null);
+                      setDeliveryForm({ riderId: '', establishmentId: '', date: new Date().toISOString().split('T')[0], time: new Date().toTimeString().slice(0,5), value: '', orderNumber: '', notes: '' });
+                      setShowDeliveryModal(true);
+                    }}
+                    className="flex items-center justify-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                  >
+                    <Plus className="h-4 w-4" />
+                    <span>Lançar Corrida</span>
+                  </button>
+                </div>
+
+                <div className="border border-slate-200 rounded-xl overflow-hidden">
+                  <div className="bg-slate-50 p-4 border-b border-slate-200">
+                    <h3 className="font-bold text-slate-700">Histórico de Lançamentos</h3>
+                  </div>
+                  <div className="divide-y divide-slate-100">
+                    {processedDeliveries.length === 0 ? (
+                      <div className="p-8 text-center text-slate-400">Nenhuma corrida registrada.</div>
+                    ) : (
+                      processedDeliveries.map(del => {
+                        const rider = riders.find(r => r.id === del.riderId);
+                        const est = establishments.find(e => e.id === del.establishmentId);
+                        const isToday = del.date === new Date().toISOString().split('T')[0];
+
+                        return (
+                          <div key={del.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/50">
+                            <div>
+                              <div className="flex items-center space-x-2">
+                                <p className="font-bold text-slate-800">{rider?.name || 'Motoboy'}</p>
+                                {del.status === 'cancelled' && (
+                                  <span className="bg-red-100 text-red-800 text-[10px] font-bold px-2 py-0.5 rounded-full">Cancelada</span>
+                                )}
+                                {del.status === 'rejected' && (
+                                  <span className="bg-red-100 text-red-800 text-[10px] font-bold px-2 py-0.5 rounded-full">Rejeitada</span>
+                                )}
+                                {del.orderNumber && (
+                                  <span className="bg-slate-100 text-slate-500 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                                    #{del.orderNumber}
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-sm text-slate-600">Estabelecimento: {est?.name}</p>
+                              <p className="text-xs text-slate-400 mt-1">
+                                Data: {new Date(del.date + 'T00:00:00').toLocaleDateString('pt-BR')} às {del.time}
+                              </p>
+                              {del.notes && (
+                                <p className="text-xs text-slate-500 bg-slate-50 border border-slate-100 rounded px-2 py-1 mt-1.5 italic">
+                                  Obs: {del.notes}
+                                </p>
+                              )}
+                            </div>
+                            <div className="flex items-center space-x-4 self-end sm:self-center">
+                              <span className={`font-bold text-lg ${del.status === 'cancelled' || del.status === 'rejected' ? 'text-slate-400 line-through' : 'text-emerald-600'}`}>
+                                R$ {del.value.toFixed(2)}
+                              </span>
+                              {isToday && del.status === 'active' && (
+                                <div className="flex items-center space-x-1">
+                                  <button
+                                    onClick={() => {
+                                      setEditingDelivery(del);
+                                      setDeliveryForm({
+                                        riderId: del.riderId,
+                                        establishmentId: del.establishmentId,
+                                        date: del.date,
+                                        time: del.time,
+                                        value: del.value.toString(),
+                                        orderNumber: del.orderNumber || '',
+                                        notes: del.notes || ''
+                                      });
+                                      setShowDeliveryModal(true);
+                                    }}
+                                    className="text-slate-500 hover:bg-slate-100 p-2 rounded transition-colors"
+                                    title="Editar Corrida"
+                                  >
+                                    <Edit2 className="h-4 w-4" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleCancelDelivery(del.id)}
+                                    className="text-red-500 hover:bg-red-50 p-2 rounded transition-colors"
+                                    title="Cancelar Corrida"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
@@ -1494,7 +1620,7 @@ export default function AdminDashboard() {
                   <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Tipo de Relatório</label>
                   <select
                     value={reportType}
-                    onChange={(e) => setReportType(e.target.value)}
+                    onChange={(e) => setReportType(e.target.value as any)}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
                   >
                     <option value="earnings">Faturamento por Motoboy</option>
@@ -1506,7 +1632,7 @@ export default function AdminDashboard() {
                   <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Período</label>
                   <select
                     value={reportPeriod}
-                    onChange={(e) => setReportPeriod(e.target.value)}
+                    onChange={(e) => setReportPeriod(e.target.value as any)}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
                   >
                     <option value="daily">Diário</option>
@@ -1542,6 +1668,93 @@ export default function AdminDashboard() {
           )}
         </div>
       </div>
+
+      {/* Modais */}
+      <RiderModal
+        isOpen={showRiderModal}
+        onClose={() => setShowRiderModal(false)}
+        editingRider={editingRider}
+        riderForm={riderForm}
+        setRiderForm={setRiderForm}
+        onSave={handleSaveRider}
+      />
+
+      <EstablishmentModal
+        isOpen={showEstModal}
+        onClose={() => setShowEstModal(false)}
+        editingEst={editingEst}
+        estForm={estForm}
+        setEstForm={setEstForm}
+        onSave={handleSaveEst}
+      />
+
+      <ScheduleModal
+        isOpen={showScheduleModal}
+        onClose={() => setShowScheduleModal(false)}
+        riders={riders}
+        establishments={establishments}
+        scheduleForm={scheduleForm}
+        setScheduleForm={setScheduleForm}
+        scheduleConflictWarning={scheduleConflictWarning}
+        setScheduleConflictWarning={setScheduleConflictWarning}
+        onSave={handleSaveSchedule}
+      />
+
+      <WeeklyScheduleModal
+        isOpen={showWeeklyModal}
+        onClose={() => setShowWeeklyModal(false)}
+        riders={riders}
+        establishments={establishments}
+        weeklyForm={weeklyForm}
+        setWeeklyForm={setWeeklyForm}
+        weeklyPreview={weeklyPreview}
+        setWeeklyPreview={setWeeklyPreview}
+        weeklyStep={weeklyStep}
+        setWeeklyStep={setWeeklyStep}
+        buildWeeklyPreview={buildWeeklyPreview}
+        onSave={handleSaveWeeklySchedule}
+        getShiftLabel={getShiftLabel}
+      />
+
+      <RiderSchedulesModal
+        riderId={riderSchedulesModal}
+        onClose={() => setRiderSchedulesModal(null)}
+        riders={riders}
+        schedules={schedules}
+        establishments={establishments}
+        modalHistoryEst={modalHistoryEst}
+        setModalHistoryEst={setModalHistoryEst}
+        modalHistoryFrom={modalHistoryFrom}
+        setModalHistoryFrom={setModalHistoryFrom}
+        modalHistoryTo={modalHistoryTo}
+        setModalHistoryTo={setModalHistoryTo}
+        onCancelSchedule={handleCancelSchedule}
+        onNewSchedule={(riderId) => {
+          setRiderSchedulesModal(null);
+          setScheduleForm({
+            riderId,
+            establishmentId: '',
+            date: new Date().toISOString().split('T')[0],
+            shift: 'morning',
+            startTime: '08:00',
+            endTime: '12:00'
+          });
+          setScheduleConflictWarning('');
+          setShowScheduleModal(true);
+        }}
+        getShiftLabel={getShiftLabel}
+      />
+
+      <DeliveryModal
+        isOpen={showDeliveryModal}
+        onClose={() => setShowDeliveryModal(false)}
+        editingDelivery={editingDelivery}
+        riders={riders}
+        establishments={establishments}
+        deliveryForm={deliveryForm}
+        setDeliveryForm={setDeliveryForm}
+        onSave={handleSaveDelivery}
+      />
     </div>
   );
 }
