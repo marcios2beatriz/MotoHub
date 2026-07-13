@@ -270,6 +270,11 @@ export default function EstablishmentDashboard() {
     });
   }, [scheduledRiders, riderLocations]);
 
+  const handleLogout = () => {
+    db.setCurrentUser(null);
+    navigate('/login');
+  };
+
   const handleSaveDelivery = (e: React.FormEvent) => {
     e.preventDefault();
     const val = parseFloat(deliveryForm.value);
