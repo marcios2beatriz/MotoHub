@@ -186,7 +186,9 @@ const mergeById = <T extends { id: string; updatedAt?: string }>(local: T[], rem
       const localTime = existing.updatedAt ? new Date(existing.updatedAt).getTime() : 0;
       const remoteTime = item.updatedAt ? new Date(item.updatedAt).getTime() : 0;
       
-      if (remoteTime >= localTime) {
+      // Se o item remoto não tiver updatedAt (porque a coluna não existe no Supabase),
+      // nós sempre mesclamos para garantir que atualizações de status de outros usuários sejam aplicadas.
+      if (!item.updatedAt || remoteTime >= localTime) {
         const merged = { ...existing };
         (Object.keys(item) as (keyof T)[]).forEach(key => {
           const value = item[key];
