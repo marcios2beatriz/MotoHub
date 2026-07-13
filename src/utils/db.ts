@@ -50,7 +50,7 @@ export interface Delivery {
   date: string; // YYYY-MM-DD
   time: string; // HH:MM
   value: number;
-  status: 'active' | 'cancelled';
+  status: 'active' | 'cancelled' | 'pending' | 'rejected';
   scheduleId?: string;
   orderNumber?: string; // Optional order number
 }

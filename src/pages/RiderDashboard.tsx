@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { db, Schedule, Delivery, Notification } from '../utils/db';
+import { db, Schedule, Delivery, Notification, Establishment } from '../utils/db';
 import { 
   DollarSign, 
   Calendar, 
@@ -19,7 +19,9 @@ import {
   X,
   Satellite,
   WifiOff,
-  Radio
+  Radio,
+  Plus,
+  Hash
 } from 'lucide-react';
 
 export default function RiderDashboard() {
@@ -28,10 +30,19 @@ export default function RiderDashboard() {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [establishments, setEstablishments] = useState<Establishment[]>([]);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'schedules' | 'history' | 'notifications'>('dashboard');
   const [gpsStatus, setGpsStatus] = useState<'requesting' | 'active' | 'error' | 'denied'>('requesting');
   const [gpsCoords, setGpsCoords] = useState<{ lat: number; lng: number } | null>(null);
   const watchIdRef = useRef<number | null>(null);
+
+  // Modal de Lançar Corrida
+  const [showLaunchModal, setShowLaunchModal] = useState(false);
+  const [launchForm, setLaunchForm] = useState({
+    establishmentId: '',
+    value: '',
+    orderNumber: ''
+  });
 
   // Filtros das escalas futuras
   const [scheduleEstFilter, setScheduleEstFilter] = useState('');
@@ -45,11 +56,13 @@ export default function RiderDashboard() {
   const loadData = () => {
     if (!user) return;
     const allSchedules = db.getSchedules().filter(s => s.riderId === user.id);
-    const allDeliveries = db.getDeliveries().filter(d => d.riderId === user.id && d.status === 'active');
+    const allDeliveries = db.getDeliveries().filter(d => d.riderId === user.id);
     const allNotifications = db.getNotifications().filter(n => n.riderId === user.id);
+    const allEsts = db.getEstablishments().filter(e => e.active);
     setSchedules(allSchedules);
     setDeliveries(allDeliveries);
     setNotifications(allNotifications);
+    setEstablishments(allEsts);
   };
 
   useEffect(() => {
@@ -84,7 +97,6 @@ export default function RiderDashboard() {
       return;
     }
 
-    // Verifica se está em um contexto seguro (localhost ou HTTPS)
     if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
       console.warn("A API de Geolocalização requer um contexto seguro (HTTPS ou localhost).");
     }
@@ -116,7 +128,6 @@ export default function RiderDashboard() {
     watchIdRef.current = navigator.geolocation.watchPosition(onSuccess, onError, options);
   };
 
-  // Inicia o GPS automaticamente ao montar o componente
   useEffect(() => {
     startGpsTracking();
 
@@ -155,16 +166,16 @@ export default function RiderDashboard() {
   const startOfMonth = getStartOfMonth();
 
   const todayDeliveries = deliveries.filter(d => d.date === todayStr);
-  const todayEarnings = todayDeliveries.reduce((sum, d) => sum + d.value, 0);
+  const todayEarnings = todayDeliveries.filter(d => d.status === 'active').reduce((sum, d) => sum + d.value, 0);
 
   const weekEarnings = deliveries.filter(d => {
     const dDate = new Date(d.date + 'T00:00:00');
-    return dDate >= startOfWeek;
+    return dDate >= startOfWeek && d.status === 'active';
   }).reduce((sum, d) => sum + d.value, 0);
 
   const monthEarnings = deliveries.filter(d => {
     const dDate = new Date(d.date + 'T00:00:00');
-    return dDate >= startOfMonth;
+    return dDate >= startOfMonth && d.status === 'active';
   }).reduce((sum, d) => sum + d.value, 0);
 
   // Escalas dos próximos 30 dias
@@ -180,7 +191,6 @@ export default function RiderDashboard() {
     }).sort((a, b) => a.date.localeCompare(b.date));
   };
 
-  // Aplicar filtros nas escalas futuras
   const filteredFutureSchedules = getFutureSchedules().filter(s => {
     const matchesEst = scheduleEstFilter ? s.establishmentId === scheduleEstFilter : true;
     const matchesDate = scheduleDateFilter ? s.date === scheduleDateFilter : true;
@@ -198,6 +208,39 @@ export default function RiderDashboard() {
     const allNotif = db.getNotifications();
     const updatedAll = allNotif.map(n => n.id === id ? { ...n, read: true } : n);
     db.setNotifications(updatedAll);
+  };
+
+  const handleLaunchDelivery = (e: React.FormEvent) => {
+    e.preventDefault();
+    const val = parseFloat(launchForm.value);
+    if (isNaN(val) || val <= 0) {
+      alert('Erro: O valor da corrida deve ser maior que zero.');
+      return;
+    }
+
+    if (!user) return;
+
+    const activeSchedule = schedules.find(s => s.establishmentId === launchForm.establishmentId && s.date === todayStr);
+
+    const newDelivery: Delivery = {
+      id: 'd_' + Date.now(),
+      riderId: user.id,
+      establishmentId: launchForm.establishmentId,
+      date: todayStr,
+      time: new Date().toTimeString().slice(0, 5),
+      value: val,
+      status: 'pending',
+      scheduleId: activeSchedule?.id,
+      orderNumber: launchForm.orderNumber.trim() || undefined
+    };
+
+    const allDeliveries = db.getDeliveries();
+    db.setDeliveries([...allDeliveries, newDelivery]);
+
+    setShowLaunchModal(false);
+    setLaunchForm({ establishmentId: '', value: '', orderNumber: '' });
+    loadData();
+    alert('Corrida lançada com sucesso! Aguardando aprovação do estabelecimento ou administrador.');
   };
 
   const unreadCount = notifications.filter(n => !n.read).length;
@@ -220,13 +263,27 @@ export default function RiderDashboard() {
             <p className="text-xs text-indigo-200">Olá, bem-vindo!</p>
             <h1 className="text-lg font-bold truncate max-w-[200px] sm:max-w-none">{user?.name}</h1>
           </div>
-          <button 
-            onClick={handleLogout}
-            className="p-2 hover:bg-indigo-700 rounded-full transition-colors flex items-center space-x-1 text-sm"
-          >
-            <LogOut className="h-5 w-5" />
-            <span className="hidden sm:inline">Sair</span>
-          </button>
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={() => {
+                const todaySchedules = schedules.filter(s => s.date === todayStr);
+                const defaultEstId = todaySchedules.length > 0 ? todaySchedules[0].establishmentId : '';
+                setLaunchForm({ establishmentId: defaultEstId, value: '', orderNumber: '' });
+                setShowLaunchModal(true);
+              }}
+              className="bg-emerald-500 hover:bg-emerald-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-1 transition-colors shadow-sm"
+            >
+              <Plus className="h-4 w-4" />
+              <span>Lançar Corrida</span>
+            </button>
+            <button 
+              onClick={handleLogout}
+              className="p-2 hover:bg-indigo-700 rounded-full transition-colors flex items-center space-x-1 text-sm"
+            >
+              <LogOut className="h-5 w-5" />
+              <span className="hidden sm:inline">Sair</span>
+            </button>
+          </div>
         </div>
       </header>
 
@@ -390,13 +447,36 @@ export default function RiderDashboard() {
                     return (
                       <div key={delivery.id} className="py-3 flex justify-between items-center">
                         <div>
-                          <p className="font-semibold text-slate-700">{est?.name || 'Estabelecimento'}</p>
-                          <p className="text-xs text-slate-400 flex items-center space-x-1">
+                          <div className="flex items-center space-x-2">
+                            <p className="font-semibold text-slate-700">{est?.name || 'Estabelecimento'}</p>
+                            {delivery.orderNumber && (
+                              <span className="bg-slate-100 text-slate-500 text-[10px] font-bold px-1.5 py-0.5 rounded">
+                                #{delivery.orderNumber}
+                              </span>
+                            )}
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                              delivery.status === 'active' 
+                                ? 'bg-emerald-100 text-emerald-800' 
+                                : delivery.status === 'pending'
+                                ? 'bg-amber-100 text-amber-800'
+                                : delivery.status === 'rejected'
+                                ? 'bg-red-100 text-red-800'
+                                : 'bg-slate-100 text-slate-800'
+                            }`}>
+                              {delivery.status === 'active' && 'Aprovada'}
+                              {delivery.status === 'pending' && 'Pendente'}
+                              {delivery.status === 'rejected' && 'Rejeitada'}
+                              {delivery.status === 'cancelled' && 'Cancelada'}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-400 flex items-center space-x-1 mt-0.5">
                             <Clock className="h-3 w-3" />
                             <span>{delivery.time}</span>
                           </p>
                         </div>
-                        <span className="font-bold text-emerald-600">R$ {delivery.value.toFixed(2)}</span>
+                        <span className={`font-bold ${delivery.status === 'active' ? 'text-emerald-600' : 'text-slate-400'}`}>
+                          R$ {delivery.value.toFixed(2)}
+                        </span>
                       </div>
                     );
                   })}
@@ -529,24 +609,20 @@ export default function RiderDashboard() {
         {activeTab === 'history' && (() => {
           const todayStr = new Date().toISOString().split('T')[0];
           const allEsts = db.getEstablishments();
-          // escalas passadas
           const pastSchedules = schedules
             .filter(s => s.date < todayStr)
             .sort((a, b) => b.date.localeCompare(a.date));
 
-          // filtrar por estabelecimento
           const estFiltered = historyEstFilter
             ? pastSchedules.filter(s => s.establishmentId === historyEstFilter)
             : pastSchedules;
 
-          // filtrar por data de/até
           const dateFiltered = estFiltered.filter(s => {
             if (historyDateFrom && s.date < historyDateFrom) return false;
             if (historyDateTo && s.date > historyDateTo) return false;
             return true;
           });
 
-          // estabelecimentos que o motoboy já teve escala (para o select)
           const usedEstIds = Array.from(new Set(pastSchedules.map(s => s.establishmentId)));
           const usedEsts = allEsts.filter(e => usedEstIds.includes(e.id));
 
@@ -568,7 +644,6 @@ export default function RiderDashboard() {
                   <Filter className="h-3.5 w-3.5" />Filtros
                 </p>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  {/* Estabelecimento */}
                   <select
                     value={historyEstFilter}
                     onChange={e => setHistoryEstFilter(e.target.value)}
@@ -579,7 +654,6 @@ export default function RiderDashboard() {
                       <option key={e.id} value={e.id}>{e.name}</option>
                     ))}
                   </select>
-                  {/* De */}
                   <div>
                     <label className="block text-xs text-slate-500 mb-1">De</label>
                     <input
@@ -589,7 +663,6 @@ export default function RiderDashboard() {
                       className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
                     />
                   </div>
-                  {/* Até */}
                   <div>
                     <label className="block text-xs text-slate-500 mb-1">Até</label>
                     <input
@@ -706,6 +779,78 @@ export default function RiderDashboard() {
           </div>
         )}
       </main>
+
+      {/* MODAL: LANÇAR CORRIDA */}
+      {showLaunchModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl max-w-md w-full p-6 space-y-4 shadow-xl">
+            <div className="flex justify-between items-center">
+              <h3 className="text-lg font-bold text-slate-800">Lançar Nova Corrida</h3>
+              <button onClick={() => setShowLaunchModal(false)} className="text-slate-400 hover:text-slate-600">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <form onSubmit={handleLaunchDelivery} className="space-y-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Estabelecimento</label>
+                <select
+                  required
+                  value={launchForm.establishmentId}
+                  onChange={(e) => setLaunchForm({ ...launchForm, establishmentId: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none"
+                >
+                  <option value="">Selecione um Estabelecimento</option>
+                  {establishments.map(e => (
+                    <option key={e.id} value={e.id}>{e.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nº do Pedido (Opcional)</label>
+                <div className="relative rounded-md shadow-sm">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <Hash className="h-4 w-4 text-slate-400" />
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Ex: 1042"
+                    value={launchForm.orderNumber}
+                    onChange={(e) => setLaunchForm({ ...launchForm, orderNumber: e.target.value })}
+                    className="block w-full pl-9 pr-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Valor da Corrida (R$)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  required
+                  placeholder="0.00"
+                  value={launchForm.value}
+                  onChange={(e) => setLaunchForm({ ...launchForm, value: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none"
+                />
+              </div>
+              <div className="flex justify-end space-x-2 pt-3">
+                <button
+                  type="button"
+                  onClick={() => setShowLaunchModal(false)}
+                  className="px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-medium"
+                >
+                  Lançar Corrida
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

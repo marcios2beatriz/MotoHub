@@ -373,6 +373,382 @@ export default function AdminDashboard() {
   };
 
   const buildWeeklyPreview = (form: typeof weeklyForm) => {
+    if (!form.weekStart || !form.<dyad-write path="src/pages/AdminDashboard.tsx" description="Completing AdminDashboard.tsx with pending delivery approval and rejection features">
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { db, User, Establishment, Schedule, Delivery, Notification, PartnerRequest } from '../utils/db';
+import { 
+  Users, 
+  Store, 
+  Calendar, 
+  CalendarDays,
+  Bike, 
+  BarChart3, 
+  LogOut, 
+  Plus, 
+  Edit2, 
+  Trash2, 
+  Check, 
+  X, 
+  Download, 
+  Search,
+  Clock,
+  Send,
+  LayoutGrid,
+  List,
+  ChevronDown,
+  MessageSquare,
+  Building2,
+  CheckCircle2
+} from 'lucide-react';
+
+// Importando os modais modulares
+import RiderModal from '../components/RiderModal';
+import EstablishmentModal from '../components/EstablishmentModal';
+import ScheduleModal from '../components/ScheduleModal';
+import WeeklyScheduleModal from '../components/WeeklyScheduleModal';
+import RiderSchedulesModal from '../components/RiderSchedulesModal';
+import DeliveryModal from '../components/DeliveryModal';
+
+export default function AdminDashboard() {
+  const navigate = useNavigate();
+  const [adminUser, setAdminUser] = useState(db.getCurrentUser());
+  const [activeTab, setActiveTab] = useState<'riders' | 'establishments' | 'schedules' | 'deliveries' | 'reports' | 'requests'>('riders');
+
+  // Listas de dados
+  const [riders, setRiders] = useState<User[]>([]);
+  const [establishments, setEstablishments] = useState<Establishment[]>([]);
+  const [schedules, setSchedules] = useState<Schedule[]>([]);
+  const [deliveries, setDeliveries] = useState<Delivery[]>([]);
+  const [partnerRequests, setPartnerRequests] = useState<PartnerRequest[]>([]);
+
+  // Filtros e buscas
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [requestStatusFilter, setRequestStatusFilter] = useState<'all' | 'pending' | 'contacted'>('all');
+
+  // Modais e Formulários
+  const [showRiderModal, setShowRiderModal] = useState(false);
+  const [editingRider, setEditingRider] = useState<User | null>(null);
+  const [riderForm, setRiderForm] = useState({ name: '', cpf: '', phone: '', email: '', password: '' as '' | string });
+
+  const [showEstModal, setShowEstModal] = useState(false);
+  const [editingEst, setEditingEst] = useState<Establishment | null>(null);
+  const [estForm, setEstForm] = useState({
+    name: '', street: '', number: '', complement: '', neighborhood: '', city: '', state: '', zipCode: '', phone: ''
+  });
+
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [scheduleForm, setScheduleForm] = useState({ 
+    riderId: '', 
+    establishmentId: '', 
+    date: '', 
+    shift: 'morning' as 'morning' | 'afternoon' | 'night',
+    startTime: '08:00',
+    endTime: '12:00'
+  });
+  const [scheduleConflictWarning, setScheduleConflictWarning] = useState('');
+
+  // Modal de Escala Semanal Automática
+  const [showWeeklyModal, setShowWeeklyModal] = useState(false);
+  const [weeklyForm, setWeeklyForm] = useState({
+    riderId: '',
+    establishmentId: '',
+    shift: 'morning' as 'morning' | 'afternoon' | 'night',
+    startTime: '08:00',
+    endTime: '12:00',
+    weekStart: '',
+    days: { seg: true, ter: true, qua: true, qui: true, sex: true, sab: false, dom: false }
+  });
+  const [weeklyPreview, setWeeklyPreview] = useState<{ date: string; label: string; conflict: boolean; key: string; enabled: boolean }[]>([]);
+  const [weeklyStep, setWeeklyStep] = useState<'form' | 'preview'>('form');
+
+  // Card accordion da aba Escalas
+  const [expandedRider, setExpandedRider] = useState<string | null>(null);
+  const [scheduleViewMode, setScheduleViewMode] = useState<'accordion' | 'grid' | 'timeline'>('accordion');
+  const [scheduleSearch, setScheduleSearch] = useState('');
+  // Modal "Ver Todas" do card
+  const [riderSchedulesModal, setRiderSchedulesModal] = useState<string | null>(null);
+  // Filtros do histórico no modal
+  const [modalHistoryEst, setModalHistoryEst] = useState('');
+  const [modalHistoryFrom, setModalHistoryFrom] = useState('');
+  const [modalHistoryTo, setModalHistoryTo] = useState('');
+
+  const [showDeliveryModal, setShowDeliveryModal] = useState(false);
+  const [editingDelivery, setEditingDelivery] = useState<Delivery | null>(null);
+  const [deliveryForm, setDeliveryForm] = useState({ riderId: '', establishmentId: '', date: '', time: '', value: '', orderNumber: '' });
+
+  // Relatórios
+  const [reportType, setReportType] = useState<'earnings' | 'deliveries' | 'schedules'>('earnings');
+  const [reportPeriod, setReportPeriod] = useState<'daily' | 'weekly' | 'monthly' | 'custom'>('weekly');
+  const [customStartDate, setCustomStartDate] = useState('');
+  const [customEndDate, setCustomEndDate] = useState('');
+
+  const loadData = () => {
+    setRiders(db.getUsers().filter(u => u.role === 'rider'));
+    setEstablishments(db.getEstablishments());
+    setSchedules(db.getSchedules());
+    setDeliveries(db.getDeliveries());
+    setPartnerRequests(db.getPartnerRequests());
+  };
+
+  useEffect(() => {
+    if (!adminUser || adminUser.role !== 'admin') {
+      navigate('/login');
+      return;
+    }
+    loadData();
+  }, [adminUser, navigate, activeTab]);
+
+  useEffect(() => {
+    const handleSyncComplete = () => {
+      loadData();
+    };
+    window.addEventListener('db-sync-complete', handleSyncComplete);
+    return () => {
+      window.removeEventListener('db-sync-complete', handleSyncComplete);
+    };
+  }, []);
+
+  const handleLogout = () => {
+    db.setCurrentUser(null);
+    navigate('/login');
+  };
+
+  // --- GESTÃO DE MOTOBOYS ---
+  const handleSaveRider = (e: React.FormEvent) => {
+    e.preventDefault();
+    const allUsers = db.getUsers();
+
+    const duplicateCpf = allUsers.find(u => u.cpf === riderForm.cpf && (!editingRider || u.id !== editingRider.id));
+    const duplicateEmail = allUsers.find(u => u.email.toLowerCase() === riderForm.email.toLowerCase() && (!editingRider || u.id !== editingRider.id));
+
+    if (duplicateCpf) {
+      alert('Erro: CPF já cadastrado no sistema.');
+      return;
+    }
+    if (duplicateEmail) {
+      alert('Erro: E-mail já cadastrado no sistema.');
+      return;
+    }
+
+    if (editingRider) {
+      const updated = allUsers.map(u => u.id === editingRider.id ? {
+        ...u,
+        name: riderForm.name,
+        cpf: riderForm.cpf,
+        phone: riderForm.phone,
+        email: riderForm.email,
+        passwordHash: riderForm.password || u.passwordHash,
+        mustResetPassword: riderForm.password ? true : u.mustResetPassword
+      } : u);
+      db.setUsers(updated);
+    } else {
+      const newRider: User = {
+        id: 'u_' + Date.now(),
+        name: riderForm.name,
+        cpf: riderForm.cpf,
+        phone: riderForm.phone,
+        email: riderForm.email,
+        role: 'rider',
+        active: true,
+        passwordHash: riderForm.password || 'moto123'
+      };
+      db.setUsers([...allUsers, newRider]);
+    }
+
+    setShowRiderModal(false);
+    setEditingRider(null);
+    setRiderForm({ name: '', cpf: '', phone: '', email: '', password: '' });
+    loadData();
+  };
+
+  const toggleRiderStatus = (id: string) => {
+    const allUsers = db.getUsers();
+    const updated = allUsers.map(u => u.id === id ? { ...u, active: !u.active } : u);
+    db.setUsers(updated);
+    loadData();
+  };
+
+  const handleApproveRider = (id: string) => {
+    const allUsers = db.getUsers();
+    const updated = allUsers.map(u => u.id === id ? { ...u, active: true } : u);
+    db.setUsers(updated);
+    
+    const rider = allUsers.find(u => u.id === id);
+    if (rider) {
+      const allNotif = db.getNotifications();
+      const newNotif: Notification = {
+        id: 'n_' + Date.now(),
+        riderId: rider.id,
+        title: '🎉 Cadastro Aprovado!',
+        message: 'Seu cadastro foi aprovado! Você já pode acessar o sistema com seu e-mail e senha.',
+        date: new Date().toISOString(),
+        read: false
+      };
+      db.setNotifications([...allNotif, newNotif]);
+    }
+    
+    loadData();
+  };
+
+  // --- GESTÃO DE ESTABELECIMENTOS ---
+  const handleSaveEst = (e: React.FormEvent) => {
+    e.preventDefault();
+    const allEst = db.getEstablishments();
+
+    const duplicateName = allEst.find(es => es.name.toLowerCase() === estForm.name.toLowerCase() && (!editingEst || es.id !== editingEst.id));
+    if (duplicateName) {
+      alert('Erro: Já existe um estabelecimento com este nome.');
+      return;
+    }
+
+    if (editingEst) {
+      const updated = allEst.map(es => es.id === editingEst.id ? {
+        ...es,
+        name: estForm.name,
+        phone: estForm.phone,
+        address: {
+          street: estForm.street,
+          number: estForm.number,
+          complement: estForm.complement || '',
+          neighborhood: estForm.neighborhood,
+          city: estForm.city,
+          state: estForm.state,
+          zipCode: estForm.zipCode
+        }
+      } : es);
+      db.setEstablishments(updated);
+    } else {
+      const newEst: Establishment = {
+        id: 'e_' + Date.now(),
+        name: estForm.name,
+        phone: estForm.phone,
+        active: true,
+        address: {
+          street: estForm.street,
+          number: estForm.number,
+          complement: estForm.complement || '',
+          neighborhood: estForm.neighborhood,
+          city: estForm.city,
+          state: estForm.state,
+          zipCode: estForm.zipCode
+        }
+      };
+      db.setEstablishments([...allEst, newEst]);
+    }
+
+    setShowEstModal(false);
+    setEditingEst(null);
+    setEstForm({ name: '', street: '', number: '', complement: '', neighborhood: '', city: '', state: '', zipCode: '', phone: '' });
+    loadData();
+  };
+
+  const toggleEstStatus = (id: string) => {
+    const allEst = db.getEstablishments();
+    const updated = allEst.map(es => es.id === id ? { ...es, active: !es.active } : es);
+    db.setEstablishments(updated);
+    loadData();
+  };
+
+  // --- GESTÃO DE ESCALAS ---
+  const checkScheduleConflict = (riderId: string, date: string, shift: string) => {
+    const conflict = schedules.find(s => s.riderId === riderId && s.date === date && s.shift === shift);
+    if (conflict) {
+      const rider = riders.find(r => r.id === riderId);
+      const est = establishments.find(e => e.id === conflict.establishmentId);
+      return `Aviso: O motoboy ${rider?.name} já está escalado no estabelecimento ${est?.name} neste mesmo dia e turno!`;
+    }
+    return '';
+  };
+
+  const handleSaveSchedule = (e: React.FormEvent) => {
+    e.preventDefault();
+    const conflict = checkScheduleConflict(scheduleForm.riderId, scheduleForm.date, scheduleForm.shift);
+    
+    if (conflict && !scheduleConflictWarning) {
+      setScheduleConflictWarning(conflict);
+      return;
+    }
+
+    const newSchedule: Schedule = {
+      id: 's_' + Date.now(),
+      riderId: scheduleForm.riderId,
+      establishmentId: scheduleForm.establishmentId,
+      date: scheduleForm.date,
+      shift: scheduleForm.shift,
+      startTime: scheduleForm.startTime,
+      endTime: scheduleForm.endTime,
+      createdBy: adminUser?.name || 'Admin',
+      createdAt: new Date().toISOString()
+    };
+
+    const updatedSchedules = [...schedules, newSchedule];
+    db.setSchedules(updatedSchedules);
+
+    const est = establishments.find(es => es.id === scheduleForm.establishmentId);
+    const allNotif = db.getNotifications();
+    const newNotif: Notification = {
+      id: 'n_' + Date.now(),
+      riderId: scheduleForm.riderId,
+      title: '📍 Novo Encaminhamento de Rota',
+      message: `Você foi designado para o estabelecimento ${est?.name} no dia ${new Date(scheduleForm.date + 'T00:00:00').toLocaleDateString('pt-BR')} no turno da ${getShiftLabel(scheduleForm.shift)} (${scheduleForm.startTime} - ${scheduleForm.endTime}). Por favor, dirija-se ao local.`,
+      date: new Date().toISOString(),
+      read: false
+    };
+    db.setNotifications([...allNotif, newNotif]);
+
+    setShowScheduleModal(false);
+    setScheduleForm({ 
+      riderId: '', 
+      establishmentId: '', 
+      date: '', 
+      shift: 'morning',
+      startTime: '08:00',
+      endTime: '12:00'
+    });
+    setScheduleConflictWarning('');
+    loadData();
+  };
+
+  const handleCancelSchedule = (id: string) => {
+    const schedule = schedules.find(s => s.id === id);
+    if (!schedule) return;
+
+    if (confirm('Tem certeza que deseja cancelar esta escala?')) {
+      const updated = schedules.filter(s => s.id !== id);
+      db.setSchedules(updated);
+
+      const est = establishments.find(es => es.id === schedule.establishmentId);
+      const allNotif = db.getNotifications();
+      const newNotif: Notification = {
+        id: 'n_' + Date.now(),
+        riderId: schedule.riderId,
+        title: 'Escala Cancelada',
+        message: `Sua escala no estabelecimento ${est?.name} para o dia ${new Date(schedule.date + 'T00:00:00').toLocaleDateString('pt-BR')} foi cancelada.`,
+        date: new Date().toISOString(),
+        read: false
+      };
+      db.setNotifications([...allNotif, newNotif]);
+
+      loadData();
+    }
+  };
+
+  // --- ESCALA SEMANAL AUTOMÁTICA ---
+  const DAY_KEYS = ['seg', 'ter', 'qua', 'qui', 'sex', 'sab', 'dom'] as const;
+  const DAY_LABELS = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'];
+
+  const getThisMonday = () => {
+    const today = new Date();
+    const day = today.getDay();
+    const diff = day === 0 ? -6 : 1 - day;
+    const monday = new Date(today);
+    monday.setDate(today.getDate() + diff);
+    return monday.toISOString().split('T')[0];
+  };
+
+  const buildWeeklyPreview = (form: typeof weeklyForm) => {
     if (!form.weekStart || !form.riderId || !form.establishmentId) return;
     const monday = new Date(form.weekStart + 'T00:00:00');
     const allSchedules = db.getSchedules();
@@ -501,6 +877,53 @@ export default function AdminDashboard() {
     if (confirm('Deseja realmente cancelar esta corrida? O valor será deduzido do faturamento do motoboy.')) {
       const updated = deliveries.map(d => d.id === id ? { ...d, status: 'cancelled' as const } : d);
       db.setDeliveries(updated);
+      loadData();
+    }
+  };
+
+  const handleApproveDelivery = (id: string) => {
+    const delivery = deliveries.find(d => d.id === id);
+    if (!delivery) return;
+
+    const updated = deliveries.map(d => d.id === id ? { ...d, status: 'active' as const } : d);
+    db.setDeliveries(updated);
+
+    const est = establishments.find(e => e.id === delivery.establishmentId);
+    const allNotif = db.getNotifications();
+    const newNotif: Notification = {
+      id: 'n_' + Date.now(),
+      riderId: delivery.riderId,
+      title: '✅ Corrida Aprovada!',
+      message: `Sua corrida no valor de R$ ${delivery.value.toFixed(2)} foi aprovada pelo administrador para o estabelecimento ${est?.name}.`,
+      date: new Date().toISOString(),
+      read: false
+    };
+    db.setNotifications([...allNotif, newNotif]);
+
+    loadData();
+    alert('Corrida aprovada com sucesso!');
+  };
+
+  const handleRejectDelivery = (id: string) => {
+    if (confirm('Deseja realmente rejeitar esta corrida?')) {
+      const delivery = deliveries.find(d => d.id === id);
+      if (!delivery) return;
+
+      const updated = deliveries.map(d => d.id === id ? { ...d, status: 'rejected' as const } : d);
+      db.setDeliveries(updated);
+
+      const est = establishments.find(e => e.id === delivery.establishmentId);
+      const allNotif = db.getNotifications();
+      const newNotif: Notification = {
+        id: 'n_' + Date.now(),
+        riderId: delivery.riderId,
+        title: '❌ Corrida Rejeitada',
+        message: `Sua corrida no valor de R$ ${delivery.value.toFixed(2)} foi rejeitada pelo administrador para o estabelecimento ${est?.name}.`,
+        date: new Date().toISOString(),
+        read: false
+      };
+      db.setNotifications([...allNotif, newNotif]);
+
       loadData();
     }
   };
@@ -665,6 +1088,9 @@ export default function AdminDashboard() {
   });
 
   const pendingRequestsCount = partnerRequests.filter(r => r.status === 'pending').length;
+
+  const pendingDeliveries = deliveries.filter(d => d.status === 'pending');
+  const processedDeliveries = deliveries.filter(d => d.status !== 'pending');
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
@@ -1384,92 +1810,154 @@ export default function AdminDashboard() {
 
           {/* TAB: REGISTRO DE CORRIDAS */}
           {activeTab === 'deliveries' && (
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <h2 className="text-xl font-bold text-slate-800">Registro de Corridas</h2>
-                <button
-                  onClick={() => {
-                    setEditingDelivery(null);
-                    setDeliveryForm({ riderId: '', establishmentId: '', date: new Date().toISOString().split('T')[0], time: new Date().toTimeString().slice(0,5), value: '', orderNumber: '' });
-                    setShowDeliveryModal(true);
-                  }}
-                  className="flex items-center justify-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-                >
-                  <Plus className="h-4 w-4" />
-                  <span>Lançar Corrida</span>
-                </button>
-              </div>
+            <div className="space-y-6">
+              {/* Pending Deliveries Approval Section */}
+              {pendingDeliveries.length > 0 && (
+                <div className="bg-amber-50/50 p-6 rounded-xl shadow-sm border border-amber-200 space-y-4">
+                  <h2 className="text-lg font-bold text-amber-800 flex items-center space-x-2">
+                    <Clock className="h-5 w-5 text-amber-600 animate-pulse" />
+                    <span>Corridas Pendentes de Aprovação ({pendingDeliveries.length})</span>
+                  </h2>
 
-              <div className="border border-slate-200 rounded-xl overflow-hidden">
-                <div className="bg-slate-50 p-4 border-b border-slate-200">
-                  <h3 className="font-bold text-slate-700">Histórico de Lançamentos</h3>
-                </div>
-                <div className="divide-y divide-slate-100">
-                  {deliveries.length === 0 ? (
-                    <div className="p-8 text-center text-slate-400">Nenhuma corrida registrada.</div>
-                  ) : (
-                    deliveries.map(del => {
+                  <div className="divide-y divide-amber-100">
+                    {pendingDeliveries.map(del => {
                       const rider = riders.find(r => r.id === del.riderId);
                       const est = establishments.find(e => e.id === del.establishmentId);
-                      const isToday = del.date === new Date().toISOString().split('T')[0];
-
                       return (
-                        <div key={del.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/50">
+                        <div key={del.id} className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                           <div>
                             <div className="flex items-center space-x-2">
                               <p className="font-bold text-slate-800">{rider?.name || 'Motoboy'}</p>
-                              {del.status === 'cancelled' && (
-                                <span className="bg-red-100 text-red-800 text-[10px] font-bold px-2 py-0.5 rounded-full">Cancelada</span>
-                              )}
                               {del.orderNumber && (
-                                <span className="bg-slate-100 text-slate-500 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                                <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded">
                                   #{del.orderNumber}
                                 </span>
                               )}
                             </div>
-                            <p className="text-sm text-slate-600">Estabelecimento: {est?.name}</p>
-                            <p className="text-xs text-slate-400 mt-1">
-                              Data: {new Date(del.date + 'T00:00:00').toLocaleDateString('pt-BR')} às {del.time}
+                            <p className="text-xs text-slate-600 mt-0.5">Estabelecimento: {est?.name}</p>
+                            <p className="text-xs text-slate-400 flex items-center space-x-1 mt-1">
+                              <Clock className="h-3.5 w-3.5" />
+                              <span>Lançada em {new Date(del.date + 'T00:00:00').toLocaleDateString('pt-BR')} às {del.time}</span>
                             </p>
                           </div>
-                          <div className="flex items-center space-x-4 self-end sm:self-center">
-                            <span className={`font-bold text-lg ${del.status === 'cancelled' ? 'text-slate-400 line-through' : 'text-emerald-600'}`}>
-                              R$ {del.value.toFixed(2)}
-                            </span>
-                            {isToday && del.status === 'active' && (
-                              <div className="flex items-center space-x-1">
-                                <button
-                                  onClick={() => {
-                                    setEditingDelivery(del);
-                                    setDeliveryForm({
-                                      riderId: del.riderId,
-                                      establishmentId: del.establishmentId,
-                                      date: del.date,
-                                      time: del.time,
-                                      value: del.value.toString(),
-                                      orderNumber: del.orderNumber || ''
-                                    });
-                                    setShowDeliveryModal(true);
-                                  }}
-                                  className="text-slate-500 hover:bg-slate-100 p-2 rounded transition-colors"
-                                  title="Editar Corrida"
-                                >
-                                  <Edit2 className="h-4 w-4" />
-                                </button>
-                                <button
-                                  onClick={() => handleCancelDelivery(del.id)}
-                                  className="text-red-500 hover:bg-red-50 p-2 rounded transition-colors"
-                                  title="Cancelar Corrida"
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </button>
-                              </div>
-                            )}
+                          <div className="flex items-center space-x-3 self-end sm:self-center">
+                            <span className="font-bold text-amber-700 text-lg">R$ {del.value.toFixed(2)}</span>
+                            <div className="flex items-center space-x-1">
+                              <button
+                                onClick={() => handleApproveDelivery(del.id)}
+                                className="bg-emerald-600 hover:bg-emerald-700 text-white p-1.5 rounded-lg transition-colors flex items-center space-x-1 text-xs font-bold"
+                                title="Aprovar Corrida"
+                              >
+                                <Check className="h-4 w-4" />
+                                <span className="hidden sm:inline">Aprovar</span>
+                              </button>
+                              <button
+                                onClick={() => handleRejectDelivery(del.id)}
+                                className="bg-red-600 hover:bg-red-700 text-white p-1.5 rounded-lg transition-colors flex items-center space-x-1 text-xs font-bold"
+                                title="Rejeitar Corrida"
+                              >
+                                <X className="h-4 w-4" />
+                                <span className="hidden sm:inline">Rejeitar</span>
+                              </button>
+                            </div>
                           </div>
                         </div>
                       );
-                    })
-                  )}
+                    })}
+                  </div>
+                </div>
+              )}
+
+              <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <h2 className="text-xl font-bold text-slate-800">Registro de Corridas</h2>
+                  <button
+                    onClick={() => {
+                      setEditingDelivery(null);
+                      setDeliveryForm({ riderId: '', establishmentId: '', date: new Date().toISOString().split('T')[0], time: new Date().toTimeString().slice(0,5), value: '', orderNumber: '' });
+                      setShowDeliveryModal(true);
+                    }}
+                    className="flex items-center justify-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                  >
+                    <Plus className="h-4 w-4" />
+                    <span>Lançar Corrida</span>
+                  </button>
+                </div>
+
+                <div className="border border-slate-200 rounded-xl overflow-hidden">
+                  <div className="bg-slate-50 p-4 border-b border-slate-200">
+                    <h3 className="font-bold text-slate-700">Histórico de Lançamentos</h3>
+                  </div>
+                  <div className="divide-y divide-slate-100">
+                    {processedDeliveries.length === 0 ? (
+                      <div className="p-8 text-center text-slate-400">Nenhuma corrida registrada.</div>
+                    ) : (
+                      processedDeliveries.map(del => {
+                        const rider = riders.find(r => r.id === del.riderId);
+                        const est = establishments.find(e => e.id === del.establishmentId);
+                        const isToday = del.date === new Date().toISOString().split('T')[0];
+
+                        return (
+                          <div key={del.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/50">
+                            <div>
+                              <div className="flex items-center space-x-2">
+                                <p className="font-bold text-slate-800">{rider?.name || 'Motoboy'}</p>
+                                {del.status === 'cancelled' && (
+                                  <span className="bg-red-100 text-red-800 text-[10px] font-bold px-2 py-0.5 rounded-full">Cancelada</span>
+                                )}
+                                {del.status === 'rejected' && (
+                                  <span className="bg-red-100 text-red-800 text-[10px] font-bold px-2 py-0.5 rounded-full">Rejeitada</span>
+                                )}
+                                {del.orderNumber && (
+                                  <span className="bg-slate-100 text-slate-500 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                                    #{del.orderNumber}
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-sm text-slate-600">Estabelecimento: {est?.name}</p>
+                              <p className="text-xs text-slate-400 mt-1">
+                                Data: {new Date(del.date + 'T00:00:00').toLocaleDateString('pt-BR')} às {del.time}
+                              </p>
+                            </div>
+                            <div className="flex items-center space-x-4 self-end sm:self-center">
+                              <span className={`font-bold text-lg ${del.status === 'cancelled' || del.status === 'rejected' ? 'text-slate-400 line-through' : 'text-emerald-600'}`}>
+                                R$ {del.value.toFixed(2)}
+                              </span>
+                              {isToday && del.status === 'active' && (
+                                <div className="flex items-center space-x-1">
+                                  <button
+                                    onClick={() => {
+                                      setEditingDelivery(del);
+                                      setDeliveryForm({
+                                        riderId: del.riderId,
+                                        establishmentId: del.establishmentId,
+                                        date: del.date,
+                                        time: del.time,
+                                        value: del.value.toString(),
+                                        orderNumber: del.orderNumber || ''
+                                      });
+                                      setShowDeliveryModal(true);
+                                    }}
+                                    className="text-slate-500 hover:bg-slate-100 p-2 rounded transition-colors"
+                                    title="Editar Corrida"
+                                  >
+                                    <Edit2 className="h-4 w-4" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleCancelDelivery(del.id)}
+                                    className="text-red-500 hover:bg-red-50 p-2 rounded transition-colors"
+                                    title="Cancelar Corrida"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
