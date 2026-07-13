@@ -256,6 +256,11 @@ const syncToSupabase = async (table: string, data: any[]) => {
         };
       }
       if (table === 'deliveries') {
+        // Serialização inteligente: se houver observações, combinamos com o número do pedido no campo order_number
+        const orderNumberSync = item.orderNumber || '';
+        const notesSync = item.notes || '';
+        const combinedOrderNumber = notesSync ? `${orderNumberSync}|||${notesSync}` : orderNumberSync;
+
         return {
           id: item.id,
           rider_id: item.riderId,
@@ -265,7 +270,7 @@ const syncToSupabase = async (table: string, data: any[]) => {
           value: item.value,
           status: item.status,
           schedule_id: item.scheduleId || null,
-          order_number: item.orderNumber || null,
+          order_number: combinedOrderNumber || null,
           notes: item.notes || null,
           updated_at: item.updatedAt || new Date().toISOString()
         };
@@ -625,19 +630,30 @@ export const db = {
       }
 
       if (!delsError && dels) {
-        const mappedDels: Delivery[] = dels.map(d => ({
-          id: d.id,
-          riderId: d.rider_id,
-          establishmentId: d.establishment_id,
-          date: d.date,
-          time: d.time,
-          value: Number(d.value),
-          status: d.status as any,
-          scheduleId: d.schedule_id || undefined,
-          orderNumber: d.order_number || undefined,
-          notes: d.notes || undefined,
-          updatedAt: d.updated_at || undefined
-        }));
+        const mappedDels: Delivery[] = dels.map(d => {
+          // Deserialização inteligente: se houver o separador especial, extraímos o número do pedido e as observações
+          let orderNumber = d.order_number || undefined;
+          let notes = d.notes || undefined;
+          if (d.order_number && d.order_number.includes('|||')) {
+            const parts = d.order_number.split('|||');
+            orderNumber = parts[0] || undefined;
+            notes = parts[1] || undefined;
+          }
+
+          return {
+            id: d.id,
+            riderId: d.rider_id,
+            establishmentId: d.establishment_id,
+            date: d.date,
+            time: d.time,
+            value: Number(d.value),
+            status: d.status as any,
+            scheduleId: d.schedule_id || undefined,
+            orderNumber: orderNumber,
+            notes: notes || d.notes || undefined,
+            updatedAt: d.updated_at || undefined
+          };
+        });
 
         const merged = mergeById(localDels, mappedDels);
         localDels = merged;
