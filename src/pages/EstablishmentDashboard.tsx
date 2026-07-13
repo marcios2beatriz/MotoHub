@@ -80,19 +80,16 @@ export default function EstablishmentDashboard() {
 
     const todayStr = db.getLocalDateString();
     const allSchedules = db.getSchedules();
-    let estSchedules = allSchedules.filter(s => s.establishmentId === estId && s.date === todayStr);
     
-    if (estSchedules.length === 0) {
-      estSchedules = allSchedules.filter(s => s.establishmentId === estId);
-    }
-    
+    // Filtra estritamente as escalas do estabelecimento logado para o dia de hoje
+    const estSchedules = allSchedules.filter(s => s.establishmentId === estId && s.date === todayStr);
     setTodaySchedules(estSchedules);
 
     const allUsers = db.getUsers();
     const scheduledIds = estSchedules.map(s => s.riderId);
-    const riders = scheduledIds.length > 0
-      ? allUsers.filter(u => scheduledIds.includes(u.id))
-      : allUsers.filter(u => u.role === 'rider');
+    
+    // Regra de Isolamento Estrito: Mostra APENAS os motoboys que possuem escala ativa hoje para este estabelecimento
+    const riders = allUsers.filter(u => scheduledIds.includes(u.id));
     setScheduledRiders(riders);
 
     const allDeliveries = db.getDeliveries();
@@ -377,7 +374,7 @@ export default function EstablishmentDashboard() {
   };
 
   const handleRejectDelivery = (id: string) => {
-    const reason = prompt('Digite o motivo da rejection (opcional):');
+    const reason = prompt('Digite o motivo da rejeição (opcional):');
     if (reason !== null) {
       const allDeliveries = db.getDeliveries();
       const delivery = allDeliveries.find(d => d.id === id);
@@ -695,7 +692,7 @@ export default function EstablishmentDashboard() {
                           <td className="py-3 px-4">
                             <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${
                               del.status === 'active' 
-                                ? 'bg-emerald-100 text-emerald-800' 
+                                				? 'bg-emerald-100 text-emerald-800' 
                                 : del.status === 'rejected'
                                 ? 'bg-red-100 text-red-800'
                                 : 'bg-slate-100 text-slate-800'
