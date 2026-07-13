@@ -84,7 +84,7 @@ export interface RiderLocation {
   updatedAt: string;
 }
 
-// Tables that don't exist in Supabase will be disabled dynamically to use only LocalStorage
+// Tables that don't exist or fail in Supabase will be disabled dynamically to use only LocalStorage
 const disabledTables = new Set<string>();
 
 // Seed Data with an initial establishment user for testing
@@ -295,15 +295,12 @@ const syncToSupabase = async (table: string, data: any[]) => {
 
     const { error } = await supabase.from(table).upsert(formattedData);
     if (error) {
-      if (error.message?.includes('schema cache') || error.message?.includes('does not exist') || error.code === '42P01') {
-        console.warn(`⚠️ Tabela "${table}" não existe no Supabase. Usando LocalStorage como fallback.`);
-        disabledTables.add(table);
-      } else {
-        console.error(`Erro ao sincronizar tabela ${table}:`, error.message);
-      }
+      console.warn(`⚠️ Erro ao sincronizar tabela "${table}" com Supabase. Usando LocalStorage como fallback.`, error.message);
+      disabledTables.add(table);
     }
   } catch (err: any) {
     console.warn('Erro ao sincronizar com o Supabase:', err?.message || err);
+    disabledTables.add(table);
   }
 };
 
@@ -462,14 +459,12 @@ export const db = {
           setStorageData('dm_users', merged);
           await syncToSupabase('users', merged);
         } else {
-          if (usersError?.message?.includes('schema cache') || usersError?.message?.includes('does not exist') || usersError?.code === '42P01') {
-            disabledTables.add('users');
-          }
-          const localUsers = getStorageData<User[]>('dm_users', INITIAL_USERS);
-          await syncToSupabase('users', localUsers);
+          console.warn(`⚠️ Erro ao carregar "users" do Supabase. Desativando sincronização para esta tabela.`, usersError);
+          disabledTables.add('users');
         }
       } catch (err) {
         console.warn('Erro ao sincronizar tabela users:', err);
+        disabledTables.add('users');
       }
     }
 
@@ -498,14 +493,12 @@ export const db = {
           setStorageData('dm_establishments', merged);
           await syncToSupabase('establishments', merged);
         } else {
-          if (estsError?.message?.includes('schema cache') || estsError?.message?.includes('does not exist') || estsError?.code === '42P01') {
-            disabledTables.add('establishments');
-          }
-          const localEsts = getStorageData<Establishment[]>('dm_establishments', INITIAL_ESTABLISHMENTS);
-          await syncToSupabase('establishments', localEsts);
+          console.warn(`⚠️ Erro ao carregar "establishments" do Supabase. Desativando sincronização para esta tabela.`, estsError);
+          disabledTables.add('establishments');
         }
       } catch (err) {
         console.warn('Erro ao sincronizar tabela establishments:', err);
+        disabledTables.add('establishments');
       }
     }
 
@@ -530,14 +523,12 @@ export const db = {
           setStorageData('dm_schedules', merged);
           await syncToSupabase('schedules', merged);
         } else {
-          if (schsError?.message?.includes('schema cache') || schsError?.message?.includes('does not exist') || schsError?.code === '42P01') {
-            disabledTables.add('schedules');
-          }
-          const localSchs = getStorageData<Schedule[]>('dm_schedules', []);
-          if (localSchs.length > 0) await syncToSupabase('schedules', localSchs);
+          console.warn(`⚠️ Erro ao carregar "schedules" do Supabase. Desativando sincronização para esta tabela.`, schsError);
+          disabledTables.add('schedules');
         }
       } catch (err) {
         console.warn('Erro ao sincronizar tabela schedules:', err);
+        disabledTables.add('schedules');
       }
     }
 
@@ -564,14 +555,12 @@ export const db = {
           setStorageData('dm_deliveries', merged);
           await syncToSupabase('deliveries', merged);
         } else {
-          if (delsError?.message?.includes('schema cache') || delsError?.message?.includes('does not exist') || delsError?.code === '42P01') {
-            disabledTables.add('deliveries');
-          }
-          const localDels = getStorageData<Delivery[]>('dm_deliveries', []);
-          if (localDels.length > 0) await syncToSupabase('deliveries', localDels);
+          console.warn(`⚠️ Erro ao carregar "deliveries" do Supabase. Desativando sincronização para esta tabela.`, delsError);
+          disabledTables.add('deliveries');
         }
       } catch (err) {
         console.warn('Erro ao sincronizar tabela deliveries:', err);
+        disabledTables.add('deliveries');
       }
     }
 
@@ -593,14 +582,12 @@ export const db = {
           setStorageData('dm_notifications', merged);
           await syncToSupabase('notifications', merged);
         } else {
-          if (notifsError?.message?.includes('schema cache') || notifsError?.message?.includes('does not exist') || notifsError?.code === '42P01') {
-            disabledTables.add('notifications');
-          }
-          const localNotifs = getStorageData<Notification[]>('dm_notifications', []);
-          if (localNotifs.length > 0) await syncToSupabase('notifications', localNotifs);
+          console.warn(`⚠️ Erro ao carregar "notifications" do Supabase. Desativando sincronização para esta tabela.`, notifsError);
+          disabledTables.add('notifications');
         }
       } catch (err) {
         console.warn('Erro ao sincronizar tabela notifications:', err);
+        disabledTables.add('notifications');
       }
     }
 
@@ -623,14 +610,12 @@ export const db = {
           setStorageData('dm_partner_requests', merged);
           await syncToSupabase('partner_requests', merged);
         } else {
-          if (reqsError?.message?.includes('schema cache') || reqsError?.message?.includes('does not exist') || reqsError?.code === '42P01') {
-            disabledTables.add('partner_requests');
-          }
-          const localReqs = getStorageData<PartnerRequest[]>('dm_partner_requests', []);
-          if (localReqs.length > 0) await syncToSupabase('partner_requests', localReqs);
+          console.warn(`⚠️ Erro ao carregar "partner_requests" do Supabase. Desativando sincronização para esta tabela.`, reqsError);
+          disabledTables.add('partner_requests');
         }
       } catch (err) {
         console.warn('Erro ao sincronizar tabela partner_requests:', err);
+        disabledTables.add('partner_requests');
       }
     }
 
@@ -648,12 +633,12 @@ export const db = {
           }));
           setStorageData('dm_rider_locations', mappedLocs);
         } else {
-          if (locsError?.message?.includes('does not exist') || locsError?.code === '42P01') {
-            disabledTables.add('rider_locations');
-          }
+          console.warn(`⚠️ Erro ao carregar "rider_locations" do Supabase. Desativando sincronização para esta tabela.`, locsError);
+          disabledTables.add('rider_locations');
         }
       } catch (err) {
         console.warn('Erro ao sincronizar tabela rider_locations:', err);
+        disabledTables.add('rider_locations');
       }
     }
 
