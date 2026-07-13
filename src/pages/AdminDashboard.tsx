@@ -34,6 +34,10 @@ import WeeklyScheduleModal from '../components/WeeklyScheduleModal';
 import RiderSchedulesModal from '../components/RiderSchedulesModal';
 import DeliveryModal from '../components/DeliveryModal';
 
+// Constantes para a escala semanal automática
+const DAY_KEYS = ['seg', 'ter', 'qua', 'qui', 'sex', 'sab', 'dom'] as const;
+const DAY_LABELS = ['Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado', 'Domingo'];
+
 export default function AdminDashboard() {
   const navigate = useNavigate();
   const [adminUser, setAdminUser] = useState(db.getCurrentUser());
