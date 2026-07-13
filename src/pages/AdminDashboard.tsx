@@ -461,7 +461,7 @@ export default function AdminDashboard() {
         riderId: deliveryForm.riderId,
         establishmentId: deliveryForm.establishmentId,
         date: deliveryForm.date,
-        time: deliveryForm.time,  // CORRIGIDO: garante que usa o valor do formulário, não 'del'
+        time: deliveryForm.time,
         value: val,
         scheduleId: activeSchedule?.id || d.scheduleId,
         orderNumber: deliveryForm.orderNumber.trim() || undefined
@@ -1026,7 +1026,7 @@ export default function AdminDashboard() {
                           </button>
                         </td>
                       </tr>
-                    )}
+                    ))}
                   </tbody>
                 </table>
               </div>
@@ -1072,7 +1072,7 @@ export default function AdminDashboard() {
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[600px] text-left border-collapse">
                   <thead>
-                    <tr className="border-b border-slate-200 text-sale-500 text-xs uppercase font-semibold">
+                    <tr className="border-b border-slate-200 text-slate-500 text-xs uppercase font-semibold">
                       <th className="py-3 px-4">Estabelecimento</th>
                       <th className="py-3 px-4">Proprietário</th>
                       <th className="py-3 px-4">Contato</th>
@@ -1303,7 +1303,7 @@ export default function AdminDashboard() {
                               <p className="text-sm font-semibold text-slate-800 truncate">{nextEst?.name || 'N/A'}</p>
                               <p className="text-sm font-semibold text-slate-500 mt-0.5">
                                 {new Date(next.date + 'T00:00:00').toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: '2-digit' })}
-                                {' · '}<span className={`font-medium ${next.shift === 'morning' ? 'text-amber-600' : next.shift === 'afternoon' ? 'text-orange-600' : next.shift === 'blue-600'}`}>{getShiftLabel(next.shift)}</span>
+                                {' · '}<span className={`font-medium ${next.shift === 'morning' ? 'text-amber-600' : next.shift === 'afternoon' ? 'text-orange-600' : 'text-blue-600'}`}>{getShiftLabel(next.shift)}</span>
                                 {' · '}{next.startTime}–{next.endTime}
                               </p>
                             </div>
@@ -1424,13 +1424,13 @@ export default function AdminDashboard() {
                               {del.orderNumber && (
                                 <span className="bg-slate-100 text-slate-500 text-[10px] font-bold px-2 py-0.5 rounded-full">
                                   #{del.orderNumber}
-                                )
+                                </span>
                               )}
                             </div>
                             <p className="text-sm text-slate-600">Estabelecimento: {est?.name}</p>
                             <p className="text-xs text-slate-400 mt-1">
                               Data: {new Date(del.date + 'T00:00:00').toLocaleDateString('pt-BR')} às {del.time}
-                            }
+                            </p>
                           </div>
                           <div className="flex items-center space-x-4 self-end sm:self-center">
                             <span className={`font-bold text-lg ${del.status === 'cancelled' ? 'text-slate-400 line-through' : 'text-emerald-600'}`}>
@@ -1542,6 +1542,93 @@ export default function AdminDashboard() {
           )}
         </div>
       </div>
+
+      {/* Modais */}
+      <RiderModal
+        isOpen={showRiderModal}
+        onClose={() => setShowRiderModal(false)}
+        editingRider={editingRider}
+        riderForm={riderForm}
+        setRiderForm={setRiderForm}
+        onSave={handleSaveRider}
+      />
+
+      <EstablishmentModal
+        isOpen={showEstModal}
+        onClose={() => setShowEstModal(false)}
+        editingEst={editingEst}
+        estForm={estForm}
+        setEstForm={setEstForm}
+        onSave={handleSaveEst}
+      />
+
+      <ScheduleModal
+        isOpen={showScheduleModal}
+        onClose={() => setShowScheduleModal(false)}
+        riders={riders}
+        establishments={establishments}
+        scheduleForm={scheduleForm}
+        setScheduleForm={setScheduleForm}
+        scheduleConflictWarning={scheduleConflictWarning}
+        setScheduleConflictWarning={setScheduleConflictWarning}
+        onSave={handleSaveSchedule}
+      />
+
+      <WeeklyScheduleModal
+        isOpen={showWeeklyModal}
+        onClose={() => setShowWeeklyModal(false)}
+        riders={riders}
+        establishments={establishments}
+        weeklyForm={weeklyForm}
+        setWeeklyForm={setWeeklyForm}
+        weeklyPreview={weeklyPreview}
+        setWeeklyPreview={setWeeklyPreview}
+        weeklyStep={weeklyStep}
+        setWeeklyStep={setWeeklyStep}
+        buildWeeklyPreview={buildWeeklyPreview}
+        onSave={handleSaveWeeklySchedule}
+        getShiftLabel={getShiftLabel}
+      />
+
+      <RiderSchedulesModal
+        riderId={riderSchedulesModal}
+        onClose={() => setRiderSchedulesModal(null)}
+        riders={riders}
+        schedules={schedules}
+        establishments={establishments}
+        modalHistoryEst={modalHistoryEst}
+        setModalHistoryEst={setModalHistoryEst}
+        modalHistoryFrom={modalHistoryFrom}
+        setModalHistoryFrom={setModalHistoryFrom}
+        modalHistoryTo={modalHistoryTo}
+        setModalHistoryTo={setModalHistoryTo}
+        onCancelSchedule={handleCancelSchedule}
+        onNewSchedule={(riderId) => {
+          setRiderSchedulesModal(null);
+          setScheduleForm({
+            riderId,
+            establishmentId: '',
+            date: new Date().toISOString().split('T')[0],
+            shift: 'morning',
+            startTime: '08:00',
+            endTime: '12:00'
+          });
+          setScheduleConflictWarning('');
+          setShowScheduleModal(true);
+        }}
+        getShiftLabel={getShiftLabel}
+      />
+
+      <DeliveryModal
+        isOpen={showDeliveryModal}
+        onClose={() => setShowDeliveryModal(false)}
+        editingDelivery={editingDelivery}
+        riders={riders}
+        establishments={establishments}
+        deliveryForm={deliveryForm}
+        setDeliveryForm={setDeliveryForm}
+        onSave={handleSaveDelivery}
+      />
     </div>
   );
 }
