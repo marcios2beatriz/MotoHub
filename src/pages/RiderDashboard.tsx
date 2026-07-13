@@ -231,8 +231,8 @@ export default function RiderDashboard() {
     if (!user) return;
 
     const activeSchedule = schedules.find(s => s.establishmentId === launchForm.establishmentId && s.date === todayStr);
-
     const allDeliveries = db.getDeliveries();
+    const nowStr = new Date().toISOString();
 
     if (editingDelivery) {
       // Editar corrida existente (apenas se estiver pendente)
@@ -247,7 +247,8 @@ export default function RiderDashboard() {
         value: val,
         orderNumber: launchForm.orderNumber.trim() || undefined,
         notes: launchForm.notes.trim() || undefined,
-        scheduleId: activeSchedule?.id || d.scheduleId
+        scheduleId: activeSchedule?.id || d.scheduleId,
+        updatedAt: nowStr
       } : d);
 
       db.setDeliveries(updated);
@@ -264,7 +265,8 @@ export default function RiderDashboard() {
         status: 'pending',
         scheduleId: activeSchedule?.id,
         orderNumber: launchForm.orderNumber.trim() || undefined,
-        notes: launchForm.notes.trim() || undefined
+        notes: launchForm.notes.trim() || undefined,
+        updatedAt: nowStr
       };
 
       db.setDeliveries([...allDeliveries, newDelivery]);

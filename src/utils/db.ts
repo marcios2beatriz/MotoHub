@@ -54,6 +54,7 @@ export interface Delivery {
   scheduleId?: string;
   orderNumber?: string; // Optional order number
   notes?: string; // Campo opcional de observações
+  updatedAt?: string; // Timestamp para controle de concorrência
 }
 
 export interface Notification {
@@ -175,21 +176,27 @@ export const setStorageData = <T>(key: string, data: T): void => {
   localStorage.setItem(key, JSON.stringify(data));
 };
 
-// Helper to merge local and remote data by ID
-const mergeById = <T extends { id: string }>(local: T[], remote: T[]): T[] => {
+// Helper to merge local and remote data by ID with timestamp check
+const mergeById = <T extends { id: string; updatedAt?: string }>(local: T[], remote: T[]): T[] => {
   const map = new Map<string, T>();
   local.forEach(item => map.set(item.id, item));
   remote.forEach(item => {
     const existing = map.get(item.id);
     if (existing) {
-      const merged = { ...existing };
-      (Object.keys(item) as (keyof T)[]).forEach(key => {
-        const value = item[key];
-        if (value !== undefined) {
-          merged[key] = value;
-        }
-      });
-      map.set(item.id, merged);
+      const localTime = existing.updatedAt ? new Date(existing.updatedAt).getTime() : 0;
+      const remoteTime = item.updatedAt ? new Date(item.updatedAt).getTime() : 0;
+      
+      // Only overwrite if remote is newer or equal
+      if (remoteTime >= localTime) {
+        const merged = { ...existing };
+        (Object.keys(item) as (keyof T)[]).forEach(key => {
+          const value = item[key];
+          if (value !== undefined) {
+            merged[key] = value;
+          }
+        });
+        map.set(item.id, merged);
+      }
     } else {
       map.set(item.id, item);
     }
@@ -258,7 +265,8 @@ const syncToSupabase = async (table: string, data: any[]) => {
           status: item.status,
           schedule_id: item.scheduleId || null,
           order_number: item.orderNumber || null,
-          notes: item.notes || null
+          notes: item.notes || null,
+          updated_at: item.updatedAt || new Date().toISOString()
         };
       }
       if (table === 'notifications') {
@@ -542,7 +550,8 @@ export const db = {
             status: d.status as any,
             scheduleId: d.schedule_id || undefined,
             orderNumber: d.order_number || undefined,
-            notes: d.notes || undefined
+            notes: d.notes || undefined,
+            updatedAt: d.updated_at || undefined
           }));
           const localDels = getStorageData<Delivery[]>('dm_deliveries', []);
           const merged = mergeById(localDels, mappedDels);

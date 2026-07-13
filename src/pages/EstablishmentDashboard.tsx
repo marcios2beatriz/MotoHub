@@ -113,7 +113,15 @@ export default function EstablishmentDashboard() {
       loadData();
     }, 5000);
 
-    return () => clearInterval(interval);
+    const handleSyncComplete = () => {
+      loadData();
+    };
+    window.addEventListener('db-sync-complete', handleSyncComplete);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('db-sync-complete', handleSyncComplete);
+    };
   }, [user, navigate]);
 
   // Initialize Map and Handle Markers
@@ -273,6 +281,7 @@ export default function EstablishmentDashboard() {
     const todayStr = new Date().toISOString().split('T')[0];
     const activeSchedule = todaySchedules.find(s => s.riderId === deliveryForm.riderId);
     const allDeliveries = db.getDeliveries();
+    const nowStr = new Date().toISOString();
 
     if (editingDelivery) {
       const updated = allDeliveries.map(d => d.id === editingDelivery.id ? {
@@ -281,7 +290,8 @@ export default function EstablishmentDashboard() {
         value: val,
         orderNumber: deliveryForm.orderNumber.trim() || undefined,
         notes: deliveryForm.notes.trim() || undefined,
-        scheduleId: activeSchedule?.id || d.scheduleId
+        scheduleId: activeSchedule?.id || d.scheduleId,
+        updatedAt: nowStr
       } : d);
       db.setDeliveries(updated);
       alert('Corrida editada com sucesso!');
@@ -296,7 +306,8 @@ export default function EstablishmentDashboard() {
         status: 'active',
         scheduleId: activeSchedule?.id,
         orderNumber: deliveryForm.orderNumber.trim() || undefined,
-        notes: deliveryForm.notes.trim() || undefined
+        notes: deliveryForm.notes.trim() || undefined,
+        updatedAt: nowStr
       };
       db.setDeliveries([...allDeliveries, newDelivery]);
     }
@@ -310,7 +321,8 @@ export default function EstablishmentDashboard() {
   const handleCancelDelivery = (id: string) => {
     if (confirm('Deseja realmente cancelar esta corrida?')) {
       const allDeliveries = db.getDeliveries();
-      const updated = allDeliveries.map(d => d.id === id ? { ...d, status: 'cancelled' as const } : d);
+      const nowStr = new Date().toISOString();
+      const updated = allDeliveries.map(d => d.id === id ? { ...d, status: 'cancelled' as const, updatedAt: nowStr } : d);
       db.setDeliveries(updated);
       loadData();
     }
@@ -321,7 +333,8 @@ export default function EstablishmentDashboard() {
     const delivery = allDeliveries.find(d => d.id === id);
     if (!delivery) return;
 
-    const updated = allDeliveries.map(d => d.id === id ? { ...d, status: 'active' as const } : d);
+    const nowStr = new Date().toISOString();
+    const updated = allDeliveries.map(d => d.id === id ? { ...d, status: 'active' as const, updatedAt: nowStr } : d);
     db.setDeliveries(updated);
 
     // Notify Rider
@@ -346,7 +359,8 @@ export default function EstablishmentDashboard() {
       const delivery = allDeliveries.find(d => d.id === id);
       if (!delivery) return;
 
-      const updated = allDeliveries.map(d => d.id === id ? { ...d, status: 'rejected' as const } : d);
+      const nowStr = new Date().toISOString();
+      const updated = allDeliveries.map(d => d.id === id ? { ...d, status: 'rejected' as const, updatedAt: nowStr } : d);
       db.setDeliveries(updated);
 
       // Notify Rider
