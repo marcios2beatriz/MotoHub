@@ -87,13 +87,13 @@ export interface RiderLocation {
 // Tables that don't exist or fail in Supabase will be disabled dynamically to use only LocalStorage
 const disabledTables = new Set<string>();
 
-// Seed Data with an initial establishment user for testing
+// Seed Data com endereços reais de João Pessoa - PB
 const INITIAL_USERS: User[] = [
   {
     id: 'u1',
     name: 'Administrador Geral',
     cpf: '000.000.000-00',
-    phone: '(11) 99999-9999',
+    phone: '(83) 99999-9999',
     email: 'admin@delivery.com',
     role: 'admin',
     active: true,
@@ -103,7 +103,7 @@ const INITIAL_USERS: User[] = [
     id: 'u2',
     name: 'Carlos Silva (Motoqueiro)',
     cpf: '111.111.111-11',
-    phone: '(11) 98888-8888',
+    phone: '(83) 98888-8888',
     email: 'carlos@delivery.com',
     role: 'rider',
     active: true,
@@ -113,7 +113,7 @@ const INITIAL_USERS: User[] = [
     id: 'u3',
     name: 'Lucas Souza (Motoqueiro)',
     cpf: '222.222.222-22',
-    phone: '(11) 97777-7777',
+    phone: '(83) 97777-7777',
     email: 'lucas@delivery.com',
     role: 'rider',
     active: true,
@@ -123,7 +123,7 @@ const INITIAL_USERS: User[] = [
     id: 'u4',
     name: 'Gerente Bella Italia',
     cpf: '333.333.333-33',
-    phone: '(11) 3222-1111',
+    phone: '(83) 3222-1111',
     email: 'bella@delivery.com',
     role: 'establishment',
     active: true,
@@ -137,46 +137,46 @@ const INITIAL_ESTABLISHMENTS: Establishment[] = [
     id: 'e1',
     name: 'Pizzaria Bella Italia',
     address: {
-      street: 'Avenida Paulista',
-      number: '1000',
-      neighborhood: 'Bela Vista',
-      city: 'São Paulo',
-      state: 'SP',
-      zipCode: '01310-100'
+      street: 'Avenida Cabo Branco',
+      number: '1500',
+      neighborhood: 'Cabo Branco',
+      city: 'João Pessoa',
+      state: 'PB',
+      zipCode: '58045-010'
     },
-    phone: '(11) 3222-1111',
+    phone: '(83) 3222-1111',
     active: true
   },
   {
     id: 'e2',
     name: 'Burger House',
     address: {
-      street: 'Rua Augusta',
-      number: '500',
-      neighborhood: 'Consolação',
-      city: 'São Paulo',
-      state: 'SP',
-      zipCode: '01305-000'
+      street: 'Avenida Olinda',
+      number: '200',
+      neighborhood: 'Tambaú',
+      city: 'João Pessoa',
+      state: 'PB',
+      zipCode: '58039-120'
     },
-    phone: '(11) 3111-2222',
+    phone: '(83) 3111-2222',
     active: true
   }
 ];
 
-// Coordenadas iniciais de teste próximas à Avenida Paulista, SP
+// Coordenadas iniciais de teste em João Pessoa - PB (Cabo Branco / Tambaú)
 const INITIAL_LOCATIONS: RiderLocation[] = [
   {
     riderId: 'u2',
     riderName: 'Carlos Silva (Motoqueiro)',
-    lat: -23.5631,
-    lng: -46.6542,
+    lat: -7.1160,
+    lng: -34.8290,
     updatedAt: new Date().toISOString()
   },
   {
     riderId: 'u3',
     riderName: 'Lucas Souza (Motoqueiro)',
-    lat: -23.5582,
-    lng: -46.6591,
+    lat: -7.1180,
+    lng: -34.8250,
     updatedAt: new Date().toISOString()
   }
 ];
@@ -204,8 +204,6 @@ const mergeById = <T extends { id: string; updatedAt?: string }>(local: T[], rem
       const localTime = existing.updatedAt ? new Date(existing.updatedAt).getTime() : 0;
       const remoteTime = item.updatedAt ? new Date(item.updatedAt).getTime() : 0;
       
-      // Se o item remoto não tiver updatedAt (porque a coluna não existe no Supabase),
-      // nós sempre mesclamos para garantir que atualizações de status de outros usuários sejam aplicadas.
       if (!item.updatedAt || remoteTime >= localTime) {
         const merged = { ...existing };
         (Object.keys(item) as (keyof T)[]).forEach(key => {
@@ -274,7 +272,6 @@ const syncToSupabase = async (table: string, data: any[]) => {
         };
       }
       if (table === 'deliveries') {
-        // Serialização inteligente: se houver observações, combinamos com o número do pedido no campo order_number
         const orderNumberSync = item.orderNumber || '';
         const notesSync = item.notes || '';
         const combinedOrderNumber = notesSync ? `${orderNumberSync}|||${notesSync}` : orderNumberSync;
@@ -319,7 +316,6 @@ const syncToSupabase = async (table: string, data: any[]) => {
 
     let { error } = await supabase.from(table).upsert(formattedData);
     
-    // Algoritmo Auto-Regenerativo: Se houver erro de coluna inexistente, removemos e tentamos novamente
     if (error) {
       let currentData = [...formattedData];
       let attempts = 0;
@@ -383,6 +379,36 @@ export const db = {
     const ests = getStorageData<Establishment[]>('dm_establishments', INITIAL_ESTABLISHMENTS);
     let updated = false;
     const merged = [...ests];
+    
+    // Migração automática inteligente: se a Pizzaria Bella Italia ainda estiver em SP, migra para João Pessoa - PB
+    const bellaItalia = merged.find(e => e.id === 'e1');
+    if (bellaItalia && bellaItalia.address.street === 'Avenida Paulista') {
+      bellaItalia.address = {
+        street: 'Avenida Cabo Branco',
+        number: '1500',
+        neighborhood: 'Cabo Branco',
+        city: 'João Pessoa',
+        state: 'PB',
+        zipCode: '58045-010'
+      };
+      bellaItalia.phone = '(83) 3222-1111';
+      updated = true;
+    }
+
+    const burgerHouse = merged.find(e => e.id === 'e2');
+    if (burgerHouse && burgerHouse.address.street === 'Rua Augusta') {
+      burgerHouse.address = {
+        street: 'Avenida Olinda',
+        number: '200',
+        neighborhood: 'Tambaú',
+        city: 'João Pessoa',
+        state: 'PB',
+        zipCode: '58039-120'
+      };
+      burgerHouse.phone = '(83) 3111-2222';
+      updated = true;
+    }
+
     INITIAL_ESTABLISHMENTS.forEach(initEst => {
       if (!merged.some(e => e.id === initEst.id)) {
         merged.push(initEst);
@@ -483,10 +509,9 @@ export const db = {
 
   pullFromSupabase: async () => {
     try {
-      // 1. Carregar estabelecimentos primeiro
       const { data: ests, error: estsError } = await supabase.from('establishments').select('*');
       let localEsts = getStorageData<Establishment[]>('dm_establishments', INITIAL_ESTABLISHMENTS);
-      const estIdMap = new Map<string, string>(); // De ID antigo para ID novo do Supabase
+      const estIdMap = new Map<string, string>();
 
       if (!estsError && ests) {
         const mappedEsts: Establishment[] = ests.map(e => ({
@@ -505,7 +530,6 @@ export const db = {
           active: e.active
         }));
 
-        // Mesclar estabelecimentos por nome único para evitar duplicados
         const mergedEsts: Establishment[] = [];
         localEsts.forEach(local => {
           const remoteMatch = mappedEsts.find(r => r.name.toLowerCase() === local.name.toLowerCase());
@@ -530,10 +554,9 @@ export const db = {
         await syncToSupabase('establishments', localEsts);
       }
 
-      // 2. Carregar usuários
       const { data: users, error: usersError } = await supabase.from('users').select('*');
       let localUsers = getStorageData<User[]>('dm_users', INITIAL_USERS);
-      const userIdMap = new Map<string, string>(); // De ID antigo para ID novo do Supabase
+      const userIdMap = new Map<string, string>();
 
       if (!usersError && users) {
         const mappedUsers: User[] = users.map(u => ({
@@ -549,7 +572,6 @@ export const db = {
           establishmentId: u.establishment_id || undefined
         }));
 
-        // Mesclar usuários por e-mail ou CPF único para evitar duplicados
         const mergedUsers: User[] = [];
         localUsers.forEach(local => {
           const remoteMatch = mappedUsers.find(
@@ -577,7 +599,6 @@ export const db = {
 
         localUsers = mergedUsers;
 
-        // Atualizar referências de estabelecimentos nos usuários
         if (estIdMap.size > 0) {
           localUsers = localUsers.map(u => {
             if (u.establishmentId && estIdMap.has(u.establishmentId)) {
@@ -589,7 +610,6 @@ export const db = {
 
         setStorageData('dm_users', localUsers);
 
-        // Atualizar usuário logado se o ID dele mudou
         const currentUser = db.getCurrentUser();
         if (currentUser) {
           const updatedCurrent = localUsers.find(u => u.email.toLowerCase() === currentUser.email.toLowerCase());
@@ -601,11 +621,9 @@ export const db = {
         await syncToSupabase('users', localUsers);
       }
 
-      // 3. Carregar escalas e atualizar referências de IDs
       const { data: schs, error: schsError } = await supabase.from('schedules').select('*');
       let localSchs = getStorageData<Schedule[]>('dm_schedules', []);
 
-      // Atualizar referências de IDs antigos para novos nas escalas locais
       if (userIdMap.size > 0 || estIdMap.size > 0) {
         localSchs = localSchs.map(s => ({
           ...s,
@@ -635,7 +653,6 @@ export const db = {
         setStorageData('dm_schedules', localSchs);
       }
 
-      // 4. Carregar corridas e atualizar referências de IDs
       const { data: dels, error: delsError } = await supabase.from('deliveries').select('*');
       let localDels = getStorageData<Delivery[]>('dm_deliveries', []);
 
@@ -649,7 +666,6 @@ export const db = {
 
       if (!delsError && dels) {
         const mappedDels: Delivery[] = dels.map(d => {
-          // Deserialização inteligente: se houver o separador especial, extraímos o número do pedido e as observações
           let orderNumber = d.order_number || undefined;
           let notes = d.notes || undefined;
           if (d.order_number && d.order_number.includes('|||')) {
@@ -681,7 +697,6 @@ export const db = {
         setStorageData('dm_deliveries', localDels);
       }
 
-      // 5. Carregar notificações e atualizar referências de IDs
       const { data: notifs, error: notifsError } = await supabase.from('notifications').select('*');
       let localNotifs = getStorageData<Notification[]>('dm_notifications', []);
 
@@ -710,7 +725,6 @@ export const db = {
         setStorageData('dm_notifications', localNotifs);
       }
 
-      // 6. Carregar solicitações de parceria
       const { data: reqs, error: reqsError } = await supabase.from('partner_requests').select('*');
       if (!reqsError && reqs) {
         const mappedReqs: PartnerRequest[] = reqs.map(r => ({
@@ -731,7 +745,6 @@ export const db = {
         disabledTables.add('partner_requests');
       }
 
-      // 7. Carregar localizações dos motoboys
       const { data: locs, error: locsError } = await supabase.from('rider_locations').select('*');
       if (!locsError && locs) {
         const mappedLocs: RiderLocation[] = locs.map(l => ({

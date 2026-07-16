@@ -70,8 +70,9 @@ export default function CustomerTracking() {
       document.head.appendChild(link);
     }
 
-    const defaultLat = -23.56168;
-    const defaultLng = -46.65598;
+    // Coordenadas padrão de fallback: João Pessoa - PB
+    const defaultLat = -7.1150;
+    const defaultLng = -34.8270;
 
     const initMap = (lat: number, lng: number) => {
       if (mapRef.current) return;
