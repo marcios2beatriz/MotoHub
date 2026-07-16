@@ -3,8 +3,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { db, Delivery, User, Establishment, RiderLocation } from '../utils/db';
-import { Bike, MapPin, Clock, ShieldCheck, RefreshCw, Phone, Navigation } from 'lucide-react';
+import { Bike, MapPin, Clock, ShieldCheck, RefreshCw, MessageSquare, Navigation } from 'lucide-react';
 import L from 'leaflet';
+import CustomerChatModal from '../components/CustomerChatModal';
 
 export default function CustomerTracking() {
   const { deliveryId } = useParams<{ deliveryId: string }>();
@@ -15,13 +16,13 @@ export default function CustomerTracking() {
   const [riderLocation, setRiderLocation] = useState<RiderLocation | null>(null);
   const [estCoords, setEstCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isChatOpen, setIsChatOpen] = useState(false);
 
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const estMarkerRef = useRef<L.Marker | null>(null);
   const riderMarkerRef = useRef<L.Marker | null>(null);
   
-  // Ref para controlar se já fizemos o enquadramento inicial do mapa
   const hasSetInitialBoundsRef = useRef(false);
 
   const loadTrackingData = () => {
@@ -70,7 +71,6 @@ export default function CustomerTracking() {
       document.head.appendChild(link);
     }
 
-    // Coordenadas padrão de fallback: João Pessoa - PB
     const defaultLat = -7.1150;
     const defaultLng = -34.8270;
 
@@ -102,7 +102,6 @@ export default function CustomerTracking() {
       const addr = establishment.address;
       const headers = { 'Accept-Language': 'pt-BR', 'User-Agent': 'MotoHub-Delivery-App' };
       
-      // Etapa 1: Tentar por CEP (Altamente preciso no Brasil)
       if (addr.zipCode) {
         const cep = addr.zipCode.replace(/\D/g, '');
         try {
@@ -117,7 +116,6 @@ export default function CustomerTracking() {
         }
       }
 
-      // Etapa 2: Endereço Completo
       const queryFull = `${addr.street}, ${addr.number}, ${addr.neighborhood}, ${addr.city}, ${addr.state}, Brasil`;
       try {
         const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(queryFull)}`, { headers });
@@ -130,31 +128,17 @@ export default function CustomerTracking() {
         console.warn('Erro ao geocodificar por endereço completo:', e);
       }
 
-      // Etapa 3: Cidade e Estado
-      const queryCity = `${addr.city}, ${addr.state}, Brasil`;
-      try {
-        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(queryCity)}`, { headers });
-        const data = await res.json();
-        if (data && data.length > 0) {
-          initMap(parseFloat(data[0].lat), parseFloat(data[0].lon));
-          return;
-        }
-      } catch (e) {
-        console.warn('Erro ao geocodificar por cidade:', e);
-      }
-
       initMap(defaultLat, defaultLng);
     };
 
     geocode();
   }, [establishment]);
 
-  // Atualização do Marcador do Motoboy e Ajuste de Zoom Inteligente (Apenas no primeiro carregamento)
+  // Atualização do Marcador do Motoboy e Ajuste de Zoom Inteligente
   useEffect(() => {
     const currentMap = mapRef.current;
     if (!currentMap) return;
 
-    // Atualizar ou criar marcador do motoboy
     if (riderLocation) {
       if (riderMarkerRef.current) {
         riderMarkerRef.current.setLatLng([riderLocation.lat, riderLocation.lng]);
@@ -174,7 +158,6 @@ export default function CustomerTracking() {
       }
     }
 
-    // Ajustar o enquadramento do mapa APENAS se ainda não tiver sido feito
     if (!hasSetInitialBoundsRef.current) {
       const points: L.LatLngExpression[] = [];
       if (estCoords) {
@@ -213,6 +196,26 @@ export default function CustomerTracking() {
     } else if (points.length === 1) {
       currentMap.setView(points[0], 16);
     }
+  };
+
+  const handleSendMessage = (text: string) => {
+    if (!delivery) return;
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const dateStr = now.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+    
+    const formattedMessage = `[${dateStr} ${timeStr} - Cliente]: ${text}`;
+    const updatedNotes = delivery.notes ? `${delivery.notes}\n${formattedMessage}` : formattedMessage;
+
+    const allDeliveries = db.getDeliveries();
+    const updated = allDeliveries.map(d => d.id === delivery.id ? {
+      ...d,
+      notes: updatedNotes,
+      updatedAt: new Date().toISOString()
+    } : d);
+
+    db.setDeliveries(updated);
+    setDelivery({ ...delivery, notes: updatedNotes });
   };
 
   if (loading) {
@@ -307,14 +310,13 @@ export default function CustomerTracking() {
                   </p>
                 </div>
               </div>
-              {rider.phone && (
-                <a 
-                  href={`tel:${rider.phone}`}
-                  className="p-2.5 bg-white hover:bg-slate-100 border border-slate-200 rounded-full text-slate-600 transition-colors"
-                >
-                  <Phone className="h-4 w-4" />
-                </a>
-              )}
+              <button 
+                onClick={() => setIsChatOpen(true)}
+                className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl text-xs font-bold transition-colors shadow-sm"
+              >
+                <MessageSquare className="h-4 w-4" />
+                <span>Chat</span>
+              </button>
             </div>
           )}
 
@@ -327,6 +329,14 @@ export default function CustomerTracking() {
           )}
         </div>
       </div>
+
+      {/* Modal de Chat do Cliente */}
+      <CustomerChatModal
+        isOpen={isChatOpen}
+        onClose={() => setIsChatOpen(false)}
+        delivery={delivery}
+        onSendMessage={handleSendMessage}
+      />
     </div>
   );
 }
