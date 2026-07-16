@@ -21,7 +21,8 @@ import {
   Edit2,
   Maximize2,
   Minimize2,
-  Share2
+  Share2,
+  Navigation
 } from 'lucide-react';
 
 // Leaflet imports
@@ -67,6 +68,9 @@ export default function EstablishmentDashboard() {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const markersRef = useRef<{ [key: string]: L.Marker }>({});
+  
+  // Ref para controlar se já fizemos o enquadramento inicial do mapa
+  const hasSetInitialBoundsRef = useRef(false);
 
   const loadData = () => {
     const currentUser = db.getCurrentUser();
@@ -151,7 +155,7 @@ export default function EstablishmentDashboard() {
 
     const initMap = async (lat: number, lng: number) => {
       if (mapRef.current) return;
-      const mapInstance = L.map(mapContainerRef.current!).setView([lat, lng], 14);
+      const mapInstance = L.map(mapContainerRef.current!).setView([lat, lng], 16);
       mapRef.current = mapInstance;
 
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -176,7 +180,25 @@ export default function EstablishmentDashboard() {
     const geocodeEstablishment = async () => {
       if (mapRef.current) return;
       const addr = establishment.address;
+      const headers = { 'Accept-Language': 'pt-BR', 'User-Agent': 'MotoHub-Delivery-App' };
+
       if (addr) {
+        // Etapa 1: Tentar por CEP (Altamente preciso no Brasil)
+        if (addr.zipCode) {
+          const cep = addr.zipCode.replace(/\D/g, '');
+          try {
+            const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&postalcode=${cep}&country=Brazil`, { headers });
+            const data = await res.json();
+            if (data && data.length > 0) {
+              await initMap(parseFloat(data[0].lat), parseFloat(data[0].lon));
+              return;
+            }
+          } catch (e) {
+            console.warn('Erro ao geocodificar por CEP:', e);
+          }
+        }
+
+        // Etapa 2: Endereço Completo
         const query = [
           addr.street,
           addr.number,
@@ -189,7 +211,7 @@ export default function EstablishmentDashboard() {
         try {
           const res = await fetch(
             `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`,
-            { headers: { 'Accept-Language': 'pt-BR' } }
+            { headers }
           );
           const data = await res.json();
           if (data && data.length > 0) {
@@ -198,28 +220,6 @@ export default function EstablishmentDashboard() {
           }
         } catch (e) {
           console.warn('Geocoding by address failed, trying by CEP...', e);
-        }
-
-        if (addr.zipCode) {
-          const cep = addr.zipCode.replace(/\D/g, '');
-          try {
-            const viaCepRes = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
-            const viaCepData = await viaCepRes.json();
-            if (!viaCepData.erro) {
-              const cepQuery = `${viaCepData.logradouro}, ${viaCepData.localidade}, ${viaCepData.uf}, Brasil`;
-              const nomRes = await fetch(
-                `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(cepQuery)}`,
-                { headers: { 'Accept-Language': 'pt-BR' } }
-              );
-              const nomData = await nomRes.json();
-              if (nomData && nomData.length > 0) {
-                await initMap(parseFloat(nomData[0].lat), parseFloat(nomData[0].lon));
-                return;
-              }
-            }
-          } catch (e) {
-            console.warn('CEP geocoding failed, using default coords.', e);
-          }
         }
       }
 
@@ -233,11 +233,12 @@ export default function EstablishmentDashboard() {
         mapRef.current.remove();
         mapRef.current = null;
         markersRef.current = {};
+        hasSetInitialBoundsRef.current = false;
       }
     };
-  }, [establishment?.id]); // Alterado para ID para evitar reinicialização do mapa a cada atualização de dados
+  }, [establishment?.id]);
 
-  // 2. Hook de Atualização Suave dos Marcadores dos Motoboys e Ajuste de Zoom (Fit Bounds)
+  // 2. Hook de Atualização Suave dos Marcadores dos Motoboys e Ajuste de Zoom (Apenas no primeiro carregamento)
   useEffect(() => {
     const currentMap = mapRef.current;
     if (!currentMap) return;
@@ -277,24 +278,28 @@ export default function EstablishmentDashboard() {
       }
     });
 
-    // Ajustar o enquadramento do mapa para mostrar AMBOS os pontos
-    const points: L.LatLngExpression[] = [];
-    if (estCoords) {
-      points.push([estCoords.lat, estCoords.lng]);
-    }
-    
-    // Adicionar localizações dos motoboys ativos
-    riderLocations.forEach(loc => {
-      if (scheduledRiderIds.includes(loc.riderId)) {
-        points.push([loc.lat, loc.lng]);
+    // Ajustar o enquadramento do mapa APENAS se ainda não tiver sido feito
+    if (!hasSetInitialBoundsRef.current) {
+      const points: L.LatLngExpression[] = [];
+      if (estCoords) {
+        points.push([estCoords.lat, estCoords.lng]);
       }
-    });
+      
+      // Adicionar localizações dos motoboys ativos
+      riderLocations.forEach(loc => {
+        if (scheduledRiderIds.includes(loc.riderId)) {
+          points.push([loc.lat, loc.lng]);
+        }
+      });
 
-    if (points.length >= 2) {
-      const bounds = L.latLngBounds(points);
-      currentMap.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
-    } else if (points.length === 1) {
-      currentMap.setView(points[0], 15);
+      if (points.length >= 2) {
+        const bounds = L.latLngBounds(points);
+        currentMap.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
+        hasSetInitialBoundsRef.current = true;
+      } else if (points.length === 1) {
+        currentMap.setView(points[0], 16);
+        hasSetInitialBoundsRef.current = true;
+      }
     }
   }, [scheduledRiders, riderLocations, estCoords]);
 
@@ -307,9 +312,28 @@ export default function EstablishmentDashboard() {
     }
   }, [isMapExpanded]);
 
-  const handleLogout = () => {
-    db.setCurrentUser(null);
-    navigate('/login');
+  const handleRecenterMap = () => {
+    const currentMap = mapRef.current;
+    if (!currentMap) return;
+
+    const scheduledRiderIds = scheduledRiders.map(r => r.id);
+    const points: L.LatLngExpression[] = [];
+    if (estCoords) {
+      points.push([estCoords.lat, estCoords.lng]);
+    }
+    
+    riderLocations.forEach(loc => {
+      if (scheduledRiderIds.includes(loc.riderId)) {
+        points.push([loc.lat, loc.lng]);
+      }
+    });
+
+    if (points.length >= 2) {
+      const bounds = L.latLngBounds(points);
+      currentMap.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
+    } else if (points.length === 1) {
+      currentMap.setView(points[0], 16);
+    }
   };
 
   const handleSaveDelivery = (e: React.FormEvent) => {
@@ -802,6 +826,13 @@ export default function EstablishmentDashboard() {
                 <span>Rastreamento em Tempo Real</span>
               </h2>
               <div className="flex items-center space-x-2">
+                <button
+                  onClick={handleRecenterMap}
+                  className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
+                  title="Centralizar Mapa"
+                >
+                  <Navigation className="h-4 w-4 text-indigo-600" />
+                </button>
                 <button 
                   onClick={() => setIsMapExpanded(!isMapExpanded)}
                   className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors flex items-center gap-1 text-xs font-semibold"
