@@ -22,11 +22,13 @@ import {
   Maximize2,
   Minimize2,
   Share2,
-  Navigation
+  Navigation,
+  MessageSquare
 } from 'lucide-react';
 
 // Leaflet imports
 import L from 'leaflet';
+import DeliveryNotesModal from '../components/DeliveryNotesModal';
 
 export default function EstablishmentDashboard() {
   const navigate = useNavigate();
@@ -63,6 +65,9 @@ export default function EstablishmentDashboard() {
     orderNumber: '',
     notes: ''
   });
+
+  // Modal de Observações/Chat
+  const [notesDelivery, setNotesDelivery] = useState<Delivery | null>(null);
 
   // Map reference
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -105,6 +110,12 @@ export default function EstablishmentDashboard() {
 
     const locations = db.getRiderLocations();
     setRiderLocations(locations);
+
+    // Atualiza o delivery selecionado no modal de notas se ele estiver aberto
+    if (notesDelivery) {
+      const updatedDelivery = allDeliveries.find(d => d.id === notesDelivery.id);
+      if (updatedDelivery) setNotesDelivery(updatedDelivery);
+    }
   };
 
   useEffect(() => {
@@ -475,6 +486,17 @@ export default function EstablishmentDashboard() {
     }
   };
 
+  const handleSaveNotes = (deliveryId: string, updatedNotes: string) => {
+    const allDeliveries = db.getDeliveries();
+    const updated = allDeliveries.map(d => d.id === deliveryId ? {
+      ...d,
+      notes: updatedNotes,
+      updatedAt: new Date().toISOString()
+    } : d);
+    db.setDeliveries(updated);
+    loadData();
+  };
+
   const handleCopyTrackingLink = (deliveryId: string) => {
     const link = `${window.location.origin}/#/track/${deliveryId}`;
     navigator.clipboard.writeText(link).then(() => {
@@ -595,14 +617,21 @@ export default function EstablishmentDashboard() {
                           <span>Lançada às {del.time} ({new Date(del.date + 'T00:00:00').toLocaleDateString('pt-BR')})</span>
                         </p>
                         {del.notes && (
-                          <p className="text-xs text-slate-600 bg-white border border-amber-100 rounded px-2 py-1 mt-1.5 italic">
-                            Obs: {del.notes}
+                          <p className="text-xs text-slate-600 bg-white border border-amber-100 rounded px-2 py-1 mt-1.5 italic truncate max-w-[300px]">
+                            Obs: {del.notes.split('\n').pop()?.replace(/\[.*?\]: /, '') || del.notes}
                           </p>
                         )}
                       </div>
                       <div className="flex items-center space-x-3 self-end sm:self-center flex-shrink-0">
                         <span className="font-bold text-amber-700 text-lg">R$ {del.value.toFixed(2)}</span>
                         <div className="flex items-center space-x-1">
+                          <button
+                            onClick={() => setNotesDelivery(del)}
+                            className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
+                            title="Chat de Observações"
+                          >
+                            <MessageSquare className="h-4 w-4" />
+                          </button>
                           <button
                             onClick={() => {
                               setEditingDelivery(del);
@@ -746,7 +775,9 @@ export default function EstablishmentDashboard() {
                           <td className="py-3 px-4">
                             <p className="font-medium text-slate-800">{rider?.name || 'Motoboy'}</p>
                             {del.notes && (
-                              <p className="text-xs text-slate-500 italic mt-0.5">Obs: {del.notes}</p>
+                              <p className="text-xs text-slate-500 italic mt-0.5 truncate max-w-[200px]">
+                                Obs: {del.notes.split('\n').pop()?.replace(/\[.*?\]: /, '') || del.notes}
+                              </p>
                             )}
                           </td>
                           <td className="py-3 px-4 text-slate-600 font-mono">
@@ -778,6 +809,13 @@ export default function EstablishmentDashboard() {
                           </td>
                           <td className="py-3 px-4 text-right whitespace-nowrap">
                             <div className="flex items-center justify-end space-x-1">
+                              <button
+                                onClick={() => setNotesDelivery(del)}
+                                className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
+                                title="Chat de Observações"
+                              >
+                                <MessageSquare className="h-4 w-4" />
+                              </button>
                               {del.status === 'active' && (
                                 <button
                                   onClick={() => handleCopyTrackingLink(del.id)}
@@ -984,6 +1022,16 @@ export default function EstablishmentDashboard() {
           </div>
         </div>
       )}
+
+      {/* MODAL DE OBSERVAÇÕES / CHAT */}
+      <DeliveryNotesModal
+        isOpen={!!notesDelivery}
+        onClose={() => setNotesDelivery(null)}
+        delivery={notesDelivery}
+        userRole="establishment"
+        userName={user?.name || 'Gerente'}
+        onSaveNotes={handleSaveNotes}
+      />
     </div>
   );
 }

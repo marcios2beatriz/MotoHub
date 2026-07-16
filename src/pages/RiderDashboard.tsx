@@ -23,8 +23,10 @@ import {
   Plus,
   Hash,
   Edit2,
-  Share2
+  Share2,
+  MessageSquare
 } from 'lucide-react';
+import DeliveryNotesModal from '../components/DeliveryNotesModal';
 
 export default function RiderDashboard() {
   const navigate = useNavigate();
@@ -49,6 +51,9 @@ export default function RiderDashboard() {
     notes: ''
   });
 
+  // Modal de Observações/Chat
+  const [notesDelivery, setNotesDelivery] = useState<Delivery | null>(null);
+
   // Filtros das escalas futuras
   const [scheduleEstFilter, setScheduleEstFilter] = useState('');
   const [scheduleDateFilter, setScheduleDateFilter] = useState('');
@@ -68,6 +73,12 @@ export default function RiderDashboard() {
     setDeliveries(allDeliveries);
     setNotifications(allNotifications);
     setEstablishments(allEsts);
+
+    // Atualiza o delivery selecionado no modal de notas se ele estiver aberto
+    if (notesDelivery) {
+      const updatedDelivery = allDeliveries.find(d => d.id === notesDelivery.id);
+      if (updatedDelivery) setNotesDelivery(updatedDelivery);
+    }
   };
 
   useEffect(() => {
@@ -86,7 +97,7 @@ export default function RiderDashboard() {
     return () => {
       window.removeEventListener('db-sync-complete', handleSyncComplete);
     };
-  }, [user]);
+  }, [user, notesDelivery]);
 
   // Função para iniciar o rastreamento GPS de forma robusta
   const startGpsTracking = () => {
@@ -290,6 +301,17 @@ export default function RiderDashboard() {
     setShowLaunchModal(false);
     setEditingDelivery(null);
     setLaunchForm({ establishmentId: '', value: '', orderNumber: '', notes: '' });
+    loadData();
+  };
+
+  const handleSaveNotes = (deliveryId: string, updatedNotes: string) => {
+    const allDeliveries = db.getDeliveries();
+    const updated = allDeliveries.map(d => d.id === deliveryId ? {
+      ...d,
+      notes: updatedNotes,
+      updatedAt: new Date().toISOString()
+    } : d);
+    db.setDeliveries(updated);
     loadData();
   };
 
@@ -529,12 +551,19 @@ export default function RiderDashboard() {
                             <span>{delivery.time}</span>
                           </p>
                           {delivery.notes && (
-                            <p className="text-xs text-slate-500 bg-slate-50 border border-slate-100 rounded px-2 py-1 mt-1 italic">
-                              Obs: {delivery.notes}
+                            <p className="text-xs text-slate-500 bg-slate-50 border border-slate-100 rounded px-2 py-1 mt-1 italic truncate max-w-[300px]">
+                              Obs: {delivery.notes.split('\n').pop()?.replace(/\[.*?\]: /, '') || delivery.notes}
                             </p>
                           )}
                         </div>
                         <div className="flex items-center space-x-2">
+                          <button
+                            onClick={() => setNotesDelivery(delivery)}
+                            className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors relative"
+                            title="Chat de Observações"
+                          >
+                            <MessageSquare className="h-4 w-4" />
+                          </button>
                           {delivery.status === 'active' && (
                             <button
                               onClick={() => handleShareTracking(delivery.id)}
@@ -956,6 +985,16 @@ export default function RiderDashboard() {
           </div>
         </div>
       )}
+
+      {/* MODAL DE OBSERVAÇÕES / CHAT */}
+      <DeliveryNotesModal
+        isOpen={!!notesDelivery}
+        onClose={() => setNotesDelivery(null)}
+        delivery={notesDelivery}
+        userRole="rider"
+        userName={user?.name || 'Motoboy'}
+        onSaveNotes={handleSaveNotes}
+      />
     </div>
   );
 }
