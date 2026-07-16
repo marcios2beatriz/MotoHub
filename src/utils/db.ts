@@ -537,7 +537,8 @@ export const db = {
             if (local.id !== remoteMatch.id) {
               estIdMap.set(local.id, remoteMatch.id);
             }
-            mergedEsts.push({ ...local, id: remoteMatch.id });
+            // CORREÇÃO: Sobrescreve os dados locais com os dados remotos do Supabase (endereço real)
+            mergedEsts.push({ ...local, ...remoteMatch, id: remoteMatch.id });
           } else {
             mergedEsts.push(local);
           }
@@ -581,8 +582,10 @@ export const db = {
             if (local.id !== remoteMatch.id) {
               userIdMap.set(local.id, remoteMatch.id);
             }
+            // CORREÇÃO: Sobrescreve os dados locais com os dados remotos do Supabase
             mergedUsers.push({ 
               ...local, 
+              ...remoteMatch,
               id: remoteMatch.id,
               establishmentId: remoteMatch.establishmentId || local.establishmentId 
             });
