@@ -184,7 +184,27 @@ export default function EstablishmentDashboard() {
       const headers = { 'Accept-Language': 'pt-BR', 'User-Agent': 'MotoHub-Delivery-App' };
 
       if (addr) {
-        // Etapa 1: Tentar por CEP (Altamente preciso no Brasil)
+        // Etapa 1: Tentar obter coordenadas precisas pelo CEP usando ViaCEP + Nominatim
+        if (addr.zipCode) {
+          const cep = addr.zipCode.replace(/\D/g, '');
+          try {
+            const viaCepRes = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+            const viaCepData = await viaCepRes.json();
+            if (viaCepData && !viaCepData.erro) {
+              const query = `${viaCepData.logradouro}, ${addr.number || 'S/N'}, ${viaCepData.bairro}, ${viaCepData.localidade}, ${viaCepData.uf}, Brasil`;
+              const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`, { headers });
+              const data = await res.json();
+              if (data && data.length > 0) {
+                await initMap(parseFloat(data[0].lat), parseFloat(data[0].lon));
+                return;
+              }
+            }
+          } catch (e) {
+            console.warn('Erro ao geocodificar via ViaCEP:', e);
+          }
+        }
+
+        // Etapa 2: Fallback para Nominatim direto com o CEP
         if (addr.zipCode) {
           const cep = addr.zipCode.replace(/\D/g, '');
           try {
@@ -195,23 +215,15 @@ export default function EstablishmentDashboard() {
               return;
             }
           } catch (e) {
-            console.warn('Erro ao geocodificar por CEP:', e);
+            console.warn('Erro ao geocodificar por CEP direto:', e);
           }
         }
 
-        // Etapa 2: Endereço Completo
-        const query = [
-          addr.street,
-          addr.number,
-          addr.neighborhood,
-          addr.city,
-          addr.state,
-          'Brasil'
-        ].filter(Boolean).join(', ');
-
+        // Etapa 3: Fallback para endereço completo cadastrado
+        const queryFull = `${addr.street}, ${addr.number}, ${addr.neighborhood}, ${addr.city}, ${addr.state}, Brasil`;
         try {
           const res = await fetch(
-            `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`,
+            `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(queryFull)}`,
             { headers }
           );
           const data = await res.json();
@@ -220,7 +232,7 @@ export default function EstablishmentDashboard() {
             return;
           }
         } catch (e) {
-          console.warn('Geocoding by address failed, trying by CEP...', e);
+          console.warn('Geocoding by address failed', e);
         }
       }
 
