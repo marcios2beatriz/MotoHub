@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from 'react';
-import { X, Send, MessageSquare } from 'lucide-react';
+import { X, Send, MessageSquare, AlertCircle } from 'lucide-react';
 import { Delivery } from '../utils/db';
 
 interface DeliveryNotesModalProps {
@@ -25,8 +25,18 @@ export default function DeliveryNotesModal({
 
   if (!isOpen || !delivery) return null;
 
+  // Calcula se o chat já expirou (10 horas desde o lançamento da corrida)
+  const deliveryDateTime = new Date(`${delivery.date}T${delivery.time}:00`);
+  const timeDifferenceMs = Date.now() - deliveryDateTime.getTime();
+  const tenHoursInMs = 10 * 60 * 60 * 1000;
+  const isExpired = timeDifferenceMs > tenHoursInMs;
+
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
+    if (isExpired) {
+      alert('Este chat já expirou e não aceita mais novas mensagens.');
+      return;
+    }
     if (!newMessage.trim()) return;
 
     const now = new Date();
@@ -63,11 +73,22 @@ export default function DeliveryNotesModal({
           </button>
         </div>
 
+        {/* Alerta de Expiração */}
+        {isExpired && (
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-start gap-2 text-amber-800 text-xs">
+            <AlertCircle className="h-4 w-4 text-amber-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="font-bold">Chat Expirado</p>
+              <p className="mt-0.5">Já se passaram mais de 10 horas desde o lançamento desta corrida. Não é mais possível enviar novas mensagens.</p>
+            </div>
+          </div>
+        )}
+
         {/* Histórico de Mensagens */}
         <div className="flex-1 overflow-y-auto space-y-2 p-2 bg-slate-50 rounded-lg min-h-[200px] max-h-[400px]">
           {messages.length === 0 ? (
             <div className="text-center py-12 text-slate-400 text-xs">
-              Nenhuma observação registrada. Envie uma mensagem abaixo!
+              Nenhuma observação registrada.
             </div>
           ) : (
             messages.map((msg, idx) => {
@@ -101,14 +122,16 @@ export default function DeliveryNotesModal({
         <form onSubmit={handleSend} className="flex gap-2 pt-2 border-t border-slate-100">
           <input
             type="text"
-            placeholder="Digite uma observação ou aviso..."
+            disabled={isExpired}
+            placeholder={isExpired ? "Chat bloqueado por expiração" : "Digite uma observação ou aviso..."}
             value={newMessage}
             onChange={(e) => setNewMessage(e.target.value)}
-            className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
           />
           <button
             type="submit"
-            className="bg-indigo-600 hover:bg-indigo-700 text-white p-2 rounded-lg transition-colors flex items-center justify-center"
+            disabled={isExpired}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white p-2 rounded-lg transition-colors flex items-center justify-center disabled:bg-slate-300 disabled:cursor-not-allowed"
           >
             <Send className="h-4 w-4" />
           </button>
