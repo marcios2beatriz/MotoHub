@@ -21,11 +21,14 @@ import {
   Edit2,
   Maximize2,
   Minimize2,
-  Share2
+  Share2,
+  Navigation,
+  MessageSquare
 } from 'lucide-react';
 
 // Leaflet imports
 import L from 'leaflet';
+import DeliveryNotesModal from '../components/DeliveryNotesModal';
 
 export default function EstablishmentDashboard() {
   const navigate = useNavigate();
@@ -63,10 +66,16 @@ export default function EstablishmentDashboard() {
     notes: ''
   });
 
+  // Modal de Observações/Chat
+  const [notesDelivery, setNotesDelivery] = useState<Delivery | null>(null);
+
   // Map reference
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const markersRef = useRef<{ [key: string]: L.Marker }>({});
+  
+  // Ref para controlar se já fizemos o enquadramento inicial do mapa
+  const hasSetInitialBoundsRef = useRef(false);
 
   const loadData = () => {
     const currentUser = db.getCurrentUser();
@@ -101,6 +110,12 @@ export default function EstablishmentDashboard() {
 
     const locations = db.getRiderLocations();
     setRiderLocations(locations);
+
+    // Atualiza o delivery selecionado no modal de notas se ele estiver aberto
+    if (notesDelivery) {
+      const updatedDelivery = allDeliveries.find(d => d.id === notesDelivery.id);
+      if (updatedDelivery) setNotesDelivery(updatedDelivery);
+    }
   };
 
   useEffect(() => {
@@ -146,12 +161,13 @@ export default function EstablishmentDashboard() {
       document.head.appendChild(link);
     }
 
-    const defaultLat = -23.56168; // São Paulo (Avenida Paulista)
-    const defaultLng = -46.65598;
+    // Coordenadas padrão de fallback: João Pessoa - PB
+    const defaultLat = -7.1150;
+    const defaultLng = -34.8270;
 
     const initMap = async (lat: number, lng: number) => {
       if (mapRef.current) return;
-      const mapInstance = L.map(mapContainerRef.current!).setView([lat, lng], 14);
+      const mapInstance = L.map(mapContainerRef.current!).setView([lat, lng], 16);
       mapRef.current = mapInstance;
 
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -176,20 +192,50 @@ export default function EstablishmentDashboard() {
     const geocodeEstablishment = async () => {
       if (mapRef.current) return;
       const addr = establishment.address;
-      if (addr) {
-        const query = [
-          addr.street,
-          addr.number,
-          addr.neighborhood,
-          addr.city,
-          addr.state,
-          'Brasil'
-        ].filter(Boolean).join(', ');
+      const headers = { 'Accept-Language': 'pt-BR', 'User-Agent': 'MotoHub-Delivery-App' };
 
+      if (addr) {
+        // Etapa 1: Tentar obter coordenadas precisas pelo CEP usando ViaCEP + Nominatim
+        if (addr.zipCode) {
+          const cep = addr.zipCode.replace(/\D/g, '');
+          try {
+            const viaCepRes = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+            const viaCepData = await viaCepRes.json();
+            if (viaCepData && !viaCepData.erro) {
+              const query = `${viaCepData.logradouro}, ${addr.number || 'S/N'}, ${viaCepData.bairro}, ${viaCepData.localidade}, ${viaCepData.uf}, Brasil`;
+              const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`, { headers });
+              const data = await res.json();
+              if (data && data.length > 0) {
+                await initMap(parseFloat(data[0].lat), parseFloat(data[0].lon));
+                return;
+              }
+            }
+          } catch (e) {
+            console.warn('Erro ao geocodificar via ViaCEP:', e);
+          }
+        }
+
+        // Etapa 2: Fallback para Nominatim direto com o CEP
+        if (addr.zipCode) {
+          const cep = addr.zipCode.replace(/\D/g, '');
+          try {
+            const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&postalcode=${cep}&country=Brazil`, { headers });
+            const data = await res.json();
+            if (data && data.length > 0) {
+              await initMap(parseFloat(data[0].lat), parseFloat(data[0].lon));
+              return;
+            }
+          } catch (e) {
+            console.warn('Erro ao geocodificar por CEP direto:', e);
+          }
+        }
+
+        // Etapa 3: Fallback para endereço completo cadastrado
+        const queryFull = `${addr.street}, ${addr.number}, ${addr.neighborhood}, ${addr.city}, ${addr.state}, Brasil`;
         try {
           const res = await fetch(
-            `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`,
-            { headers: { 'Accept-Language': 'pt-BR' } }
+            `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(queryFull)}`,
+            { headers }
           );
           const data = await res.json();
           if (data && data.length > 0) {
@@ -197,29 +243,7 @@ export default function EstablishmentDashboard() {
             return;
           }
         } catch (e) {
-          console.warn('Geocoding by address failed, trying by CEP...', e);
-        }
-
-        if (addr.zipCode) {
-          const cep = addr.zipCode.replace(/\D/g, '');
-          try {
-            const viaCepRes = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
-            const viaCepData = await viaCepRes.json();
-            if (!viaCepData.erro) {
-              const cepQuery = `${viaCepData.logradouro}, ${viaCepData.localidade}, ${viaCepData.uf}, Brasil`;
-              const nomRes = await fetch(
-                `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(cepQuery)}`,
-                { headers: { 'Accept-Language': 'pt-BR' } }
-              );
-              const nomData = await nomRes.json();
-              if (nomData && nomData.length > 0) {
-                await initMap(parseFloat(nomData[0].lat), parseFloat(nomData[0].lon));
-                return;
-              }
-            }
-          } catch (e) {
-            console.warn('CEP geocoding failed, using default coords.', e);
-          }
+          console.warn('Geocoding by address failed', e);
         }
       }
 
@@ -233,11 +257,12 @@ export default function EstablishmentDashboard() {
         mapRef.current.remove();
         mapRef.current = null;
         markersRef.current = {};
+        hasSetInitialBoundsRef.current = false;
       }
     };
-  }, [establishment?.id]); // Alterado para ID para evitar reinicialização do mapa a cada atualização de dados
+  }, [establishment?.id]);
 
-  // 2. Hook de Atualização Suave dos Marcadores dos Motoboys e Ajuste de Zoom (Fit Bounds)
+  // 2. Hook de Atualização Suave dos Marcadores dos Motoboys e Ajuste de Zoom (Apenas no primeiro carregamento)
   useEffect(() => {
     const currentMap = mapRef.current;
     if (!currentMap) return;
@@ -277,24 +302,28 @@ export default function EstablishmentDashboard() {
       }
     });
 
-    // Ajustar o enquadramento do mapa para mostrar AMBOS os pontos
-    const points: L.LatLngExpression[] = [];
-    if (estCoords) {
-      points.push([estCoords.lat, estCoords.lng]);
-    }
-    
-    // Adicionar localizações dos motoboys ativos
-    riderLocations.forEach(loc => {
-      if (scheduledRiderIds.includes(loc.riderId)) {
-        points.push([loc.lat, loc.lng]);
+    // Ajustar o enquadramento do mapa APENAS se ainda não tiver sido feito
+    if (!hasSetInitialBoundsRef.current) {
+      const points: L.LatLngExpression[] = [];
+      if (estCoords) {
+        points.push([estCoords.lat, estCoords.lng]);
       }
-    });
+      
+      // Adicionar localizações dos motoboys ativos
+      riderLocations.forEach(loc => {
+        if (scheduledRiderIds.includes(loc.riderId)) {
+          points.push([loc.lat, loc.lng]);
+        }
+      });
 
-    if (points.length >= 2) {
-      const bounds = L.latLngBounds(points);
-      currentMap.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
-    } else if (points.length === 1) {
-      currentMap.setView(points[0], 15);
+      if (points.length >= 2) {
+        const bounds = L.latLngBounds(points);
+        currentMap.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
+        hasSetInitialBoundsRef.current = true;
+      } else if (points.length === 1) {
+        currentMap.setView(points[0], 16);
+        hasSetInitialBoundsRef.current = true;
+      }
     }
   }, [scheduledRiders, riderLocations, estCoords]);
 
@@ -310,6 +339,30 @@ export default function EstablishmentDashboard() {
   const handleLogout = () => {
     db.setCurrentUser(null);
     navigate('/login');
+  };
+
+  const handleRecenterMap = () => {
+    const currentMap = mapRef.current;
+    if (!currentMap) return;
+
+    const scheduledRiderIds = scheduledRiders.map(r => r.id);
+    const points: L.LatLngExpression[] = [];
+    if (estCoords) {
+      points.push([estCoords.lat, estCoords.lng]);
+    }
+    
+    riderLocations.forEach(loc => {
+      if (scheduledRiderIds.includes(loc.riderId)) {
+        points.push([loc.lat, loc.lng]);
+      }
+    });
+
+    if (points.length >= 2) {
+      const bounds = L.latLngBounds(points);
+      currentMap.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
+    } else if (points.length === 1) {
+      currentMap.setView(points[0], 16);
+    }
   };
 
   const handleSaveDelivery = (e: React.FormEvent) => {
@@ -433,6 +486,17 @@ export default function EstablishmentDashboard() {
     }
   };
 
+  const handleSaveNotes = (deliveryId: string, updatedNotes: string) => {
+    const allDeliveries = db.getDeliveries();
+    const updated = allDeliveries.map(d => d.id === deliveryId ? {
+      ...d,
+      notes: updatedNotes,
+      updatedAt: new Date().toISOString()
+    } : d);
+    db.setDeliveries(updated);
+    loadData();
+  };
+
   const handleCopyTrackingLink = (deliveryId: string) => {
     const link = `${window.location.origin}/#/track/${deliveryId}`;
     navigator.clipboard.writeText(link).then(() => {
@@ -553,14 +617,21 @@ export default function EstablishmentDashboard() {
                           <span>Lançada às {del.time} ({new Date(del.date + 'T00:00:00').toLocaleDateString('pt-BR')})</span>
                         </p>
                         {del.notes && (
-                          <p className="text-xs text-slate-600 bg-white border border-amber-100 rounded px-2 py-1 mt-1.5 italic">
-                            Obs: {del.notes}
+                          <p className="text-xs text-slate-600 bg-white border border-amber-100 rounded px-2 py-1 mt-1.5 italic truncate max-w-[300px]">
+                            Obs: {del.notes.split('\n').pop()?.replace(/\[.*?\]: /, '') || del.notes}
                           </p>
                         )}
                       </div>
                       <div className="flex items-center space-x-3 self-end sm:self-center flex-shrink-0">
                         <span className="font-bold text-amber-700 text-lg">R$ {del.value.toFixed(2)}</span>
                         <div className="flex items-center space-x-1">
+                          <button
+                            onClick={() => setNotesDelivery(del)}
+                            className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
+                            title="Chat de Observações"
+                          >
+                            <MessageSquare className="h-4 w-4" />
+                          </button>
                           <button
                             onClick={() => {
                               setEditingDelivery(del);
@@ -704,7 +775,9 @@ export default function EstablishmentDashboard() {
                           <td className="py-3 px-4">
                             <p className="font-medium text-slate-800">{rider?.name || 'Motoboy'}</p>
                             {del.notes && (
-                              <p className="text-xs text-slate-500 italic mt-0.5">Obs: {del.notes}</p>
+                              <p className="text-xs text-slate-500 italic mt-0.5 truncate max-w-[200px]">
+                                Obs: {del.notes.split('\n').pop()?.replace(/\[.*?\]: /, '') || del.notes}
+                              </p>
                             )}
                           </td>
                           <td className="py-3 px-4 text-slate-600 font-mono">
@@ -736,6 +809,13 @@ export default function EstablishmentDashboard() {
                           </td>
                           <td className="py-3 px-4 text-right whitespace-nowrap">
                             <div className="flex items-center justify-end space-x-1">
+                              <button
+                                onClick={() => setNotesDelivery(del)}
+                                className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
+                                title="Chat de Observações"
+                              >
+                                <MessageSquare className="h-4 w-4" />
+                              </button>
                               {del.status === 'active' && (
                                 <button
                                   onClick={() => handleCopyTrackingLink(del.id)}
@@ -802,6 +882,13 @@ export default function EstablishmentDashboard() {
                 <span>Rastreamento em Tempo Real</span>
               </h2>
               <div className="flex items-center space-x-2">
+                <button
+                  onClick={handleRecenterMap}
+                  className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
+                  title="Centralizar Mapa"
+                >
+                  <Navigation className="h-4 w-4 text-indigo-600" />
+                </button>
                 <button 
                   onClick={() => setIsMapExpanded(!isMapExpanded)}
                   className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors flex items-center gap-1 text-xs font-semibold"
@@ -935,6 +1022,16 @@ export default function EstablishmentDashboard() {
           </div>
         </div>
       )}
+
+      {/* MODAL DE OBSERVAÇÕES / CHAT */}
+      <DeliveryNotesModal
+        isOpen={!!notesDelivery}
+        onClose={() => setNotesDelivery(null)}
+        delivery={notesDelivery}
+        userRole="establishment"
+        userName={user?.name || 'Gerente'}
+        onSaveNotes={handleSaveNotes}
+      />
     </div>
   );
 }

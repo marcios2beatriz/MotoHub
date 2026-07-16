@@ -23,7 +23,8 @@ import {
   ChevronDown,
   MessageSquare,
   Building2,
-  CheckCircle2
+  CheckCircle2,
+  UserCheck
 } from 'lucide-react';
 
 // Importando os modais modulares
@@ -63,7 +64,7 @@ export default function AdminDashboard() {
   const [showEstModal, setShowEstModal] = useState(false);
   const [editingEst, setEditingEst] = useState<Establishment | null>(null);
   const [estForm, setEstForm] = useState({
-    name: '', street: '', number: '', complement: '', neighborhood: '', city: '', state: '', zipCode: '', phone: ''
+    name: '', street: '', number: '', complement: '', neighborhood: '', city: '', state: '', zipCode: '', phone: '', email: '', password: ''
   });
 
   const [showScheduleModal, setShowScheduleModal] = useState(false);
@@ -224,6 +225,7 @@ export default function AdminDashboard() {
   const handleSaveEst = (e: React.FormEvent) => {
     e.preventDefault();
     const allEst = db.getEstablishments();
+    const allUsers = db.getUsers();
 
     const duplicateName = allEst.find(es => es.name.toLowerCase() === estForm.name.toLowerCase() && (!editingEst || es.id !== editingEst.id));
     if (duplicateName) {
@@ -231,7 +233,16 @@ export default function AdminDashboard() {
       return;
     }
 
+    const duplicateEmail = allUsers.find(u => u.email.toLowerCase() === estForm.email.toLowerCase() && (!editingEst || u.establishmentId !== editingEst.id));
+    if (duplicateEmail) {
+      alert('Erro: E-mail já cadastrado para outro usuário.');
+      return;
+    }
+
+    const estId = editingEst ? editingEst.id : 'e_' + Date.now();
+
     if (editingEst) {
+      // Atualizar Estabelecimento
       const updated = allEst.map(es => es.id === editingEst.id ? {
         ...es,
         name: estForm.name,
@@ -247,9 +258,20 @@ export default function AdminDashboard() {
         }
       } : es);
       db.setEstablishments(updated);
+
+      // Atualizar Usuário correspondente
+      const updatedUsers = allUsers.map(u => u.establishmentId === editingEst.id ? {
+        ...u,
+        name: 'Gerente ' + estForm.name,
+        email: estForm.email,
+        passwordHash: estForm.password || u.passwordHash,
+        phone: estForm.phone
+      } : u);
+      db.setUsers(updatedUsers);
     } else {
+      // Criar Estabelecimento
       const newEst: Establishment = {
-        id: 'e_' + Date.now(),
+        id: estId,
         name: estForm.name,
         phone: estForm.phone,
         active: true,
@@ -264,11 +286,25 @@ export default function AdminDashboard() {
         }
       };
       db.setEstablishments([...allEst, newEst]);
+
+      // Criar Usuário correspondente
+      const newEstUser: User = {
+        id: 'u_' + Date.now(),
+        name: 'Gerente ' + estForm.name,
+        cpf: '000.000.000-00',
+        phone: estForm.phone,
+        email: estForm.email,
+        role: 'establishment',
+        active: true,
+        passwordHash: estForm.password || 'bella123',
+        establishmentId: estId
+      };
+      db.setUsers([...allUsers, newEstUser]);
     }
 
     setShowEstModal(false);
     setEditingEst(null);
-    setEstForm({ name: '', street: '', number: '', complement: '', neighborhood: '', city: '', state: '', zipCode: '', phone: '' });
+    setEstForm({ name: '', street: '', number: '', complement: '', neighborhood: '', city: '', state: '', zipCode: '', phone: '', email: '', password: '' });
     loadData();
   };
 
@@ -585,6 +621,29 @@ export default function AdminDashboard() {
     const formattedPhone = cleanPhone.startsWith('55') ? cleanPhone : `55${cleanPhone}`;
     const message = encodeURIComponent(`Olá ${request.ownerName}! Recebemos sua solicitação de parceria para o estabelecimento ${request.establishmentName} no MotoHub. Gostaria de dar andamento ao seu cadastro?`);
     window.open(`https://wa.me/${formattedPhone}?text=${message}`, '_blank');
+  };
+
+  const handleApproveRequest = (req: PartnerRequest) => {
+    // Pré-preenche o formulário de estabelecimento com os dados da solicitação
+    setEditingEst(null);
+    setEstForm({
+      name: req.establishmentName,
+      street: '',
+      number: '',
+      complement: '',
+      neighborhood: '',
+      city: '',
+      state: '',
+      zipCode: '',
+      phone: req.phone,
+      email: '',
+      password: ''
+    });
+    setShowEstModal(true);
+
+    // Marca a solicitação como contatada
+    const updated = partnerRequests.map(r => r.id === req.id ? { ...r, status: 'contacted' as const } : r);
+    db.setPartnerRequests(updated);
   };
 
   // --- RELATÓRIOS E EXPORTAÇÃO ---
@@ -991,7 +1050,7 @@ export default function AdminDashboard() {
                 <button
                   onClick={() => {
                     setEditingEst(null);
-                    setEstForm({ name: '', street: '', number: '', complement: '', neighborhood: '', city: '', state: '', zipCode: '', phone: '' });
+                    setEstForm({ name: '', street: '', number: '', complement: '', neighborhood: '', city: '', state: '', zipCode: '', phone: '', email: '', password: '' });
                     setShowEstModal(true);
                   }}
                   className="flex items-center justify-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
@@ -1032,60 +1091,67 @@ export default function AdminDashboard() {
                       <th className="py-3 px-4">Nome</th>
                       <th className="py-3 px-4">Endereço</th>
                       <th className="py-3 px-4">Telefone</th>
+                      <th className="py-3 px-4">E-mail de Acesso</th>
                       <th className="py-3 px-4">Status</th>
                       <th className="py-3 px-4 text-right">Ações</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-sm">
-                    {filteredEsts.map(est => (
-                      <tr key={est.id} className="hover:bg-slate-50/50">
-                        <td className="py-3 px-4 font-medium text-slate-800">{est.name}</td>
-                        <td className="py-3 px-4 text-slate-600 max-w-xs truncate">
-                          {est.address.street}, {est.address.number} - {est.address.neighborhood}
-                        </td>
-                        <td className="py-3 px-4 text-slate-600">{est.phone}</td>
-                        <td className="py-3 px-4">
-                          <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
-                            est.active ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'
-                          }`}>
-                            {est.active ? 'Ativo' : 'Inativo'}
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 text-right space-x-2">
-                          <button
-                            onClick={() => {
-                              setEditingEst(est);
-                              setEstForm({
-                                name: est.name,
-                                street: est.address.street,
-                                number: est.address.number,
-                                complement: est.address.complement || '',
-                                neighborhood: est.address.neighborhood,
-                                city: est.address.city,
-                                state: est.address.state,
-                                zipCode: est.address.zipCode,
-                                phone: est.phone || ''
-                              });
-                              setShowEstModal(true);
-                            }}
-                            className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
-                          >
-                            <Edit2 className="h-4 w-4" />
-                          </button>
-                          <button
-                            onClick={() => toggleEstStatus(est.id)}
-                            className={`p-1.5 rounded transition-colors ${
-                              est.active 
-                                ? 'text-red-500 hover:bg-red-50' 
-                                : 'text-emerald-500 hover:bg-emerald-50'
-                            }`}
-                            title={est.active ? 'Desativar' : 'Ativar'}
-                          >
-                            {est.active ? <X className="h-4 w-4" /> : <Check className="h-4 w-4" />}
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                    {filteredEsts.map(est => {
+                      const estUser = db.getUsers().find(u => u.establishmentId === est.id);
+                      return (
+                        <tr key={est.id} className="hover:bg-slate-50/50">
+                          <td className="py-3 px-4 font-medium text-slate-800">{est.name}</td>
+                          <td className="py-3 px-4 text-slate-600 max-w-xs truncate">
+                            {est.address.street}, {est.address.number} - {est.address.neighborhood}
+                          </td>
+                          <td className="py-3 px-4 text-slate-600">{est.phone}</td>
+                          <td className="py-3 px-4 text-slate-600 font-medium">{estUser?.email || 'Sem conta'}</td>
+                          <td className="py-3 px-4">
+                            <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
+                              est.active ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'
+                            }`}>
+                              {est.active ? 'Ativo' : 'Inativo'}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 text-right space-x-2">
+                            <button
+                              onClick={() => {
+                                setEditingEst(est);
+                                setEstForm({
+                                  name: est.name,
+                                  street: est.address.street,
+                                  number: est.address.number,
+                                  complement: est.address.complement || '',
+                                  neighborhood: est.address.neighborhood,
+                                  city: est.address.city,
+                                  state: est.address.state,
+                                  zipCode: est.address.zipCode,
+                                  phone: est.phone || '',
+                                  email: estUser ? estUser.email : '',
+                                  password: ''
+                                });
+                                setShowEstModal(true);
+                              }}
+                              className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
+                            >
+                              <Edit2 className="h-4 w-4" />
+                            </button>
+                            <button
+                              onClick={() => toggleEstStatus(est.id)}
+                              className={`p-1.5 rounded transition-colors ${
+                                est.active 
+                                  ? 'text-red-500 hover:bg-red-50' 
+                                  : 'text-emerald-500 hover:bg-emerald-50'
+                              }`}
+                              title={est.active ? 'Desativar' : 'Ativar'}
+                            >
+                              {est.active ? <X className="h-4 w-4" /> : <Check className="h-4 w-4" />}
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -1164,6 +1230,14 @@ export default function AdminDashboard() {
                             </span>
                           </td>
                           <td className="py-3 px-4 text-right space-x-2 whitespace-nowrap">
+                            <button
+                              onClick={() => handleApproveRequest(req)}
+                              className="p-1.5 text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 rounded transition-colors inline-flex items-center space-x-1 text-xs font-bold"
+                              title="Aprovar e Cadastrar Estabelecimento"
+                            >
+                              <UserCheck className="h-4 w-4" />
+                              <span>Aprovar</span>
+                            </button>
                             <button
                               onClick={() => handleContactRequest(req)}
                               className="p-1.5 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 rounded transition-colors inline-flex items-center space-x-1 text-xs font-bold"

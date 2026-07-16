@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { db, Delivery, User, Establishment, RiderLocation } from '../utils/db';
-import { Bike, MapPin, Clock, ShieldCheck, RefreshCw, Phone } from 'lucide-react';
+import { Bike, MapPin, Clock, ShieldCheck, RefreshCw, Phone, Navigation } from 'lucide-react';
 import L from 'leaflet';
 
 export default function CustomerTracking() {
@@ -20,6 +20,9 @@ export default function CustomerTracking() {
   const mapRef = useRef<L.Map | null>(null);
   const estMarkerRef = useRef<L.Marker | null>(null);
   const riderMarkerRef = useRef<L.Marker | null>(null);
+  
+  // Ref para controlar se já fizemos o enquadramento inicial do mapa
+  const hasSetInitialBoundsRef = useRef(false);
 
   const loadTrackingData = () => {
     if (!deliveryId) return;
@@ -67,12 +70,13 @@ export default function CustomerTracking() {
       document.head.appendChild(link);
     }
 
-    const defaultLat = -23.56168;
-    const defaultLng = -46.65598;
+    // Coordenadas padrão de fallback: João Pessoa - PB
+    const defaultLat = -7.1150;
+    const defaultLng = -34.8270;
 
     const initMap = (lat: number, lng: number) => {
       if (mapRef.current) return;
-      const mapInstance = L.map(mapContainerRef.current!).setView([lat, lng], 14);
+      const mapInstance = L.map(mapContainerRef.current!).setView([lat, lng], 16);
       mapRef.current = mapInstance;
 
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -96,46 +100,47 @@ export default function CustomerTracking() {
 
     const geocode = async () => {
       const addr = establishment.address;
+      const headers = { 'Accept-Language': 'pt-BR', 'User-Agent': 'MotoHub-Delivery-App' };
       
-      // Etapa 1: Endereço Completo
-      const queryFull = `${addr.street}, ${addr.number}, ${addr.neighborhood}, ${addr.city}, ${addr.state}, Brasil`;
-      try {
-        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(queryFull)}`);
-        const data = await res.json();
-        if (data && data.length > 0) {
-          initMap(parseFloat(data[0].lat), parseFloat(data[0].lon));
-          return;
-        }
-      } catch (e) {
-        console.warn(e);
-      }
-
-      // Etapa 2: CEP
+      // Etapa 1: Tentar por CEP (Altamente preciso no Brasil)
       if (addr.zipCode) {
         const cep = addr.zipCode.replace(/\D/g, '');
         try {
-          const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&postalcode=${cep}&country=Brazil`);
+          const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&postalcode=${cep}&country=Brazil`, { headers });
           const data = await res.json();
           if (data && data.length > 0) {
             initMap(parseFloat(data[0].lat), parseFloat(data[0].lon));
             return;
           }
         } catch (e) {
-          console.warn(e);
+          console.warn('Erro ao geocodificar por CEP:', e);
         }
       }
 
-      // Etapa 3: Cidade e Estado
-      const queryCity = `${addr.city}, ${addr.state}, Brasil`;
+      // Etapa 2: Endereço Completo
+      const queryFull = `${addr.street}, ${addr.number}, ${addr.neighborhood}, ${addr.city}, ${addr.state}, Brasil`;
       try {
-        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(queryCity)}`);
+        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(queryFull)}`, { headers });
         const data = await res.json();
         if (data && data.length > 0) {
           initMap(parseFloat(data[0].lat), parseFloat(data[0].lon));
           return;
         }
       } catch (e) {
-        console.warn(e);
+        console.warn('Erro ao geocodificar por endereço completo:', e);
+      }
+
+      // Etapa 3: Cidade e Estado
+      const queryCity = `${addr.city}, ${addr.state}, Brasil`;
+      try {
+        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(queryCity)}`, { headers });
+        const data = await res.json();
+        if (data && data.length > 0) {
+          initMap(parseFloat(data[0].lat), parseFloat(data[0].lon));
+          return;
+        }
+      } catch (e) {
+        console.warn('Erro ao geocodificar por cidade:', e);
       }
 
       initMap(defaultLat, defaultLng);
@@ -144,7 +149,7 @@ export default function CustomerTracking() {
     geocode();
   }, [establishment]);
 
-  // Atualização do Marcador do Motoboy e Ajuste de Zoom (Fit Bounds)
+  // Atualização do Marcador do Motoboy e Ajuste de Zoom Inteligente (Apenas no primeiro carregamento)
   useEffect(() => {
     const currentMap = mapRef.current;
     if (!currentMap) return;
@@ -169,7 +174,31 @@ export default function CustomerTracking() {
       }
     }
 
-    // Ajustar o enquadramento do mapa para mostrar AMBOS os pontos
+    // Ajustar o enquadramento do mapa APENAS se ainda não tiver sido feito
+    if (!hasSetInitialBoundsRef.current) {
+      const points: L.LatLngExpression[] = [];
+      if (estCoords) {
+        points.push([estCoords.lat, estCoords.lng]);
+      }
+      if (riderLocation) {
+        points.push([riderLocation.lat, riderLocation.lng]);
+      }
+
+      if (points.length === 2) {
+        const bounds = L.latLngBounds(points);
+        currentMap.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
+        hasSetInitialBoundsRef.current = true;
+      } else if (points.length === 1) {
+        currentMap.setView(points[0], 16);
+        hasSetInitialBoundsRef.current = true;
+      }
+    }
+  }, [riderLocation, rider, estCoords]);
+
+  const handleRecenterMap = () => {
+    const currentMap = mapRef.current;
+    if (!currentMap) return;
+
     const points: L.LatLngExpression[] = [];
     if (estCoords) {
       points.push([estCoords.lat, estCoords.lng]);
@@ -182,9 +211,9 @@ export default function CustomerTracking() {
       const bounds = L.latLngBounds(points);
       currentMap.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
     } else if (points.length === 1) {
-      currentMap.setView(points[0], 15);
+      currentMap.setView(points[0], 16);
     }
-  }, [riderLocation, rider, estCoords]);
+  };
 
   if (loading) {
     return (
@@ -233,6 +262,15 @@ export default function CustomerTracking() {
       {/* Map Area */}
       <div className="flex-1 relative min-h-[350px]">
         <div ref={mapContainerRef} className="absolute inset-0 z-10" />
+        
+        {/* Botão Flutuante para Centralizar Mapa */}
+        <button
+          onClick={handleRecenterMap}
+          className="absolute top-4 right-4 z-20 bg-white hover:bg-slate-50 text-slate-700 p-2.5 rounded-full shadow-lg border border-slate-200 transition-all flex items-center justify-center"
+          title="Centralizar no mapa"
+        >
+          <Navigation className="h-5 w-5 text-indigo-600" />
+        </button>
         
         {/* Floating Status Card */}
         <div className="absolute bottom-4 left-4 right-4 z-20 max-w-md mx-auto bg-white rounded-2xl shadow-xl border border-slate-100 p-4 space-y-4">

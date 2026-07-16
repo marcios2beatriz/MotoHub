@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { db, User, PartnerRequest } from '../utils/db';
+import { db, User, PartnerRequest, Establishment } from '../utils/db';
 import { 
   Bike, 
   Shield, 
@@ -39,7 +39,9 @@ export default function Landing() {
     establishmentName: '',
     ownerName: '',
     phone: '',
-    address: ''
+    address: '',
+    email: '',
+    password: ''
   });
 
   const [error, setError] = useState('');
@@ -71,7 +73,7 @@ export default function Landing() {
       phone: form.phone,
       email: form.email,
       role: 'rider',
-      active: false, // Changed to false - pending approval
+      active: false, // Pending approval
       passwordHash: form.password
     };
 
@@ -82,7 +84,6 @@ export default function Landing() {
     setTimeout(() => {
       setShowRegisterModal(false);
       setSuccess(false);
-      // Do not redirect to login - user must wait for approval
     }, 2000);
   };
 
@@ -91,6 +92,46 @@ export default function Landing() {
     setError('');
     setSuccess(false);
 
+    const allUsers = db.getUsers();
+    const duplicateEmail = allUsers.find(u => u.email.toLowerCase() === estForm.email.toLowerCase());
+
+    if (duplicateEmail) {
+      setError('Erro: E-mail já cadastrado no sistema.');
+      return;
+    }
+
+    const estId = 'e_' + Date.now();
+
+    // Criar o estabelecimento (inativo até aprovação do admin)
+    const newEst: Establishment = {
+      id: estId,
+      name: estForm.establishmentName,
+      address: {
+        street: estForm.address,
+        number: 'S/N',
+        neighborhood: '',
+        city: '',
+        state: '',
+        zipCode: ''
+      },
+      phone: estForm.phone,
+      active: false // Inativo até aprovação
+    };
+
+    // Criar o usuário gerente vinculado (inativo até aprovação)
+    const newEstUser: User = {
+      id: 'u_' + Date.now(),
+      name: estForm.ownerName,
+      cpf: '000.000.000-00',
+      phone: estForm.phone,
+      email: estForm.email,
+      role: 'establishment',
+      active: false, // Inativo até aprovação
+      passwordHash: estForm.password,
+      establishmentId: estId
+    };
+
+    // Criar a solicitação de parceria para controle do admin
     const newRequest: PartnerRequest = {
       id: 'req_' + Date.now(),
       establishmentName: estForm.establishmentName,
@@ -101,11 +142,16 @@ export default function Landing() {
       createdAt: new Date().toISOString()
     };
 
+    // Salvar no banco de dados
+    const allEsts = db.getEstablishments();
+    db.setEstablishments([...allEsts, newEst]);
+    db.setUsers([...allUsers, newEstUser]);
+
     const allRequests = db.getPartnerRequests();
     db.setPartnerRequests([...allRequests, newRequest]);
 
     setSuccess(true);
-    setEstForm({ establishmentName: '', ownerName: '', phone: '', address: '' });
+    setEstForm({ establishmentName: '', ownerName: '', phone: '', address: '', email: '', password: '' });
 
     setTimeout(() => {
       setShowEstModal(false);
@@ -272,7 +318,7 @@ export default function Landing() {
         <div className="max-w-5xl mx-auto px-4 text-center space-y-6">
           <h2 className="text-2xl sm:text-3xl font-extrabold">Quer fechar negócio agora mesmo?</h2>
           <p className="text-emerald-100 max-w-xl mx-auto text-sm sm:text-base">
-            Fale diretamente com o nosso administrador no WhatsApp para tirar dúvidas, fechar parcerias e começar a usar o MotoHub hoje mesmo!
+            Fale diretamente com o nosso administrador no WhatsApp para tirar dúvidas, fechar parcerias and começar a usar o MotoHub hoje mesmo!
           </p>
           <button
             onClick={handleWhatsAppContact}
@@ -446,12 +492,18 @@ export default function Landing() {
               </button>
             </div>
 
+            {error && (
+              <div className="bg-red-50 border-l-4 border-red-500 p-3 rounded text-xs text-red-700 font-medium">
+                {error}
+              </div>
+            )}
+
             {success ? (
               <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-xl text-center space-y-3">
                 <UserCheck className="h-12 w-12 text-emerald-600 mx-auto" />
                 <h4 className="font-bold text-emerald-800">Solicitação Enviada!</h4>
                 <p className="text-xs text-emerald-700">
-                  Seus dados foram enviados com sucesso para o nosso painel administrativo. Entraremos em contato em breve!
+                  Seus dados foram enviados com sucesso para o nosso painel administrativo. Assim que o administrador aprovar, você poderá acessar o sistema com seu e-mail e senha!
                 </p>
               </div>
             ) : (
@@ -493,13 +545,41 @@ export default function Landing() {
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Endereço do Estabelecimento</label>
                   <textarea
                     required
-                    rows={3}
+                    rows={2}
                     placeholder="Rua, número, bairro, cidade..."
                     value={estForm.address}
                     onChange={(e) => setEstForm({ ...estForm, address: e.target.value })}
                     className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all resize-none"
                   />
                 </div>
+
+                {/* Credenciais de Acesso */}
+                <div className="border-t border-slate-100 pt-3 space-y-3">
+                  <p className="text-xs font-bold text-emerald-600 uppercase tracking-wider">Credenciais de Acesso do Gerente</p>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">E-mail de Login</label>
+                    <input
+                      type="email"
+                      required
+                      placeholder="gerente@estabelecimento.com"
+                      value={estForm.email}
+                      onChange={(e) => setEstForm({ ...estForm, email: e.target.value })}
+                      className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Senha de Acesso</label>
+                    <input
+                      type="password"
+                      required
+                      placeholder="••••••••"
+                      value={estForm.password}
+                      onChange={(e) => setEstForm({ ...estForm, password: e.target.value })}
+                      className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
+                    />
+                  </div>
+                </div>
+
                 <div className="flex justify-end space-x-2 pt-3">
                   <button
                     type="button"
