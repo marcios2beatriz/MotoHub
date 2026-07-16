@@ -325,6 +325,11 @@ export default function EstablishmentDashboard() {
     }
   }, [isMapExpanded]);
 
+  const handleLogout = () => {
+    db.setCurrentUser(null);
+    navigate('/login');
+  };
+
   const handleRecenterMap = () => {
     const currentMap = mapRef.current;
     if (!currentMap) return;
