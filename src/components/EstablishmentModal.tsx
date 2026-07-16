@@ -18,6 +18,8 @@ interface EstablishmentModalProps {
     state: string;
     zipCode: string;
     phone: string;
+    email: string;
+    password: string;
   };
   setEstForm: React.Dispatch<React.SetStateAction<{
     name: string;
@@ -29,6 +31,8 @@ interface EstablishmentModalProps {
     state: string;
     zipCode: string;
     phone: string;
+    email: string;
+    password: string;
   }>>;
   onSave: (e: React.FormEvent) => void;
 }
@@ -156,6 +160,36 @@ export default function EstablishmentModal({
               />
             </div>
           </div>
+
+          {/* Credenciais de Acesso */}
+          <div className="border-t border-slate-100 pt-3 space-y-3">
+            <p className="text-xs font-bold text-indigo-600 uppercase tracking-wider">Credenciais de Acesso do Gerente</p>
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">E-mail de Login</label>
+              <input
+                type="email"
+                required
+                placeholder="gerente@estabelecimento.com"
+                value={estForm.email}
+                onChange={(e) => setEstForm({ ...estForm, email: e.target.value })}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
+                {editingEst ? 'Nova Senha (deixe em branco para manter)' : 'Senha de Acesso'}
+              </label>
+              <input
+                type="password"
+                required={!editingEst}
+                placeholder="••••••••"
+                value={estForm.password}
+                onChange={(e) => setEstForm({ ...estForm, password: e.target.value })}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none"
+              />
+            </div>
+          </div>
+
           <div className="flex justify-end space-x-2 pt-3">
             <button
               type="button"
