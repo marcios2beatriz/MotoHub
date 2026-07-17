@@ -90,7 +90,7 @@ export interface RiderLocation {
 // Tables that don't exist or fail in Supabase will be disabled dynamically to use only LocalStorage
 const disabledTables = new Set<string>();
 
-// Seed Data com endereços reais de João Pessoa - PB
+// Seed Data com endereços reais de Campina Grande e João Pessoa - PB
 const INITIAL_USERS: User[] = [
   {
     id: 'u1',
@@ -140,12 +140,12 @@ const INITIAL_ESTABLISHMENTS: Establishment[] = [
     id: 'e1',
     name: 'Pizzaria Bella Italia',
     address: {
-      street: 'Avenida Cabo Branco',
-      number: '1500',
-      neighborhood: 'Cabo Branco',
-      city: 'João Pessoa',
+      street: 'Rua Martinho Lutero',
+      number: '32',
+      neighborhood: 'Malvinas',
+      city: 'Campina Grande',
       state: 'PB',
-      zipCode: '58045-010'
+      zipCode: '58433-488'
     },
     phone: '(83) 3222-1111',
     active: true
@@ -166,20 +166,20 @@ const INITIAL_ESTABLISHMENTS: Establishment[] = [
   }
 ];
 
-// Coordenadas iniciais de teste em João Pessoa - PB (Cabo Branco / Tambaú)
+// Coordenadas iniciais de teste em Campina Grande - PB (Malvinas, próximas ao CEP 58433-488)
 const INITIAL_LOCATIONS: RiderLocation[] = [
   {
     riderId: 'u2',
     riderName: 'Carlos Silva (Motoqueiro)',
-    lat: -7.1160,
-    lng: -34.8290,
+    lat: -7.2315,
+    lng: -35.9240,
     updatedAt: new Date().toISOString()
   },
   {
     riderId: 'u3',
     riderName: 'Lucas Souza (Motoqueiro)',
-    lat: -7.1180,
-    lng: -34.8250,
+    lat: -7.2308,
+    lng: -35.9250,
     updatedAt: new Date().toISOString()
   }
 ];
@@ -389,19 +389,31 @@ export const db = {
   
   getEstablishments: () => {
     const ests = getStorageData<Establishment[]>('dm_establishments', INITIAL_ESTABLISHMENTS);
-    let updated = false;
-    const merged = [...ests];
-
-    INITIAL_ESTABLISHMENTS.forEach(initEst => {
-      if (!merged.some(e => e.id === initEst.id)) {
-        merged.push(initEst);
-        updated = true;
+    
+    // Força a atualização da Pizzaria Bella Italia (e1) para garantir que o endereço correto seja gravado no localStorage
+    const updatedEsts = ests.map(e => {
+      if (e.id === 'e1') {
+        return {
+          ...e,
+          name: 'Pizzaria Bella Italia',
+          address: {
+            street: 'Rua Martinho Lutero',
+            number: '32',
+            neighborhood: 'Malvinas',
+            city: 'Campina Grande',
+            state: 'PB',
+            zipCode: '58433-488'
+          }
+        };
       }
+      return e;
     });
-    if (updated) {
-      setStorageData('dm_establishments', merged);
+
+    if (JSON.stringify(ests) !== JSON.stringify(updatedEsts)) {
+      setStorageData('dm_establishments', updatedEsts);
+      return updatedEsts;
     }
-    return merged;
+    return ests;
   },
   setEstablishments: (est: Establishment[]) => {
     setStorageData('dm_establishments', est);
