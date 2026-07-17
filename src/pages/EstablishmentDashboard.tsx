@@ -301,7 +301,24 @@ export default function EstablishmentDashboard() {
       const headers = { 'Accept-Language': 'pt-BR', 'User-Agent': 'MotoHub-Delivery-App' };
 
       if (addr) {
-        // Etapa 1: Tentar obter coordenadas precisas pelo CEP usando ViaCEP + Nominatim
+        // Etapa 1: Tentar obter coordenadas precisas pelo CEP usando AwesomeAPI (lat/lng direto)
+        if (addr.zipCode) {
+          const cep = addr.zipCode.replace(/\D/g, '');
+          try {
+            const res = await fetch(`https://cep.awesomeapi.com.br/json/${cep}`);
+            if (res.ok) {
+              const data = await res.json();
+              if (data && data.lat && data.lng) {
+                await initMap(parseFloat(data.lat), parseFloat(data.lng));
+                return;
+              }
+            }
+          } catch (e) {
+            console.warn('Erro ao geocodificar via AwesomeAPI:', e);
+          }
+        }
+
+        // Etapa 2: Tentar obter coordenadas precisas pelo CEP usando ViaCEP + Nominatim
         if (addr.zipCode) {
           const cep = addr.zipCode.replace(/\D/g, '');
           try {
@@ -321,7 +338,7 @@ export default function EstablishmentDashboard() {
           }
         }
 
-        // Etapa 2: Fallback para Nominatim direto com o CEP
+        // Etapa 3: Fallback para Nominatim direto com o CEP
         if (addr.zipCode) {
           const cep = addr.zipCode.replace(/\D/g, '');
           try {
@@ -336,7 +353,7 @@ export default function EstablishmentDashboard() {
           }
         }
 
-        // Etapa 3: Fallback para endereço completo cadastrado
+        // Etapa 4: Fallback para endereço completo cadastrado
         const queryFull = `${addr.street}, ${addr.number}, ${addr.neighborhood}, ${addr.city}, ${addr.state}, Brasil`;
         try {
           const res = await fetch(
