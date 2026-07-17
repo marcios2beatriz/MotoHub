@@ -31,6 +31,7 @@ export default function CustomerTracking() {
   const riderMarkerRef = useRef<L.Marker | null>(null);
   
   const hasSetInitialBoundsRef = useRef(false);
+  const hasCenteredEstRef = useRef(false);
   const prevChatRef = useRef<string>('');
 
   const loadTrackingData = () => {
@@ -298,7 +299,7 @@ export default function CustomerTracking() {
     };
 
     geocode();
-  }, [establishment]);
+  }, [establishment?.id]);
 
   // Atualização do Marcador do Motoboy e Ajuste de Zoom Inteligente
   useEffect(() => {
@@ -324,6 +325,7 @@ export default function CustomerTracking() {
       }
     }
 
+    // Centralização inteligente única: só move a câmera automaticamente no primeiro carregamento
     if (!hasSetInitialBoundsRef.current) {
       const points: L.LatLngExpression[] = [];
       if (estCoords) {
@@ -337,9 +339,9 @@ export default function CustomerTracking() {
         const bounds = L.latLngBounds(points);
         currentMap.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
         hasSetInitialBoundsRef.current = true;
-      } else if (points.length === 1) {
+      } else if (points.length === 1 && !hasCenteredEstRef.current) {
         currentMap.setView(points[0], 16);
-        hasSetInitialBoundsRef.current = true;
+        hasCenteredEstRef.current = true;
       }
     }
   }, [riderLocation, rider, estCoords]);

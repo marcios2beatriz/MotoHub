@@ -89,6 +89,7 @@ export default function EstablishmentDashboard() {
   
   // Ref para controlar se já fizemos o enquadramento inicial do mapa
   const hasSetInitialBoundsRef = useRef(false);
+  const hasCenteredEstRef = useRef(false);
 
   const handleLogout = () => {
     db.setCurrentUser(null);
@@ -476,6 +477,7 @@ export default function EstablishmentDashboard() {
         mapRef.current = null;
         markersRef.current = {};
         hasSetInitialBoundsRef.current = false;
+        hasCenteredEstRef.current = false;
       }
     };
   }, [establishment?.id]);
@@ -520,7 +522,7 @@ export default function EstablishmentDashboard() {
       }
     });
 
-    // Ajustar o enquadramento do mapa APENAS se ainda não tiver sido feito
+    // Ajustar o enquadramento do mapa APENAS se ainda não tiver sido feito (Centralização Inteligente Única)
     if (!hasSetInitialBoundsRef.current) {
       const points: L.LatLngExpression[] = [];
       if (estCoords) {
@@ -538,9 +540,9 @@ export default function EstablishmentDashboard() {
         const bounds = L.latLngBounds(points);
         currentMap.fitBounds(bounds, { padding: [50, 50], maxZoom: 17 });
         hasSetInitialBoundsRef.current = true;
-      } else if (points.length === 1) {
+      } else if (points.length === 1 && !hasCenteredEstRef.current) {
         currentMap.setView(points[0], 17);
-        hasSetInitialBoundsRef.current = true;
+        hasCenteredEstRef.current = true;
       }
     }
   }, [scheduledRiders, riderLocations, estCoords]);
