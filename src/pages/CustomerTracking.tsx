@@ -153,22 +153,6 @@ export default function CustomerTracking() {
       if (addr.zipCode) {
         const cep = addr.zipCode.replace(/\D/g, '');
         try {
-          const res = await fetch(`https://cep.awesomeapi.com.br/json/${cep}`);
-          if (res.ok) {
-            const data = await res.json();
-            if (data && data.lat && data.lng) {
-              initMap(parseFloat(data.lat), parseFloat(data.lng));
-              return;
-            }
-          }
-        } catch (e) {
-          console.warn('Erro ao geocodificar via AwesomeAPI:', e);
-        }
-      }
-
-      if (addr.zipCode) {
-        const cep = addr.zipCode.replace(/\D/g, '');
-        try {
           const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&postalcode=${cep}&country=Brazil`, { headers });
           const data = await res.json();
           if (data && data.length > 0) {
