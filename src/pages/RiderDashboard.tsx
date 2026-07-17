@@ -29,7 +29,7 @@ import {
 import DeliveryNotesModal from '../components/DeliveryNotesModal';
 import CustomerChatModal from '../components/CustomerChatModal';
 import ScheduleChatModal from '../components/ScheduleChatModal';
-import { sendDeviceNotification } from '../utils/notifications';
+import { sendDeviceNotification, playNotificationSound } from '../utils/notifications';
 
 export default function RiderDashboard() {
   const navigate = useNavigate();
@@ -131,6 +131,165 @@ export default function RiderDashboard() {
                 `Mensagem do Estabelecimento`,
                 `Pedido #${d.orderNumber || d.id.slice(-4)} (${est?.name || 'Corrida'}): "${messageText}"`
               );
+
+              // Tocar som de notificação
+              playNotificationSound();
+            }
+          });
+        }
+      }
+      prevNotesRef.current[d.id] = d.notes || '';
+    });
+  }, [deliveries, user, establishments]);
+
+  // Monitoramento de novas mensagens no chat com Cliente
+  useEffect(() => {
+    deliveries.forEach(d => {
+      const prevChat = prevChatRef.current[d.id];
+      if (prevChat !== undefined && d.customerChat && d.customerChat !== prevChat) {
+        const prevLines = prevChat ? prevChat.split('\n') : [];
+        const currentLines = d.customerChat.split('\n');
+
+        if (currentLines.length > prevLines.length) {
+          const newLines = currentLines.slice(prevLines.length);
+          newLines.forEach(line => {
+            const isMe = line<dyad-write path="src/pages/RiderDashboard.tsx" description="Continuando a escrita do arquivo RiderDashboard.tsx com suporte completo a notificações sonoras e sincronização robusta">
+"use client";
+
+import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { db, Schedule, Delivery, Notification, Establishment } from '../utils/db';
+import { 
+  DollarSign, 
+  Calendar, 
+  Navigation, 
+  Bell, 
+  LogOut, 
+  TrendingUp, 
+  CheckCircle, 
+  MapPin, 
+  Clock,
+  AlertCircle,
+  History,
+  Filter,
+  X,
+  Satellite,
+  WifiOff,
+  Radio,
+  Plus,
+  Hash,
+  Edit2,
+  Share2,
+  MessageSquare
+} from 'lucide-react';
+import DeliveryNotesModal from '../components/DeliveryNotesModal';
+import CustomerChatModal from '../components/CustomerChatModal';
+import ScheduleChatModal from '../components/ScheduleChatModal';
+import { sendDeviceNotification, playNotificationSound } from '../utils/notifications';
+
+export default function RiderDashboard() {
+  const navigate = useNavigate();
+  const [user, setUser] = useState(db.getCurrentUser());
+  const [schedules, setSchedules] = useState<Schedule[]>([]);
+  const [deliveries, setDeliveries] = useState<Delivery[]>([]);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [establishments, setEstablishments] = useState<Establishment[]>([]);
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'schedules' | 'history' | 'notifications'>('dashboard');
+  const [gpsStatus, setGpsStatus] = useState<'requesting' | 'active' | 'error' | 'denied'>('requesting');
+  const [gpsCoords, setGpsCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const watchIdRef = useRef<number | null>(null);
+
+  // Refs para armazenar o estado anterior das notas e chats para evitar notificações duplicadas
+  const prevNotesRef = useRef<Record<string, string>>({});
+  const prevChatRef = useRef<Record<string, string>>({});
+  const prevScheduleChatRef = useRef<Record<string, string>>({});
+
+  // Modal de Lançar/Editar Corrida
+  const [showLaunchModal, setShowLaunchModal] = useState(false);
+  const [editingDelivery, setEditingDelivery] = useState<Delivery | null>(null);
+  const [launchForm, setLaunchForm] = useState({
+    establishmentId: '',
+    value: '',
+    orderNumber: '',
+    notes: ''
+  });
+
+  // Modal de Observações/Chat com Estabelecimento
+  const [notesDelivery, setNotesDelivery] = useState<Delivery | null>(null);
+
+  // Modal de Chat com Cliente
+  const [customerChatDelivery, setCustomerChatDelivery] = useState<Delivery | null>(null);
+
+  // Modal de Chat de Turno/Escala
+  const [activeScheduleChat, setActiveScheduleChat] = useState<Schedule | null>(null);
+
+  // Filtros das escalas futuras
+  const [scheduleEstFilter, setScheduleEstFilter] = useState('');
+  const [scheduleDateFilter, setScheduleDateFilter] = useState('');
+
+  // Filtros do histórico
+  const [historyEstFilter, setHistoryEstFilter] = useState('');
+  const [historyDateFrom, setHistoryDateFrom] = useState('');
+  const [historyDateTo, setHistoryDateTo] = useState('');
+
+  const loadData = () => {
+    if (!user) return;
+    const allSchedules = db.getSchedules().filter(s => s.riderId === user.id);
+    const allDeliveries = db.getDeliveries().filter(d => d.riderId === user.id);
+    const allNotifications = db.getNotifications().filter(n => n.riderId === user.id);
+    const allEsts = db.getEstablishments().filter(e => e.active);
+    setSchedules(allSchedules);
+    setDeliveries(allDeliveries);
+    setNotifications(allNotifications);
+    setEstablishments(allEsts);
+
+    // Atualiza o delivery selecionado nos modais se estiverem abertos
+    if (notesDelivery) {
+      const updatedDelivery = allDeliveries.find(d => d.id === notesDelivery.id);
+      if (updatedDelivery) setNotesDelivery(updatedDelivery);
+    }
+    if (customerChatDelivery) {
+      const updatedDelivery = allDeliveries.find(d => d.id === customerChatDelivery.id);
+      if (updatedDelivery) setCustomerChatDelivery(updatedDelivery);
+    }
+    if (activeScheduleChat) {
+      const updatedSchedule = allSchedules.find(s => s.id === activeScheduleChat.id);
+      if (updatedSchedule) setActiveScheduleChat(updatedSchedule);
+    }
+  };
+
+  useEffect(() => {
+    if (!user || user.role !== 'rider') {
+      navigate('/login');
+      return;
+    }
+    loadData();
+  }, [user, navigate, activeTab]);
+
+  // Monitoramento de novas mensagens no chat com Estabelecimento
+  useEffect(() => {
+    deliveries.forEach(d => {
+      const prevNotes = prevNotesRef.current[d.id];
+      if (prevNotes !== undefined && d.notes && d.notes !== prevNotes) {
+        const prevLines = prevNotes ? prevNotes.split('\n') : [];
+        const currentLines = d.notes.split('\n');
+
+        if (currentLines.length > prevLines.length) {
+          const newLines = currentLines.slice(prevLines.length);
+          newLines.forEach(line => {
+            const isMe = line.includes('- Motoboy') || line.includes(`(${user?.name})`);
+            if (!isMe) {
+              const est = establishments.find(e => e.id === d.establishmentId);
+              const messageText = line.substring(line.indexOf(']: ') + 3);
+              
+              sendDeviceNotification(
+                `Mensagem do Estabelecimento`,
+                `Pedido #${d.orderNumber || d.id.slice(-4)} (${est?.name || 'Corrida'}): "${messageText}"`
+              );
+
+              // Tocar som de notificação
+              playNotificationSound();
             }
           });
         }
@@ -158,6 +317,9 @@ export default function RiderDashboard() {
                 `Mensagem do Cliente`,
                 `Pedido #${d.orderNumber || d.id.slice(-4)}: "${messageText}"`
               );
+
+              // Tocar som de notificação
+              playNotificationSound();
             }
           });
         }
@@ -186,6 +348,9 @@ export default function RiderDashboard() {
                 `Mensagem de Turno de ${est?.name || 'Estabelecimento'}`,
                 `"${messageText}"`
               );
+
+              // Tocar som de notificação
+              playNotificationSound();
             }
           });
         }
