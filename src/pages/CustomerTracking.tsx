@@ -140,7 +140,7 @@ export default function CustomerTracking() {
 
       const marker = L.marker([lat, lng], { icon: estIcon })
         .addTo(mapInstance)
-        .bindPopup(`<b>${establishment.name}</b><br/>Ponto de Partiva`);
+        .bindPopup(`<b>${establishment.name}</b><br/>Ponto de Partida`);
       
       estMarkerRef.current = marker;
       setEstCoords({ lat, lng });
@@ -150,30 +150,68 @@ export default function CustomerTracking() {
       const addr = establishment.address;
       const headers = { 'Accept-Language': 'pt-BR', 'User-Agent': 'MotoHub-Delivery-App' };
       
-      if (addr.zipCode) {
-        const cep = addr.zipCode.replace(/\D/g, '');
+      if (addr) {
+        // Etapa 1: Tentar obter coordenadas precisas pelo CEP usando ViaCEP + Nominatim
+        if (addr.zipCode) {
+          const cep = addr.zipCode.replace(/\D/g, '');
+          try {
+            const viaCepRes = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+            const viaCepData = await viaCepRes.json();
+            if (viaCepData && !viaCepData.erro) {
+              const query = `${viaCepData.logradouro}, ${addr.number || 'S/N'}, ${viaCepData.bairro}, ${viaCepData.localidade}, ${viaCepData.uf}, Brasil`;
+              const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`, { headers });
+              const data = await res.json();
+              if (data && data.length > 0) {
+                initMap(parseFloat(data[0].lat), parseFloat(data[0].lon));
+                return;
+              }
+            }
+          } catch (e) {
+            console.warn('Erro ao geocodificar via ViaCEP:', e);
+          }
+        }
+
+        // Etapa 2: Fallback para Nominatim estruturado com CEP + Cidade + Estado (Evita São Paulo)
+        if (addr.zipCode) {
+          const cep = addr.zipCode.replace(/\D/g, '');
+          try {
+            const query = `${cep}, ${addr.city || 'João Pessoa'}, ${addr.state || 'PB'}, Brasil`;
+            const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`, { headers });
+            const data = await res.json();
+            if (data && data.length > 0) {
+              initMap(parseFloat(data[0].lat), parseFloat(data[0].lon));
+              return;
+            }
+          } catch (e) {
+            console.warn('Erro ao geocodificar por CEP estruturado:', e);
+          }
+        }
+
+        // Etapa 3: Fallback para endereço completo cadastrado
+        const queryFull = `${addr.street}, ${addr.number}, ${addr.neighborhood}, ${addr.city}, ${addr.state}, Brasil`;
         try {
-          const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&postalcode=${cep}&country=Brazil`, { headers });
+          const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(queryFull)}`, { headers });
           const data = await res.json();
           if (data && data.length > 0) {
             initMap(parseFloat(data[0].lat), parseFloat(data[0].lon));
             return;
           }
         } catch (e) {
-          console.warn('Erro ao geocodificar por CEP:', e);
+          console.warn('Erro ao geocodificar por endereço completo:', e);
         }
-      }
 
-      const queryFull = `${addr.street}, ${addr.number}, ${addr.neighborhood}, ${addr.city}, ${addr.state}, Brasil`;
-      try {
-        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(queryFull)}`, { headers });
-        const data = await res.json();
-        if (data && data.length > 0) {
-          initMap(parseFloat(data[0].lat), parseFloat(data[0].lon));
-          return;
+        // Etapa 4: Fallback para Cidade e Estado (Garante que fique na região correta)
+        try {
+          const queryCity = `${addr.city || 'João Pessoa'}, ${addr.state || 'PB'}, Brasil`;
+          const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(queryCity)}`, { headers });
+          const data = await res.json();
+          if (data && data.length > 0) {
+            initMap(parseFloat(data[0].lat), parseFloat(data[0].lon));
+            return;
+          }
+        } catch (e) {
+          console.warn('Erro ao geocodificar por cidade:', e);
         }
-      } catch (e) {
-        console.warn('Erro ao geocodificar por endereço completo:', e);
       }
 
       initMap(defaultLat, defaultLng);

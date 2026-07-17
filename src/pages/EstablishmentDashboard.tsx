@@ -182,7 +182,7 @@ export default function EstablishmentDashboard() {
               // Tocar som de notificação
               playNotificationSound();
 
-              // 2. Alerta Visual na Tela
+              // 2. Alerta Visual na Tela (Toast)
               const alertDiv = document.createElement('div');
               alertDiv.className = 'fixed top-4 left-4 right-4 bg-indigo-600 text-white p-4 rounded-xl shadow-2xl z-50 flex items-center justify-between animate-bounce max-w-md mx-auto';
               alertDiv.innerHTML = `
@@ -321,18 +321,19 @@ export default function EstablishmentDashboard() {
           }
         }
 
-        // Etapa 2: Fallback para Nominatim direto com o CEP
+        // Etapa 2: Fallback para Nominatim estruturado com CEP + Cidade + Estado (Evita São Paulo)
         if (addr.zipCode) {
           const cep = addr.zipCode.replace(/\D/g, '');
           try {
-            const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&postalcode=${cep}&country=Brazil`, { headers });
+            const query = `${cep}, ${addr.city || 'João Pessoa'}, ${addr.state || 'PB'}, Brasil`;
+            const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`, { headers });
             const data = await res.json();
             if (data && data.length > 0) {
               await initMap(parseFloat(data[0].lat), parseFloat(data[0].lon));
               return;
             }
           } catch (e) {
-            console.warn('Erro ao geocodificar por CEP direto:', e);
+            console.warn('Erro ao geocodificar por CEP estruturado:', e);
           }
         }
 
@@ -350,6 +351,22 @@ export default function EstablishmentDashboard() {
           }
         } catch (e) {
           console.warn('Geocoding by address failed', e);
+        }
+
+        // Etapa 4: Fallback para Cidade e Estado (Garante que fique na região correta)
+        try {
+          const queryCity = `${addr.city || 'João Pessoa'}, ${addr.state || 'PB'}, Brasil`;
+          const res = await fetch(
+            `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(queryCity)}`,
+            { headers }
+          );
+          const data = await res.json();
+          if (data && data.length > 0) {
+            await initMap(parseFloat(data[0].lat), parseFloat(data[0].lon));
+            return;
+          }
+        } catch (e) {
+          console.warn('Geocoding by city failed', e);
         }
       }
 
