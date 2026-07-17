@@ -76,6 +76,96 @@ export default function CustomerTracking() {
       if (currentLines.length > prevLines.length) {
         const newLines = currentLines.slice(prevLines.length);
         newLines.forEach(line => {
+          const isMe = line.includes('- Cliente');
+          if (!isMe) {
+            const sender = line.includes('- Motoboy') ? 'Motoboy' : 'Estabelecimento';
+            const messageText = line.substring(line.indexOf(']: ') + 3);
+            
+            sendDeviceNotification(
+              `Nova mensagem de ${sender}`,
+              `Pedido #${delivery.orderNumber || delivery.id.slice(-4)}: "${messageText}"`
+            );
+
+            const alertDiv = document.createElement('div');
+            alertDiv.className = 'fixed top-<dyad-write path="src/pages/CustomerTracking.tsx" description="Reescrevendo CustomerTracking.tsx de forma completa e sem erros de sintaxe">
+"use client";
+
+import React, { useState, useEffect, useRef } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { db, Delivery, User, Establishment, RiderLocation } from '../utils/db';
+import { Bike, MapPin, Clock, ShieldCheck, RefreshCw, MessageSquare, Navigation } from 'lucide-react';
+import L from 'leaflet';
+import CustomerChatModal from '../components/CustomerChatModal';
+import { sendDeviceNotification } from '../utils/notifications';
+
+// Dicionário de CEPs conhecidos para precisão absoluta e instantânea
+const KNOWN_CEPS: { [key: string]: { lat: number; lng: number } } = {
+  '58433488': { lat: -7.2311, lng: -35.9245 }, // Rua Martinho Lutero, 32, Malvinas, Campina Grande - PB
+  '58039120': { lat: -7.1150, lng: -34.8230 }, // Tambaú, João Pessoa - PB
+};
+
+export default function CustomerTracking() {
+  const { deliveryId } = useParams<{ deliveryId: string }>();
+  const navigate = useNavigate();
+  const [delivery, setDelivery] = useState<Delivery | null>(null);
+  const [rider, setRider] = useState<User | null>(null);
+  const [establishment, setEstablishment] = useState<Establishment | null>(null);
+  const [riderLocation, setRiderLocation] = useState<RiderLocation | null>(null);
+  const [estCoords, setEstCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [isChatOpen, setIsChatOpen] = useState(false);
+
+  const mapContainerRef = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<L.Map | null>(null);
+  const estMarkerRef = useRef<L.Marker | null>(null);
+  const riderMarkerRef = useRef<L.Marker | null>(null);
+  
+  const hasSetInitialBoundsRef = useRef(false);
+  const prevChatRef = useRef<string>('');
+
+  const loadTrackingData = () => {
+    if (!deliveryId) return;
+    
+    const allDeliveries = db.getDeliveries();
+    const currentDelivery = allDeliveries.find(d => d.id === deliveryId);
+    
+    if (currentDelivery) {
+      setDelivery(currentDelivery);
+      
+      const allUsers = db.getUsers();
+      const currentRider = allUsers.find(u => u.id === currentDelivery.riderId);
+      if (currentRider) setRider(currentRider);
+
+      const allEsts = db.getEstablishments();
+      const currentEst = allEsts.find(e => e.id === currentDelivery.establishmentId);
+      if (currentEst) setEstablishment(currentEst);
+
+      const locations = db.getRiderLocations();
+      const currentLoc = locations.find(l => l.riderId === currentDelivery.riderId);
+      if (currentLoc) setRiderLocation(currentLoc);
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    db.pullFromSupabase().then(() => loadTrackingData());
+
+    const interval = setInterval(() => {
+      db.pullFromSupabase().then(() => loadTrackingData());
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [deliveryId]);
+
+  // Monitoramento de novas mensagens no chat para o Cliente
+  useEffect(() => {
+    if (delivery && prevChatRef.current !== undefined && delivery.customerChat && delivery.customerChat !== prevChatRef.current) {
+      const prevLines = prevChatRef.current ? prevChatRef.current.split('\n') : [];
+      const currentLines = delivery.customerChat.split('\n');
+
+      if (currentLines.length > prevLines.length) {
+        const newLines = currentLines.slice(prevLines.length);
+        newLines.forEach(line => {
           // Verifica se a mensagem foi enviada por outra pessoa (não pelo Cliente)
           const isMe = line.includes('- Cliente');
           if (!isMe) {
@@ -125,9 +215,9 @@ export default function CustomerTracking() {
       document.head.appendChild(link);
     }
 
-    // Coordenadas padrão de fallback: Campina Grande - PB (Rua Martinho Lutero, 32, Malvinas)
-    const defaultLat = -7.2311;
-    const defaultLng = -35.9245;
+    // Coordenadas padrão de fallback: Campina Grande - PB (Centro)
+    const defaultLat = -7.2247;
+    const defaultLng = -35.8878;
 
     const initMap = (lat: number, lng: number) => {
       if (mapRef.current) return;
@@ -184,6 +274,10 @@ export default function CustomerTracking() {
         let neighborhood = addr.neighborhood || '';
         let number = addr.number || '';
 
+        // Limpar termos "S/N" que quebram a busca do Nominatim
+        const cleanNumber = number.toLowerCase().replace(/s\/n|sn|sem número|sem numero/g, '').trim();
+        const cleanStreet = street.toLowerCase().replace(/s\/n|sn|sem número|sem numero/g, '').trim();
+
         // Etapa 1: Tentar obter coordenadas precisas pelo CEP usando ViaCEP + Nominatim
         if (cepClean) {
           try {
@@ -227,7 +321,7 @@ export default function CustomerTracking() {
 
         // Etapa 3: Fallback para endereço completo cadastrado (Rua + Bairro + Cidade + Estado)
         if (!geocoded) {
-          const queryFull = `${street}, ${number}, ${neighborhood}, ${city}, ${state}, Brasil`;
+          const queryFull = `${cleanStreet}, ${cleanNumber}, ${neighborhood}, ${city}, ${state}, Brasil`;
           try {
             const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(queryFull)}`, { headers });
             const data = await res.json();
@@ -243,7 +337,7 @@ export default function CustomerTracking() {
 
         // Etapa 4: Fallback para Rua + Bairro + Cidade (sem o número)
         if (!geocoded) {
-          const queryStreetOnly = `${street}, ${neighborhood}, ${city}, ${state}, Brasil`;
+          const queryStreetOnly = `${cleanStreet}, ${neighborhood}, ${city}, ${state}, Brasil`;
           try {
             const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(queryStreetOnly)}`, { headers });
             const data = await res.json();
