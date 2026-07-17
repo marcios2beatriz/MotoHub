@@ -389,19 +389,31 @@ export const db = {
   
   getEstablishments: () => {
     const ests = getStorageData<Establishment[]>('dm_establishments', INITIAL_ESTABLISHMENTS);
-    let updated = false;
-    const merged = [...ests];
-
-    INITIAL_ESTABLISHMENTS.forEach(initEst => {
-      if (!merged.some(e => e.id === initEst.id)) {
-        merged.push(initEst);
-        updated = true;
+    
+    // Força a atualização da Pizzaria Bella Italia (e1) para garantir que o endereço correto seja gravado no localStorage
+    const updatedEsts = ests.map(e => {
+      if (e.id === 'e1') {
+        return {
+          ...e,
+          name: 'Pizzaria Bella Italia',
+          address: {
+            street: 'Rua Martinho Lutero',
+            number: '32',
+            neighborhood: 'Malvinas',
+            city: 'Campina Grande',
+            state: 'PB',
+            zipCode: '58433-488'
+          }
+        };
       }
+      return e;
     });
-    if (updated) {
-      setStorageData('dm_establishments', merged);
+
+    if (JSON.stringify(ests) !== JSON.stringify(updatedEsts)) {
+      setStorageData('dm_establishments', updatedEsts);
+      return updatedEsts;
     }
-    return merged;
+    return ests;
   },
   setEstablishments: (est: Establishment[]) => {
     setStorageData('dm_establishments', est);

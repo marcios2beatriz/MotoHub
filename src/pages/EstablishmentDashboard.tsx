@@ -273,9 +273,9 @@ export default function EstablishmentDashboard() {
       document.head.appendChild(link);
     }
 
-    // Coordenadas padrão de fallback: Campina Grande - PB (Rua Martinho Lutero, 32, Malvinas)
-    const defaultLat = -7.2311;
-    const defaultLng = -35.9245;
+    // Coordenadas padrão de fallback: Campina Grande - PB (Centro)
+    const defaultLat = -7.2247;
+    const defaultLng = -35.8878;
 
     const initMap = async (lat: number, lng: number) => {
       if (mapRef.current) return;
@@ -388,7 +388,7 @@ export default function EstablishmentDashboard() {
           }
         }
 
-        // Etapa 3: Fallback para endereço completo cadastrado
+        // Etapa 3: Fallback para endereço completo cadastrado (Rua + Bairro + Cidade + Estado)
         if (!geocoded) {
           const queryFull = `${cleanStreet}, ${cleanNumber}, ${neighborhood}, ${city}, ${state}, Brasil`;
           try {
@@ -405,6 +405,62 @@ export default function EstablishmentDashboard() {
             }
           } catch (e) {
             console.warn('Erro ao geocodificar por endereço completo:', e);
+          }
+        }
+
+        // Etapa 4: Fallback para Rua + Bairro + Cidade (sem o número, que às vezes confunde o Nominatim)
+        if (!geocoded) {
+          const queryStreetOnly = `${cleanStreet}, ${neighborhood}, ${city}, ${state}, Brasil`;
+          try {
+            const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(queryStreetOnly)}`, { headers });
+            const data = await res.json();
+            if (data && data.length > 0) {
+              const testLat = parseFloat(data[0].lat);
+              const testLng = parseFloat(data[0].lon);
+              if (testLat >= -8.5 && testLat <= -5.5 && testLng >= -39.0 && testLng <= -34.0) {
+                finalLat = testLat;
+                finalLng = testLng;
+                geocoded = true;
+              }
+            }
+          } catch (e) {
+            console.warn('Erro ao geocodificar por rua apenas:', e);
+          }
+        }
+
+        // Etapa 5: Fallback para Bairro + Cidade + Estado
+        if (!geocoded) {
+          const queryNeighborhood = `${neighborhood}, ${city}, ${state}, Brasil`;
+          try {
+            const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(queryNeighborhood)}`, { headers });
+            const data = await res.json();
+            if (data && data.length > 0) {
+              const testLat = parseFloat(data[0].lat);
+              const testLng = parseFloat(data[0].lon);
+              if (testLat >= -8.5 && testLat <= -5.5 && testLng >= -39.0 && testLng <= -34.0) {
+                finalLat = testLat;
+                finalLng = testLng;
+                geocoded = true;
+              }
+            }
+          } catch (e) {
+            console.warn('Erro ao geocodificar por bairro:', e);
+          }
+        }
+
+        // Etapa 6: Fallback para Cidade + Estado (Garante que fique na cidade correta)
+        if (!geocoded) {
+          const queryCity = `${city}, ${state}, Brasil`;
+          try {
+            const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(queryCity)}`, { headers });
+            const data = await res.json();
+            if (data && data.length > 0) {
+              finalLat = parseFloat(data[0].lat);
+              finalLng = parseFloat(data[0].lon);
+              geocoded = true;
+            }
+          } catch (e) {
+            console.warn('Erro ao geocodificar por cidade:', e);
           }
         }
       }
