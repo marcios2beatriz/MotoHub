@@ -301,90 +301,64 @@ export default function EstablishmentDashboard() {
       const headers = { 'Accept-Language': 'pt-BR', 'User-Agent': 'MotoHub-Delivery-App' };
 
       if (addr) {
-        const zipCode = addr.zipCode ? addr.zipCode.trim() : '';
-        const cleanCep = zipCode.replace(/\D/g, '');
+        // Sanitização robusta: se os campos de cidade/estado/cep estiverem vazios (ex: vindos do Supabase incompletos),
+        // nós forçamos o padrão de João Pessoa, PB para evitar que o Nominatim busque em São Paulo.
+        const street = addr.street && addr.street.trim() !== '' ? addr.street : 'Avenida Cabo Branco';
+        const number = addr.number && addr.number.trim() !== '' ? addr.number : '1500';
+        const city = addr.city && addr.city.trim() !== '' ? addr.city : 'João Pessoa';
+        const state = addr.state && addr.state.trim() !== '' ? addr.state : 'PB';
+        const zipCode = addr.zipCode && addr.zipCode.trim() !== '' ? addr.zipCode : '58045-010';
 
-        // Etapa 1: Tentar obter coordenadas precisas pelo CEP usando ViaCEP + Nominatim
-        if (cleanCep.length === 8) {
+        // Etapa 1: Tentar obter coordenadas precisas pelo CEP usando ViaCEP + Nominatim estruturado
+        if (zipCode) {
+          const cep = zipCode.replace(/\D/g, '');
           try {
-            const viaCepRes = await fetch(`https://viacep.com.br/ws/${cleanCep}/json/`);
+            const viaCepRes = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
             const viaCepData = await viaCepRes.json();
             if (viaCepData && !viaCepData.erro) {
-              const queryFull = `${viaCepData.logradouro}, ${addr.number || 'S/N'}, ${viaCepData.bairro}, ${viaCepData.localidade} - ${viaCepData.uf}, Brasil`;
-              const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(queryFull)}`, { headers });
+              const cleanStreet = `${viaCepData.logradouro}, ${number}`;
+              const cleanCity = viaCepData.localidade;
+              const cleanState = viaCepData.uf;
+              
+              // Usando busca estruturada para garantir isolamento geográfico
+              const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&street=${encodeURIComponent(cleanStreet)}&city=${encodeURIComponent(cleanCity)}&state=${encodeURIComponent(cleanState)}&country=Brasil`;
+              const res = await fetch(url, { headers });
               const data = await res.json();
               if (data && data.length > 0) {
                 await initMap(parseFloat(data[0].lat), parseFloat(data[0].lon));
                 return;
               }
-
-              // Se falhar, tenta buscar apenas pelo CEP no Nominatim (extremamente preciso para localização geral do CEP)
-              const resCep = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(cleanCep + ', Brasil')}`, { headers });
-              const dataCep = await resCep.json();
-              if (dataCep && dataCep.length > 0) {
-                await initMap(parseFloat(dataCep[0].lat), parseFloat(dataCep[0].lon));
-                return;
-              }
-
-              // Se falhar, tenta pela cidade/estado do ViaCEP
-              const queryCity = `${viaCepData.localidade} - ${viaCepData.uf}, Brasil`;
-              const resCity = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(queryCity)}`, { headers });
-              const dataCity = await resCity.json();
-              if (dataCity && dataCity.length > 0) {
-                await initMap(parseFloat(dataCity[0].lat), parseFloat(dataCity[0].lon));
-                return;
-              }
             }
           } catch (e) {
-            console.warn('Erro ao geocodificar via ViaCEP:', e);
+            console.warn('Erro ao geocodificar via ViaCEP estruturado:', e);
           }
         }
 
-        // Etapa 2: Fallback se o ViaCEP falhar ou não houver CEP válido: usar dados cadastrados do estabelecimento
-        if (cleanCep) {
-          try {
-            const resCep = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(cleanCep + ', Brasil')}`, { headers });
-            const dataCep = await resCep.json();
-            if (dataCep && dataCep.length > 0) {
-              await initMap(parseFloat(dataCep[0].lat), parseFloat(dataCep[0].lon));
-              return;
-            }
-          } catch (e) {
-            console.warn('Erro ao buscar por CEP cadastrado:', e);
+        // Etapa 2: Fallback para Nominatim estruturado com dados locais sanitizados
+        try {
+          const cleanStreet = `${street}, ${number}`;
+          const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&street=${encodeURIComponent(cleanStreet)}&city=${encodeURIComponent(city)}&state=${encodeURIComponent(state)}&country=Brasil`;
+          const res = await fetch(url, { headers });
+          const data = await res.json();
+          if (data && data.length > 0) {
+            await initMap(parseFloat(data[0].lat), parseFloat(data[0].lon));
+            return;
           }
+        } catch (e) {
+          console.warn('Erro ao geocodificar por dados locais estruturados:', e);
         }
 
-        const street = addr.street || '';
-        const number = addr.number || '';
-        const city = addr.city || '';
-        const state = addr.state || '';
-
-        if (street && city) {
-          try {
-            const queryFull = `${street}, ${number}, ${city} - ${state}, Brasil`;
-            const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(queryFull)}`, { headers });
-            const data = await res.json();
-            if (data && data.length > 0) {
-              await initMap(parseFloat(data[0].lat), parseFloat(data[0].lon));
-              return;
-            }
-          } catch (e) {
-            console.warn('Erro ao buscar por endereço cadastrado:', e);
+        // Etapa 3: Fallback para apenas Cidade e Estado estruturado
+        try {
+          const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&city=${encodeURIComponent(city)}&state=${encodeURIComponent(state)}&country=Brasil`;
+          const res = await fetch(url, { headers });
+          const data = await res.json();
+          if (data && data.length > 0) {
+            await initMap(parseFloat(data[0].lat), parseFloat(data[0].lon));
+            return;
           }
-        }
-
-        if (city) {
-          try {
-            const queryCity = `${city} - ${state}, Brasil`;
-            const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(queryCity)}`, { headers });
-            const data = await res.json();
-            if (data && data.length > 0) {
-              await initMap(parseFloat(data[0].lat), parseFloat(data[0].lon));
-              return;
-            }
-          } catch (e) {
-            console.warn('Erro ao buscar por cidade cadastrada:', e);
-          }
+        } catch (e) {
+          console.warn('Erro ao geocodificar por cidade estruturada:', e);
         }
       }
 
@@ -587,7 +561,7 @@ export default function EstablishmentDashboard() {
   };
 
   const handleRejectDelivery = (id: string) => {
-    const reason = prompt('Digite o motivo da reunição (opcional):');
+    const reason = prompt('Digite o motivo da rejeição (opcional):');
     if (reason !== null) {
       const allDeliveries = db.getDeliveries();
       const delivery = allDeliveries.find(d => d.id === id);
