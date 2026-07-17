@@ -10,7 +10,7 @@ import { sendDeviceNotification } from '../utils/notifications';
 
 // Dicionário de CEPs conhecidos para precisão absoluta e instantânea
 const KNOWN_CEPS: { [key: string]: { lat: number; lng: number } } = {
-  '58433488': { lat: -7.2338, lng: -35.9275 }, // Rua Martinho Lutero, 32, Malvinas, Campina Grande - PB
+  '58433488': { lat: -7.2311, lng: -35.9245 }, // Rua Martinho Lutero, 32, Malvinas, Campina Grande - PB
   '58039120': { lat: -7.1150, lng: -34.8230 }, // Tambaú, João Pessoa - PB
 };
 
@@ -408,7 +408,7 @@ export default function CustomerTracking() {
           {rider && (
             <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
               <div className="flex items-center space-x-3">
-                <div className="w-10 h-10 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold text-base">
+                <div className="w-10 h-10 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold text-sm">
                   {rider.name.charAt(0).toUpperCase()}
                 </div>
                 <div>

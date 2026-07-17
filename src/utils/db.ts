@@ -171,15 +171,15 @@ const INITIAL_LOCATIONS: RiderLocation[] = [
   {
     riderId: 'u2',
     riderName: 'Carlos Silva (Motoqueiro)',
-    lat: -7.2345,
-    lng: -35.9265,
+    lat: -7.2315,
+    lng: -35.9240,
     updatedAt: new Date().toISOString()
   },
   {
     riderId: 'u3',
     riderName: 'Lucas Souza (Motoqueiro)',
-    lat: -7.2330,
-    lng: -35.9285,
+    lat: -7.2308,
+    lng: -35.9250,
     updatedAt: new Date().toISOString()
   }
 ];

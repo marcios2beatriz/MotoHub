@@ -34,7 +34,7 @@ import { sendDeviceNotification, playNotificationSound } from '../utils/notifica
 
 // Dicionário de CEPs conhecidos para precisão absoluta e instantânea
 const KNOWN_CEPS: { [key: string]: { lat: number; lng: number } } = {
-  '58433488': { lat: -7.2338, lng: -35.9275 }, // Rua Martinho Lutero, 32, Malvinas, Campina Grande - PB
+  '58433488': { lat: -7.2311, lng: -35.9245 }, // Rua Martinho Lutero, 32, Malvinas, Campina Grande - PB
   '58039120': { lat: -7.1150, lng: -34.8230 }, // Tambaú, João Pessoa - PB
 };
 
@@ -808,7 +808,7 @@ export default function EstablishmentDashboard() {
                             onClick={() => {
                               setEditingDelivery(del);
                               setDeliveryForm({
-                                riderId: del.riderId,
+                                        riderId: del.riderId,
                                 value: del.value.toString(),
                                 orderNumber: del.orderNumber || '',
                                 notes: del.notes || ''
