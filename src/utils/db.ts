@@ -238,17 +238,18 @@ const mergeById = <T extends { id: string; updatedAt?: string }>(local: T[], rem
   const deletedIds = getDeletedIds();
   const map = new Map<string, T>();
   
-  // Filtra locais que já foram deletados
+  // Popula o mapa com os itens locais ativos
   local.filter(item => !deletedIds.includes(item.id)).forEach(item => map.set(item.id, item));
   
-  // Filtra remotos que já foram deletados
+  // Mescla com os itens remotos ativos
   remote.filter(item => !deletedIds.includes(item.id)).forEach(item => {
     const existing = map.get(item.id);
     if (existing) {
       const localTime = existing.updatedAt ? new Date(existing.updatedAt).getTime() : 0;
       const remoteTime = item.updatedAt ? new Date(item.updatedAt).getTime() : 0;
       
-      if (!item.updatedAt || remoteTime >= localTime) {
+      // Só sobrescreve se o remoto for estritamente mais recente ou se ambos não tiverem timestamp
+      if (remoteTime > localTime || (remoteTime === 0 && localTime === 0)) {
         const merged = { ...existing };
         (Object.keys(item) as (keyof T)[]).forEach(key => {
           const value = item[key];
