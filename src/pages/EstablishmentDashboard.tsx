@@ -453,7 +453,7 @@ export default function EstablishmentDashboard() {
     }
     
     riderLocations.forEach(loc => {
-      if (scheduledRiderIds.includes(scheduledRiderIds)) {
+      if (scheduledRiderIds.includes(loc.riderId)) {
         points.push([loc.lat, loc.lng]);
       }
     });

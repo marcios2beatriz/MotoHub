@@ -30,7 +30,7 @@ export const sendDeviceNotification = (title: string, body: string) => {
         icon: "/logo.png",
         badge: "/logo.png",
         vibrate: [200, 100, 200],
-      });
+      } as any);
 
       notification.onclick = () => {
         window.focus();
