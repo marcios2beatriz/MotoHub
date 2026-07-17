@@ -81,6 +81,11 @@ export default function EstablishmentDashboard() {
   // Ref para controlar se já fizemos o enquadramento inicial do mapa
   const hasSetInitialBoundsRef = useRef(false);
 
+  const handleLogout = () => {
+    db.setCurrentUser(null);
+    navigate('/login');
+  };
+
   const loadData = () => {
     const currentUser = db.getCurrentUser();
     if (!currentUser) return;
@@ -654,7 +659,7 @@ export default function EstablishmentDashboard() {
                         <div className="flex items-center space-x-2 flex-wrap gap-y-1">
                           <p className="font-bold text-slate-800">{rider?.name || 'Motoboy'}</p>
                           {del.orderNumber && (
-                            <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded">
+                            <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-2.5 py-0.5 rounded">
                               #{del.orderNumber}
                             </span>
                           )}
