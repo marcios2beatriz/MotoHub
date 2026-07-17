@@ -59,14 +59,10 @@ export default function RiderDashboard() {
     notes: ''
   });
 
-  // Modal de Observações/Chat com Estabelecimento
-  const [notesDelivery, setNotesDelivery] = useState<Delivery | null>(null);
-
-  // Modal de Chat com Cliente
-  const [customerChatDelivery, setCustomerChatDelivery] = useState<Delivery | null>(null);
-
-  // Modal de Chat de Turno/Escala
-  const [activeScheduleChat, setActiveScheduleChat] = useState<Schedule | null>(null);
+  // IDs dos Modais Ativos para Sincronização em Tempo Real
+  const [notesDeliveryId, setNotesDeliveryId] = useState<string | null>(null);
+  const [customerChatDeliveryId, setCustomerChatDeliveryId] = useState<string | null>(null);
+  const [activeScheduleChatId, setActiveScheduleChatId] = useState<string | null>(null);
 
   // Filtros das escalas futuras
   const [scheduleEstFilter, setScheduleEstFilter] = useState('');
@@ -87,20 +83,6 @@ export default function RiderDashboard() {
     setDeliveries(allDeliveries);
     setNotifications(allNotifications);
     setEstablishments(allEsts);
-
-    // Atualiza o delivery selecionado nos modais se estiverem abertos
-    if (notesDelivery) {
-      const updatedDelivery = allDeliveries.find(d => d.id === notesDelivery.id);
-      if (updatedDelivery) setNotesDelivery(updatedDelivery);
-    }
-    if (customerChatDelivery) {
-      const updatedDelivery = allDeliveries.find(d => d.id === customerChatDelivery.id);
-      if (updatedDelivery) setCustomerChatDelivery(updatedDelivery);
-    }
-    if (activeScheduleChat) {
-      const updatedSchedule = allSchedules.find(s => s.id === activeScheduleChat.id);
-      if (updatedSchedule) setActiveScheduleChat(updatedSchedule);
-    }
   };
 
   useEffect(() => {
@@ -211,7 +193,7 @@ export default function RiderDashboard() {
     return () => {
       window.removeEventListener('db-sync-complete', handleSyncComplete);
     };
-  }, [user, notesDelivery, customerChatDelivery, activeScheduleChat]);
+  }, [user]);
 
   const startGpsTracking = () => {
     if (!user || user.role !== 'rider') return;
@@ -406,23 +388,25 @@ export default function RiderDashboard() {
   };
 
   const handleSendCustomerMessage = (text: string) => {
-    if (!customerChatDelivery) return;
+    if (!customerChatDeliveryId) return;
     const now = new Date();
     const timeStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
     const dateStr = now.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
     
     const formattedMessage = `[${dateStr} ${timeStr} - Motoboy (${user?.name})]: ${text}`;
-    const updatedChat = customerChatDelivery.customerChat ? `${customerChatDelivery.customerChat}\n${formattedMessage}` : formattedMessage;
+    const currentDelivery = deliveries.find(d => d.id === customerChatDeliveryId);
+    if (!currentDelivery) return;
+
+    const updatedChat = currentDelivery.customerChat ? `${currentDelivery.customerChat}\n${formattedMessage}` : formattedMessage;
 
     const allDeliveries = db.getDeliveries();
-    const updated = allDeliveries.map(d => d.id === customerChatDelivery.id ? {
+    const updated = allDeliveries.map(d => d.id === customerChatDeliveryId ? {
       ...d,
       customerChat: updatedChat,
       updatedAt: new Date().toISOString()
     } : d);
 
     db.setDeliveries(updated);
-    setCustomerChatDelivery({ ...customerChatDelivery, customerChat: updatedChat });
     loadData();
   };
 
@@ -461,6 +445,11 @@ export default function RiderDashboard() {
 
   const scheduledEstsToday = getScheduledEstablishmentsToday();
   const todaySchedule = schedules.find(s => s.date === todayStr);
+
+  // Derivação de Estados dos Chats em Tempo Real
+  const activeNotesDelivery = deliveries.find(d => d.id === notesDeliveryId) || null;
+  const activeCustomerChatDelivery = deliveries.find(d => d.id === customerChatDeliveryId) || null;
+  const activeScheduleChat = schedules.find(s => s.id === activeScheduleChatId) || null;
 
   return (
     <div className="min-h-screen bg-slate-50 pb-16">
@@ -615,7 +604,7 @@ export default function RiderDashboard() {
                   </div>
                 </div>
                 <button
-                  onClick={() => setActiveScheduleChat(todaySchedule)}
+                  onClick={() => setActiveScheduleChatId(todaySchedule.id)}
                   className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-xs font-bold transition-colors shadow-sm"
                 >
                   Abrir Chat
@@ -714,7 +703,7 @@ export default function RiderDashboard() {
                         <div className="flex items-center space-x-2">
                           {/* Botão Chat com Estabelecimento */}
                           <button
-                            onClick={() => setNotesDelivery(delivery)}
+                            onClick={() => setNotesDeliveryId(delivery.id)}
                             className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors relative"
                             title="Chat com Estabelecimento"
                           >
@@ -725,7 +714,7 @@ export default function RiderDashboard() {
                           {/* Botão Chat com Cliente */}
                           {delivery.status === 'active' && (
                             <button
-                              onClick={() => setCustomerChatDelivery(delivery)}
+                              onClick={() => setCustomerChatDeliveryId(delivery.id)}
                               className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors relative"
                               title="Chat com Cliente"
                             >
@@ -872,7 +861,7 @@ export default function RiderDashboard() {
                         </div>
                         {isTransition && (
                           <button
-                            onClick={() => setActiveScheduleChat(schedule)}
+                            onClick={() => setActiveScheduleChatId(schedule.id)}
                             className="flex items-center gap-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold py-2 px-3 rounded-lg transition-colors"
                           >
                             <MessageSquare className="h-3.5 w-3.5" />
@@ -1167,9 +1156,9 @@ export default function RiderDashboard() {
 
       {/* MODAL DE OBSERVAÇÕES / CHAT COM ESTABELECIMENTO */}
       <DeliveryNotesModal
-        isOpen={!!notesDelivery}
-        onClose={() => setNotesDelivery(null)}
-        delivery={notesDelivery}
+        isOpen={!!notesDeliveryId}
+        onClose={() => setNotesDeliveryId(null)}
+        delivery={activeNotesDelivery}
         userRole="rider"
         userName={user?.name || 'Motoboy'}
         onSaveNotes={handleSaveNotes}
@@ -1177,17 +1166,17 @@ export default function RiderDashboard() {
 
       {/* MODAL DE CHAT COM CLIENTE */}
       <CustomerChatModal
-        isOpen={!!customerChatDelivery}
-        onClose={() => setCustomerChatDelivery(null)}
-        delivery={customerChatDelivery}
+        isOpen={!!customerChatDeliveryId}
+        onClose={() => setCustomerChatDeliveryId(null)}
+        delivery={activeCustomerChatDelivery}
         onSendMessage={handleSendCustomerMessage}
         viewerRole="rider"
       />
 
       {/* MODAL DE CHAT DE TURNO */}
       <ScheduleChatModal
-        isOpen={!!activeScheduleChat}
-        onClose={() => setActiveScheduleChat(null)}
+        isOpen={!!activeScheduleChatId}
+        onClose={() => setActiveScheduleChatId(null)}
         schedule={activeScheduleChat}
         userRole="rider"
         userName={user?.name || 'Motoboy'}

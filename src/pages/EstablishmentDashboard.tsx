@@ -30,7 +30,7 @@ import {
 import L from 'leaflet';
 import DeliveryNotesModal from '../components/DeliveryNotesModal';
 import ScheduleChatModal from '../components/ScheduleChatModal';
-import { sendDeviceNotification } from '../utils/notifications';
+import { sendDeviceNotification, playNotificationSound } from '../utils/notifications';
 
 export default function EstablishmentDashboard() {
   const navigate = useNavigate();
@@ -72,11 +72,9 @@ export default function EstablishmentDashboard() {
     notes: ''
   });
 
-  // Modal de Observações/Chat
-  const [notesDelivery, setNotesDelivery] = useState<Delivery | null>(null);
-
-  // Modal de Chat de Turno/Escala
-  const [activeScheduleChat, setActiveScheduleChat] = useState<Schedule | null>(null);
+  // IDs dos Modais Ativos para Sincronização em Tempo Real
+  const [notesDeliveryId, setNotesDeliveryId] = useState<string | null>(null);
+  const [activeScheduleChatId, setActiveScheduleChatId] = useState<string | null>(null);
 
   // Map reference
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -124,18 +122,6 @@ export default function EstablishmentDashboard() {
 
     const locations = db.getRiderLocations();
     setRiderLocations(locations);
-
-    // Atualiza o delivery selecionado no modal de notas se ele estiver aberto
-    if (notesDelivery) {
-      const updatedDelivery = allDeliveries.find(d => d.id === notesDelivery.id);
-      if (updatedDelivery) setNotesDelivery(updatedDelivery);
-    }
-
-    // Atualiza a escala selecionada no modal de chat de turno se estiver aberto
-    if (activeScheduleChat) {
-      const updatedSchedule = estSchedules.find(s => s.id === activeScheduleChat.id);
-      if (updatedSchedule) setActiveScheduleChat(updatedSchedule);
-    }
   };
 
   useEffect(() => {
@@ -193,6 +179,9 @@ export default function EstablishmentDashboard() {
                 `Pedido #${d.orderNumber || d.id.slice(-4)} (${rider?.name || 'Entregador'}): "${messageText}"`
               );
 
+              // Tocar som de notificação
+              playNotificationSound();
+
               // 2. Alerta Visual na Tela
               const alertDiv = document.createElement('div');
               alertDiv.className = 'fixed top-4 left-4 right-4 bg-indigo-600 text-white p-4 rounded-xl shadow-2xl z-50 flex items-center justify-between animate-bounce max-w-md mx-auto';
@@ -238,6 +227,9 @@ export default function EstablishmentDashboard() {
                 `Mensagem de Turno de ${rider?.name || 'Motoboy'}`,
                 `"${messageText}"`
               );
+
+              // Tocar som de notificação
+              playNotificationSound();
 
               // 2. Alerta Visual na Tela (Toast)
               const alertDiv = document.createElement('div');
@@ -645,6 +637,10 @@ export default function EstablishmentDashboard() {
   const pendingDeliveries = allDeliveries.filter(d => d.establishmentId === user?.establishmentId && d.status === 'pending');
   const processedDeliveries = todayDeliveries.filter(d => d.status !== 'pending');
 
+  // Derivação de Estados dos Chats em Tempo Real
+  const activeNotesDelivery = allDeliveries.find(d => d.id === notesDeliveryId) || null;
+  const activeScheduleChat = todaySchedules.find(s => s.id === activeScheduleChatId) || null;
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
       {/* Header */}
@@ -746,7 +742,7 @@ export default function EstablishmentDashboard() {
                         <span className="font-bold text-amber-700 text-lg">R$ {del.value.toFixed(2)}</span>
                         <div className="flex items-center space-x-1">
                           <button
-                            onClick={() => setNotesDelivery(del)}
+                            onClick={() => setNotesDeliveryId(del.id)}
                             className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
                             title="Chat de Observações"
                           >
@@ -845,7 +841,7 @@ export default function EstablishmentDashboard() {
                         <div className="flex items-center space-x-2">
                           {riderSchedule && (
                             <button
-                              onClick={() => setActiveScheduleChat(riderSchedule)}
+                              onClick={() => setActiveScheduleChatId(riderSchedule.id)}
                               className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors relative"
                               title="Chat de Turno"
                             >
@@ -945,7 +941,7 @@ export default function EstablishmentDashboard() {
                           <td className="py-3 px-4 text-right whitespace-nowrap">
                             <div className="flex items-center justify-end space-x-1">
                               <button
-                                onClick={() => setNotesDelivery(del)}
+                                onClick={() => setNotesDeliveryId(del.id)}
                                 className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
                                 title="Chat de Observações"
                               >
@@ -1160,9 +1156,9 @@ export default function EstablishmentDashboard() {
 
       {/* MODAL DE OBSERVAÇÕES / CHAT */}
       <DeliveryNotesModal
-        isOpen={!!notesDelivery}
-        onClose={() => setNotesDelivery(null)}
-        delivery={notesDelivery}
+        isOpen={!!notesDeliveryId}
+        onClose={() => setNotesDeliveryId(null)}
+        delivery={activeNotesDelivery}
         userRole="establishment"
         userName={user?.name || 'Gerente'}
         onSaveNotes={handleSaveNotes}
@@ -1170,8 +1166,8 @@ export default function EstablishmentDashboard() {
 
       {/* MODAL DE CHAT DE TURNO */}
       <ScheduleChatModal
-        isOpen={!!activeScheduleChat}
-        onClose={() => setActiveScheduleChat(null)}
+        isOpen={!!activeScheduleChatId}
+        onClose={() => setActiveScheduleChatId(null)}
         schedule={activeScheduleChat}
         userRole="establishment"
         userName={user?.name || 'Gerente'}
