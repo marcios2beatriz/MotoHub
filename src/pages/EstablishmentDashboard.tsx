@@ -89,6 +89,7 @@ export default function EstablishmentDashboard() {
   
   // Ref para controlar se já fizemos o enquadramento inicial do mapa
   const hasSetInitialBoundsRef = useRef(false);
+  const hasCenteredEstRef = useRef(false);
 
   const handleLogout = () => {
     db.setCurrentUser(null);
@@ -476,6 +477,7 @@ export default function EstablishmentDashboard() {
         mapRef.current = null;
         markersRef.current = {};
         hasSetInitialBoundsRef.current = false;
+        hasCenteredEstRef.current = false;
       }
     };
   }, [establishment?.id]);
@@ -506,7 +508,7 @@ export default function EstablishmentDashboard() {
         existingMarker.setLatLng([loc.lat, loc.lng]);
       } else {
         const riderIcon = L.divIcon({
-          html: `<div style="background-color: #10b981; color: white; width: 36px; height: 36px; border-radius: 50%; border: 2px solid white; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); display: flex; align-items: center; justify-content: center;"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="15" width="14" height="4" rx="1"/><path d="M12 15V5a2 2 0 0 0-2-2H4"/><path d="M12 5h7a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h-7"/></svg></div>`,
+          html: `<div style="background-color: #10b981; color: white; width: 36px; height: 36px; border-radius: 50%; border: 2px solid white; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); display: flex; align-items: center; justify-content: center;"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="18" r="3" /><circle cx="18" cy="18" r="3" /><path d="M18 18v-3l-3-4H9l-3 4v3" /><rect x="8" y="6" width="5" height="5" rx="1" /><path d="M15 11l1.5-4.5H19" /></svg></div>`,
           className: 'custom-rider-icon',
           iconSize: [36, 36],
           iconAnchor: [18, 18]
@@ -520,7 +522,7 @@ export default function EstablishmentDashboard() {
       }
     });
 
-    // Ajustar o enquadramento do mapa APENAS se ainda não tiver sido feito
+    // Ajustar o enquadramento do mapa APENAS se ainda não tiver sido feito (Centralização Inteligente Única)
     if (!hasSetInitialBoundsRef.current) {
       const points: L.LatLngExpression[] = [];
       if (estCoords) {
@@ -538,9 +540,9 @@ export default function EstablishmentDashboard() {
         const bounds = L.latLngBounds(points);
         currentMap.fitBounds(bounds, { padding: [50, 50], maxZoom: 17 });
         hasSetInitialBoundsRef.current = true;
-      } else if (points.length === 1) {
+      } else if (points.length === 1 && !hasCenteredEstRef.current) {
         currentMap.setView(points[0], 17);
-        hasSetInitialBoundsRef.current = true;
+        hasCenteredEstRef.current = true;
       }
     }
   }, [scheduledRiders, riderLocations, estCoords]);
