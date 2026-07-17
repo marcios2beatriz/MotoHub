@@ -58,7 +58,7 @@ export default function EstablishmentDashboard() {
   // Map expansion state
   const [isMapExpanded, setIsMapExpanded] = useState(false);
 
-  // Ref para armazenar o estado anterior das notas e evitar notificações duplicadas
+  // Ref para armazenar o estado anterior das notas e chats para evitar notificações duplicadas
   const prevNotesRef = useRef<Record<string, string>>({});
   const prevScheduleChatRef = useRef<Record<string, string>>({});
 
@@ -169,7 +169,7 @@ export default function EstablishmentDashboard() {
     };
   }, [user, navigate]);
 
-  // Monitoramento de novas mensagens no chat para disparar notificações
+  // Monitoramento de novas mensagens no chat com Motoboy/Cliente sobre o pedido
   useEffect(() => {
     todayDeliveries.forEach(d => {
       const prevNotes = prevNotesRef.current[d.id];
@@ -195,7 +195,7 @@ export default function EstablishmentDashboard() {
 
               // 2. Alerta Visual na Tela
               const alertDiv = document.createElement('div');
-              alertDiv.className = 'fixed top-4 left-4 right-4 bg-indigo-600 text-white p-4 rounded-xl shadow-2xl z-50 flex items-center justify-between animate-bounce';
+              alertDiv.className = 'fixed top-4 left-4 right-4 bg-indigo-600 text-white p-4 rounded-xl shadow-2xl z-50 flex items-center justify-between animate-bounce max-w-md mx-auto';
               alertDiv.innerHTML = `
                 <div class="flex items-center gap-2">
                   <span class="text-lg">💬</span>
@@ -233,10 +233,28 @@ export default function EstablishmentDashboard() {
               const rider = db.getUsers().find(u => u.id === s.riderId);
               const messageText = line.substring(line.indexOf(']: ') + 3);
               
+              // 1. Notificação Nativa
               sendDeviceNotification(
                 `Mensagem de Turno de ${rider?.name || 'Motoboy'}`,
                 `"${messageText}"`
               );
+
+              // 2. Alerta Visual na Tela (Toast)
+              const alertDiv = document.createElement('div');
+              alertDiv.className = 'fixed top-4 left-4 right-4 bg-indigo-600 text-white p-4 rounded-xl shadow-2xl z-50 flex items-center justify-between animate-bounce max-w-md mx-auto';
+              alertDiv.innerHTML = `
+                <div class="flex items-center gap-2">
+                  <span class="text-lg">💬</span>
+                  <div>
+                    <p class="font-bold text-xs uppercase tracking-wider">Mensagem de Turno de ${rider?.name || 'Motoboy'}</p>
+                    <p class="text-sm font-medium">${messageText}</p>
+                  </div>
+                </div>
+                <button class="text-white/80 hover:text-white font-bold text-sm px-2 py-1">OK</button>
+              `;
+              alertDiv.querySelector('button')?.addEventListener('click', () => alertDiv.remove());
+              document.body.appendChild(alertDiv);
+              setTimeout(() => alertDiv.remove(), 6000);
             }
           });
         }
@@ -443,7 +461,7 @@ export default function EstablishmentDashboard() {
     }
     
     riderLocations.forEach(loc => {
-      if (scheduledRiderIds.includes(loc.riderId)) {
+      if (scheduledRiderIds.includes(scheduledRiderIds)) {
         points.push([loc.lat, loc.lng]);
       }
     });
