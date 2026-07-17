@@ -27,6 +27,9 @@ import {
   MessageSquare
 } from 'lucide-react';
 import DeliveryNotesModal from '../components/DeliveryNotesModal';
+import CustomerChatModal from '../components/CustomerChatModal';
+import ScheduleChatModal from '../components/ScheduleChatModal';
+import { sendDeviceNotification, playNotificationSound } from '../utils/notifications';
 
 export default function RiderDashboard() {
   const navigate = useNavigate();
@@ -41,6 +44,11 @@ export default function RiderDashboard() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const watchIdRef = useRef<number | null>(null);
 
+  // Refs para armazenar o estado anterior das notas e chats para evitar notificações duplicadas
+  const prevNotesRef = useRef<Record<string, string>>({});
+  const prevChatRef = useRef<Record<string, string>>({});
+  const prevScheduleChatRef = useRef<Record<string, string>>({});
+
   // Modal de Lançar/Editar Corrida
   const [showLaunchModal, setShowLaunchModal] = useState(false);
   const [editingDelivery, setEditingDelivery] = useState<Delivery | null>(null);
@@ -51,8 +59,10 @@ export default function RiderDashboard() {
     notes: ''
   });
 
-  // Modal de Observações/Chat
-  const [notesDelivery, setNotesDelivery] = useState<Delivery | null>(null);
+  // IDs dos Modais Ativos para Sincronização em Tempo Real
+  const [notesDeliveryId, setNotesDeliveryId] = useState<string | null>(null);
+  const [customerChatDeliveryId, setCustomerChatDeliveryId] = useState<string | null>(null);
+  const [activeScheduleChatId, setActiveScheduleChatId] = useState<string | null>(null);
 
   // Filtros das escalas futuras
   const [scheduleEstFilter, setScheduleEstFilter] = useState('');
@@ -73,12 +83,6 @@ export default function RiderDashboard() {
     setDeliveries(allDeliveries);
     setNotifications(allNotifications);
     setEstablishments(allEsts);
-
-    // Atualiza o delivery selecionado no modal de notas se ele estiver aberto
-    if (notesDelivery) {
-      const updatedDelivery = allDeliveries.find(d => d.id === notesDelivery.id);
-      if (updatedDelivery) setNotesDelivery(updatedDelivery);
-    }
   };
 
   useEffect(() => {
@@ -89,6 +93,98 @@ export default function RiderDashboard() {
     loadData();
   }, [user, navigate, activeTab]);
 
+  // Monitoramento de novas mensagens no chat com Estabelecimento
+  useEffect(() => {
+    deliveries.forEach(d => {
+      const prevNotes = prevNotesRef.current[d.id];
+      if (prevNotes !== undefined && d.notes && d.notes !== prevNotes) {
+        const prevLines = prevNotes ? prevNotes.split('\n') : [];
+        const currentLines = d.notes.split('\n');
+
+        if (currentLines.length > prevLines.length) {
+          const newLines = currentLines.slice(prevLines.length);
+          newLines.forEach(line => {
+            const isMe = line.includes('- Motoboy') || line.includes(`(${user?.name})`);
+            if (!isMe) {
+              const est = establishments.find(e => e.id === d.establishmentId);
+              const messageText = line.substring(line.indexOf(']: ') + 3);
+              
+              sendDeviceNotification(
+                `Mensagem do Estabelecimento`,
+                `Pedido #${d.orderNumber || d.id.slice(-4)} (${est?.name || 'Corrida'}): "${messageText}"`
+              );
+
+              // Tocar som de notificação
+              playNotificationSound();
+            }
+          });
+        }
+      }
+      prevNotesRef.current[d.id] = d.notes || '';
+    });
+  }, [deliveries, user, establishments]);
+
+  // Monitoramento de novas mensagens no chat com Cliente
+  useEffect(() => {
+    deliveries.forEach(d => {
+      const prevChat = prevChatRef.current[d.id];
+      if (prevChat !== undefined && d.customerChat && d.customerChat !== prevChat) {
+        const prevLines = prevChat ? prevChat.split('\n') : [];
+        const currentLines = d.customerChat.split('\n');
+
+        if (currentLines.length > prevLines.length) {
+          const newLines = currentLines.slice(prevLines.length);
+          newLines.forEach(line => {
+            const isMe = line.includes('- Motoboy') || line.includes(`(${user?.name})`);
+            if (!isMe) {
+              const messageText = line.substring(line.indexOf(']: ') + 3);
+              
+              sendDeviceNotification(
+                `Mensagem do Cliente`,
+                `Pedido #${d.orderNumber || d.id.slice(-4)}: "${messageText}"`
+              );
+
+              // Tocar som de notificação
+              playNotificationSound();
+            }
+          });
+        }
+      }
+      prevChatRef.current[d.id] = d.customerChat || '';
+    });
+  }, [deliveries, user]);
+
+  // Monitoramento de novas mensagens no chat de turno
+  useEffect(() => {
+    schedules.forEach(s => {
+      const prevChat = prevScheduleChatRef.current[s.id];
+      if (prevChat !== undefined && s.chat && s.chat !== prevChat) {
+        const prevLines = prevChat ? prevChat.split('\n') : [];
+        const currentLines = s.chat.split('\n');
+
+        if (currentLines.length > prevLines.length) {
+          const newLines = currentLines.slice(prevLines.length);
+          newLines.forEach(line => {
+            const isMe = line.includes('- Motoboy') || line.includes(`(${user?.name})`);
+            if (!isMe) {
+              const est = establishments.find(e => e.id === s.establishmentId);
+              const messageText = line.substring(line.indexOf(']: ') + 3);
+              
+              sendDeviceNotification(
+                `Mensagem de Turno de ${est?.name || 'Estabelecimento'}`,
+                `"${messageText}"`
+              );
+
+              // Tocar som de notificação
+              playNotificationSound();
+            }
+          });
+        }
+      }
+      prevScheduleChatRef.current[s.id] = s.chat || '';
+    });
+  }, [schedules, user, establishments]);
+
   useEffect(() => {
     const handleSyncComplete = () => {
       loadData();
@@ -97,9 +193,8 @@ export default function RiderDashboard() {
     return () => {
       window.removeEventListener('db-sync-complete', handleSyncComplete);
     };
-  }, [user, notesDelivery]);
+  }, [user]);
 
-  // Função para iniciar o rastreamento GPS de forma robusta
   const startGpsTracking = () => {
     if (!user || user.role !== 'rider') return;
     
@@ -111,10 +206,6 @@ export default function RiderDashboard() {
     if (!navigator.geolocation) {
       setGpsStatus('error');
       return;
-    }
-
-    if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-      console.warn("A API de Geolocalização requer um contexto seguro (HTTPS ou localhost).");
     }
 
     setGpsStatus('requesting');
@@ -137,14 +228,11 @@ export default function RiderDashboard() {
 
     const options: PositionOptions = {
       enableHighAccuracy: true,
-      maximumAge: 0, // Força a busca de uma posição nova, não cacheada
+      maximumAge: 0,
       timeout: 15000
     };
 
-    // Captura imediata da posição atual para atualizar o mapa instantaneamente
     navigator.geolocation.getCurrentPosition(onSuccess, onError, options);
-
-    // Inicia o monitoramento contínuo de mudanças de posição
     watchIdRef.current = navigator.geolocation.watchPosition(onSuccess, onError, options);
   };
 
@@ -172,13 +260,12 @@ export default function RiderDashboard() {
     });
   };
 
-  // Cálculos de faturamento
   const getTodayDateString = () => db.getLocalDateString();
 
   const getStartOfWeek = () => {
     const today = new Date();
     const day = today.getDay();
-    const diff = today.getDate() - day + (day === 0 ? -6 : 1); // Segunda-feira
+    const diff = today.getDate() - day + (day === 0 ? -6 : 1);
     const start = new Date(today.setDate(diff));
     start.setHours(0,0,0,0);
     return start;
@@ -206,7 +293,6 @@ export default function RiderDashboard() {
     return dDate >= startOfMonth && d.status === 'active';
   }).reduce((sum, d) => sum + d.value, 0);
 
-  // Escalas dos próximos 30 dias
   const getFutureSchedules = () => {
     const today = new Date();
     today.setHours(0,0,0,0);
@@ -238,7 +324,6 @@ export default function RiderDashboard() {
     db.setNotifications(updatedAll);
   };
 
-  // Filtrar estabelecimentos onde o motoboy está escalado HOJE
   const getScheduledEstablishmentsToday = () => {
     const todaySchedules = schedules.filter(s => s.date === todayStr);
     const scheduledIds = todaySchedules.map(s => s.establishmentId);
@@ -260,7 +345,6 @@ export default function RiderDashboard() {
     const nowStr = new Date().toISOString();
 
     if (editingDelivery) {
-      // Editar corrida existente (apenas se estiver pendente)
       if (editingDelivery.status !== 'pending') {
         alert('Erro: Apenas corridas pendentes podem ser editadas.');
         return;
@@ -279,7 +363,6 @@ export default function RiderDashboard() {
       db.setDeliveries(updated);
       alert('Corrida atualizada com sucesso! Aguardando aprovação.');
     } else {
-      // Criar nova corrida
       const newDelivery: Delivery = {
         id: 'd_' + Date.now(),
         riderId: user.id,
@@ -304,6 +387,29 @@ export default function RiderDashboard() {
     loadData();
   };
 
+  const handleSendCustomerMessage = (text: string) => {
+    if (!customerChatDeliveryId) return;
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const dateStr = now.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+    
+    const formattedMessage = `[${dateStr} ${timeStr} - Motoboy (${user?.name})]: ${text}`;
+    const currentDelivery = deliveries.find(d => d.id === customerChatDeliveryId);
+    if (!currentDelivery) return;
+
+    const updatedChat = currentDelivery.customerChat ? `${currentDelivery.customerChat}\n${formattedMessage}` : formattedMessage;
+
+    const allDeliveries = db.getDeliveries();
+    const updated = allDeliveries.map(d => d.id === customerChatDeliveryId ? {
+      ...d,
+      customerChat: updatedChat,
+      updatedAt: new Date().toISOString()
+    } : d);
+
+    db.setDeliveries(updated);
+    loadData();
+  };
+
   const handleSaveNotes = (deliveryId: string, updatedNotes: string) => {
     const allDeliveries = db.getDeliveries();
     const updated = allDeliveries.map(d => d.id === deliveryId ? {
@@ -312,6 +418,17 @@ export default function RiderDashboard() {
       updatedAt: new Date().toISOString()
     } : d);
     db.setDeliveries(updated);
+    loadData();
+  };
+
+  const handleSaveScheduleChat = (scheduleId: string, updatedChat: string) => {
+    const allSchedules = db.getSchedules();
+    const updated = allSchedules.map(s => s.id === scheduleId ? {
+      ...s,
+      chat: updatedChat,
+      updatedAt: new Date().toISOString()
+    } : s);
+    db.setSchedules(updated);
     loadData();
   };
 
@@ -327,6 +444,12 @@ export default function RiderDashboard() {
   };
 
   const scheduledEstsToday = getScheduledEstablishmentsToday();
+  const todaySchedule = schedules.find(s => s.date === todayStr);
+
+  // Derivação de Estados dos Chats em Tempo Real
+  const activeNotesDelivery = deliveries.find(d => d.id === notesDeliveryId) || null;
+  const activeCustomerChatDelivery = deliveries.find(d => d.id === customerChatDeliveryId) || null;
+  const activeScheduleChat = schedules.find(s => s.id === activeScheduleChatId) || null;
 
   return (
     <div className="min-h-screen bg-slate-50 pb-16">
@@ -468,6 +591,27 @@ export default function RiderDashboard() {
               )}
             </div>
 
+            {/* Card de Chat de Turno Rápido */}
+            {todaySchedule && (
+              <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-indigo-100 text-indigo-600 rounded-lg">
+                    <MessageSquare className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <p className="font-bold text-sm text-indigo-900">Chat de Turno Ativo</p>
+                    <p className="text-xs text-indigo-700">Fale diretamente com o gerente do estabelecimento hoje.</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setActiveScheduleChatId(todaySchedule.id)}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-xs font-bold transition-colors shadow-sm"
+                >
+                  Abrir Chat
+                </button>
+              </div>
+            )}
+
             {/* Cards de Faturamento */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-4">
@@ -557,13 +701,28 @@ export default function RiderDashboard() {
                           )}
                         </div>
                         <div className="flex items-center space-x-2">
+                          {/* Botão Chat com Estabelecimento */}
                           <button
-                            onClick={() => setNotesDelivery(delivery)}
+                            onClick={() => setNotesDeliveryId(delivery.id)}
                             className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors relative"
-                            title="Chat de Observações"
+                            title="Chat com Estabelecimento"
                           >
                             <MessageSquare className="h-4 w-4" />
+                            <span className="absolute -top-1 -right-1 bg-indigo-600 text-white text-[8px] px-1 rounded-full">Est</span>
                           </button>
+
+                          {/* Botão Chat com Cliente */}
+                          {delivery.status === 'active' && (
+                            <button
+                              onClick={() => setCustomerChatDeliveryId(delivery.id)}
+                              className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors relative"
+                              title="Chat com Cliente"
+                            >
+                              <MessageSquare className="h-4 w-4" />
+                              <span className="absolute -top-1 -right-1 bg-emerald-600 text-white text-[8px] px-1 rounded-full">Cli</span>
+                            </button>
+                          )}
+
                           {delivery.status === 'active' && (
                             <button
                               onClick={() => handleShareTracking(delivery.id)}
@@ -700,6 +859,15 @@ export default function RiderDashboard() {
                             <span className="font-semibold text-slate-700 bg-slate-100 px-2 py-0.5 rounded text-xs">{schedule.startTime} - {schedule.endTime}</span>
                           </p>
                         </div>
+                        {isTransition && (
+                          <button
+                            onClick={() => setActiveScheduleChatId(schedule.id)}
+                            className="flex items-center gap-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold py-2 px-3 rounded-lg transition-colors"
+                          >
+                            <MessageSquare className="h-3.5 w-3.5" />
+                            <span>Chat de Turno</span>
+                          </button>
+                        )}
                       </div>
 
                       {est && (
@@ -835,7 +1003,7 @@ export default function RiderDashboard() {
                               <span className="font-mono text-slate-600 text-xs bg-slate-100 px-1.5 py-0.5 rounded">{schedule.startTime} — {schedule.endTime}</span>
                             </p>
                           </div>
-                          <span className="bg-slate-100 text-slate-500 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase flex-shrink-0">
+                          <span className="bg-slate-100 text-slate-500 text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase flex-shrink-0">
                             Concluída
                           </span>
                         </div>
@@ -986,14 +1154,33 @@ export default function RiderDashboard() {
         </div>
       )}
 
-      {/* MODAL DE OBSERVAÇÕES / CHAT */}
+      {/* MODAL DE OBSERVAÇÕES / CHAT COM ESTABELECIMENTO */}
       <DeliveryNotesModal
-        isOpen={!!notesDelivery}
-        onClose={() => setNotesDelivery(null)}
-        delivery={notesDelivery}
+        isOpen={!!notesDeliveryId}
+        onClose={() => setNotesDeliveryId(null)}
+        delivery={activeNotesDelivery}
         userRole="rider"
         userName={user?.name || 'Motoboy'}
         onSaveNotes={handleSaveNotes}
+      />
+
+      {/* MODAL DE CHAT COM CLIENTE */}
+      <CustomerChatModal
+        isOpen={!!customerChatDeliveryId}
+        onClose={() => setCustomerChatDeliveryId(null)}
+        delivery={activeCustomerChatDelivery}
+        onSendMessage={handleSendCustomerMessage}
+        viewerRole="rider"
+      />
+
+      {/* MODAL DE CHAT DE TURNO */}
+      <ScheduleChatModal
+        isOpen={!!activeScheduleChatId}
+        onClose={() => setActiveScheduleChatId(null)}
+        schedule={activeScheduleChat}
+        userRole="rider"
+        userName={user?.name || 'Motoboy'}
+        onSaveChat={handleSaveScheduleChat}
       />
     </div>
   );

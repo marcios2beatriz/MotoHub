@@ -29,6 +29,8 @@ import {
 // Leaflet imports
 import L from 'leaflet';
 import DeliveryNotesModal from '../components/DeliveryNotesModal';
+import ScheduleChatModal from '../components/ScheduleChatModal';
+import { sendDeviceNotification, playNotificationSound } from '../utils/notifications';
 
 export default function EstablishmentDashboard() {
   const navigate = useNavigate();
@@ -56,6 +58,10 @@ export default function EstablishmentDashboard() {
   // Map expansion state
   const [isMapExpanded, setIsMapExpanded] = useState(false);
 
+  // Ref para armazenar o estado anterior das notas e chats para evitar notificações duplicadas
+  const prevNotesRef = useRef<Record<string, string>>({});
+  const prevScheduleChatRef = useRef<Record<string, string>>({});
+
   // Form state
   const [showDeliveryModal, setShowDeliveryModal] = useState(false);
   const [editingDelivery, setEditingDelivery] = useState<Delivery | null>(null);
@@ -66,8 +72,9 @@ export default function EstablishmentDashboard() {
     notes: ''
   });
 
-  // Modal de Observações/Chat
-  const [notesDelivery, setNotesDelivery] = useState<Delivery | null>(null);
+  // IDs dos Modais Ativos para Sincronização em Tempo Real
+  const [notesDeliveryId, setNotesDeliveryId] = useState<string | null>(null);
+  const [activeScheduleChatId, setActiveScheduleChatId] = useState<string | null>(null);
 
   // Map reference
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -76,6 +83,11 @@ export default function EstablishmentDashboard() {
   
   // Ref para controlar se já fizemos o enquadramento inicial do mapa
   const hasSetInitialBoundsRef = useRef(false);
+
+  const handleLogout = () => {
+    db.setCurrentUser(null);
+    navigate('/login');
+  };
 
   const loadData = () => {
     const currentUser = db.getCurrentUser();
@@ -110,12 +122,6 @@ export default function EstablishmentDashboard() {
 
     const locations = db.getRiderLocations();
     setRiderLocations(locations);
-
-    // Atualiza o delivery selecionado no modal de notas se ele estiver aberto
-    if (notesDelivery) {
-      const updatedDelivery = allDeliveries.find(d => d.id === notesDelivery.id);
-      if (updatedDelivery) setNotesDelivery(updatedDelivery);
-    }
   };
 
   useEffect(() => {
@@ -149,6 +155,106 @@ export default function EstablishmentDashboard() {
     };
   }, [user, navigate]);
 
+  // Monitoramento de novas mensagens no chat com Motoboy/Cliente sobre o pedido
+  useEffect(() => {
+    todayDeliveries.forEach(d => {
+      const prevNotes = prevNotesRef.current[d.id];
+      if (prevNotes !== undefined && d.notes && d.notes !== prevNotes) {
+        const prevLines = prevNotes ? prevNotes.split('\n') : [];
+        const currentLines = d.notes.split('\n');
+
+        if (currentLines.length > prevLines.length) {
+          const newLines = currentLines.slice(prevLines.length);
+          newLines.forEach(line => {
+            // Verifica se a mensagem foi enviada por outra pessoa (não pelo Estabelecimento)
+            const isMe = line.includes('- Estabelecimento') || line.includes(`(${user?.name})`);
+            if (!isMe) {
+              const rider = db.getUsers().find(u => u.id === d.riderId);
+              const sender = line.includes('- Motoboy') ? 'Motoboy' : 'Cliente';
+              const messageText = line.substring(line.indexOf(']: ') + 3);
+              
+              // 1. Notificação Nativa do Dispositivo
+              sendDeviceNotification(
+                `Nova mensagem de ${sender}`,
+                `Pedido #${d.orderNumber || d.id.slice(-4)} (${rider?.name || 'Entregador'}): "${messageText}"`
+              );
+
+              // Tocar som de notificação
+              playNotificationSound();
+
+              // 2. Alerta Visual na Tela
+              const alertDiv = document.createElement('div');
+              alertDiv.className = 'fixed top-4 left-4 right-4 bg-indigo-600 text-white p-4 rounded-xl shadow-2xl z-50 flex items-center justify-between animate-bounce max-w-md mx-auto';
+              alertDiv.innerHTML = `
+                <div class="flex items-center gap-2">
+                  <span class="text-lg">💬</span>
+                  <div>
+                    <p class="font-bold text-xs uppercase tracking-wider">Mensagem de ${sender}</p>
+                    <p class="text-sm font-medium">${messageText}</p>
+                  </div>
+                </div>
+                <button class="text-white/80 hover:text-white font-bold text-sm px-2 py-1">OK</button>
+              `;
+              alertDiv.querySelector('button')?.addEventListener('click', () => alertDiv.remove());
+              document.body.appendChild(alertDiv);
+              setTimeout(() => alertDiv.remove(), 6000);
+            }
+          });
+        }
+      }
+      prevNotesRef.current[d.id] = d.notes || '';
+    });
+  }, [todayDeliveries, user]);
+
+  // Monitoramento de novas mensagens no chat de turno
+  useEffect(() => {
+    todaySchedules.forEach(s => {
+      const prevChat = prevScheduleChatRef.current[s.id];
+      if (prevChat !== undefined && s.chat && s.chat !== prevChat) {
+        const prevLines = prevChat ? prevChat.split('\n') : [];
+        const currentLines = s.chat.split('\n');
+
+        if (currentLines.length > prevLines.length) {
+          const newLines = currentLines.slice(prevLines.length);
+          newLines.forEach(line => {
+            const isMe = line.includes('- Estabelecimento') || line.includes(`(${user?.name})`);
+            if (!isMe) {
+              const rider = db.getUsers().find(u => u.id === s.riderId);
+              const messageText = line.substring(line.indexOf(']: ') + 3);
+              
+              // 1. Notificação Nativa
+              sendDeviceNotification(
+                `Mensagem de Turno de ${rider?.name || 'Motoboy'}`,
+                `"${messageText}"`
+              );
+
+              // Tocar som de notificação
+              playNotificationSound();
+
+              // 2. Alerta Visual na Tela (Toast)
+              const alertDiv = document.createElement('div');
+              alertDiv.className = 'fixed top-4 left-4 right-4 bg-indigo-600 text-white p-4 rounded-xl shadow-2xl z-50 flex items-center justify-between animate-bounce max-w-md mx-auto';
+              alertDiv.innerHTML = `
+                <div class="flex items-center gap-2">
+                  <span class="text-lg">💬</span>
+                  <div>
+                    <p class="font-bold text-xs uppercase tracking-wider">Mensagem de Turno de ${rider?.name || 'Motoboy'}</p>
+                    <p class="text-sm font-medium">${messageText}</p>
+                  </div>
+                </div>
+                <button class="text-white/80 hover:text-white font-bold text-sm px-2 py-1">OK</button>
+              `;
+              alertDiv.querySelector('button')?.addEventListener('click', () => alertDiv.remove());
+              document.body.appendChild(alertDiv);
+              setTimeout(() => alertDiv.remove(), 6000);
+            }
+          });
+        }
+      }
+      prevScheduleChatRef.current[s.id] = s.chat || '';
+    });
+  }, [todaySchedules, user]);
+
   // 1. Hook de Inicialização Única do Mapa (Vinculado apenas ao ID do estabelecimento)
   useEffect(() => {
     if (!establishment || !mapContainerRef.current) return;
@@ -167,7 +273,7 @@ export default function EstablishmentDashboard() {
 
     const initMap = async (lat: number, lng: number) => {
       if (mapRef.current) return;
-      const mapInstance = L.map(mapContainerRef.current!).setView([lat, lng], 16);
+      const mapInstance = L.map(mapContainerRef.current!).setView([lat, lng], 17);
       mapRef.current = mapInstance;
 
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -318,10 +424,10 @@ export default function EstablishmentDashboard() {
 
       if (points.length >= 2) {
         const bounds = L.latLngBounds(points);
-        currentMap.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
+        currentMap.fitBounds(bounds, { padding: [50, 50], maxZoom: 17 });
         hasSetInitialBoundsRef.current = true;
       } else if (points.length === 1) {
-        currentMap.setView(points[0], 16);
+        currentMap.setView(points[0], 17);
         hasSetInitialBoundsRef.current = true;
       }
     }
@@ -335,11 +441,6 @@ export default function EstablishmentDashboard() {
       }, 300);
     }
   }, [isMapExpanded]);
-
-  const handleLogout = () => {
-    db.setCurrentUser(null);
-    navigate('/login');
-  };
 
   const handleRecenterMap = () => {
     const currentMap = mapRef.current;
@@ -359,9 +460,9 @@ export default function EstablishmentDashboard() {
 
     if (points.length >= 2) {
       const bounds = L.latLngBounds(points);
-      currentMap.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
+      currentMap.fitBounds(bounds, { padding: [50, 50], maxZoom: 17 });
     } else if (points.length === 1) {
-      currentMap.setView(points[0], 16);
+      currentMap.setView(points[0], 17);
     }
   };
 
@@ -497,6 +598,17 @@ export default function EstablishmentDashboard() {
     loadData();
   };
 
+  const handleSaveScheduleChat = (scheduleId: string, updatedChat: string) => {
+    const allSchedules = db.getSchedules();
+    const updated = allSchedules.map(s => s.id === scheduleId ? {
+      ...s,
+      chat: updatedChat,
+      updatedAt: new Date().toISOString()
+    } : s);
+    db.setSchedules(updated);
+    loadData();
+  };
+
   const handleCopyTrackingLink = (deliveryId: string) => {
     const link = `${window.location.origin}/#/track/${deliveryId}`;
     navigator.clipboard.writeText(link).then(() => {
@@ -524,6 +636,10 @@ export default function EstablishmentDashboard() {
   const allDeliveries = db.getDeliveries();
   const pendingDeliveries = allDeliveries.filter(d => d.establishmentId === user?.establishmentId && d.status === 'pending');
   const processedDeliveries = todayDeliveries.filter(d => d.status !== 'pending');
+
+  // Derivação de Estados dos Chats em Tempo Real
+  const activeNotesDelivery = allDeliveries.find(d => d.id === notesDeliveryId) || null;
+  const activeScheduleChat = todaySchedules.find(s => s.id === activeScheduleChatId) || null;
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
@@ -607,7 +723,7 @@ export default function EstablishmentDashboard() {
                         <div className="flex items-center space-x-2 flex-wrap gap-y-1">
                           <p className="font-bold text-slate-800">{rider?.name || 'Motoboy'}</p>
                           {del.orderNumber && (
-                            <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded">
+                            <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-2.5 py-0.5 rounded">
                               #{del.orderNumber}
                             </span>
                           )}
@@ -626,7 +742,7 @@ export default function EstablishmentDashboard() {
                         <span className="font-bold text-amber-700 text-lg">R$ {del.value.toFixed(2)}</span>
                         <div className="flex items-center space-x-1">
                           <button
-                            onClick={() => setNotesDelivery(del)}
+                            onClick={() => setNotesDeliveryId(del.id)}
                             className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
                             title="Chat de Observações"
                           >
@@ -708,6 +824,7 @@ export default function EstablishmentDashboard() {
                   const total = getRiderTotalEarnings(rider.id);
                   const count = getRiderDeliveryCount(rider.id);
                   const isOnline = riderLocations.some(l => l.riderId === rider.id && (Date.now() - new Date(l.updatedAt).getTime() < 60000));
+                  const riderSchedule = todaySchedules.find(s => s.riderId === rider.id);
 
                   return (
                     <div key={rider.id} className="border border-slate-200 rounded-xl p-4 bg-slate-50/50 flex flex-col justify-between space-y-3">
@@ -721,7 +838,21 @@ export default function EstablishmentDashboard() {
                             <p className="text-xs text-slate-500">{rider.phone}</p>
                           </div>
                         </div>
-                        <span className={`h-2.5 w-2.5 rounded-full ${isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`} title={isOnline ? 'Online' : 'Offline'} />
+                        <div className="flex items-center space-x-2">
+                          {riderSchedule && (
+                            <button
+                              onClick={() => setActiveScheduleChatId(riderSchedule.id)}
+                              className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors relative"
+                              title="Chat de Turno"
+                            >
+                              <MessageSquare className="h-4 w-4" />
+                              {riderSchedule.chat && (
+                                <span className="absolute top-0 right-0 h-2 w-2 bg-indigo-600 rounded-full" />
+                              )}
+                            </button>
+                          )}
+                          <span className={`h-2.5 w-2.5 rounded-full ${isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`} title={isOnline ? 'Online' : 'Offline'} />
+                        </div>
                       </div>
 
                       <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100">
@@ -810,7 +941,7 @@ export default function EstablishmentDashboard() {
                           <td className="py-3 px-4 text-right whitespace-nowrap">
                             <div className="flex items-center justify-end space-x-1">
                               <button
-                                onClick={() => setNotesDelivery(del)}
+                                onClick={() => setNotesDeliveryId(del.id)}
                                 className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
                                 title="Chat de Observações"
                               >
@@ -1025,12 +1156,22 @@ export default function EstablishmentDashboard() {
 
       {/* MODAL DE OBSERVAÇÕES / CHAT */}
       <DeliveryNotesModal
-        isOpen={!!notesDelivery}
-        onClose={() => setNotesDelivery(null)}
-        delivery={notesDelivery}
+        isOpen={!!notesDeliveryId}
+        onClose={() => setNotesDeliveryId(null)}
+        delivery={activeNotesDelivery}
         userRole="establishment"
         userName={user?.name || 'Gerente'}
         onSaveNotes={handleSaveNotes}
+      />
+
+      {/* MODAL DE CHAT DE TURNO */}
+      <ScheduleChatModal
+        isOpen={!!activeScheduleChatId}
+        onClose={() => setActiveScheduleChatId(null)}
+        schedule={activeScheduleChat}
+        userRole="establishment"
+        userName={user?.name || 'Gerente'}
+        onSaveChat={handleSaveScheduleChat}
       />
     </div>
   );

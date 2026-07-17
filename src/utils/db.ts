@@ -41,6 +41,8 @@ export interface Schedule {
   endTime: string; // HH:MM
   createdBy: string; // Admin name
   createdAt: string;
+  chat?: string; // Campo opcional para chat direto de turno
+  updatedAt?: string; // Timestamp para controle de concorrência
 }
 
 export interface Delivery {
@@ -53,7 +55,8 @@ export interface Delivery {
   status: 'active' | 'cancelled' | 'pending' | 'rejected';
   scheduleId?: string;
   orderNumber?: string; // Optional order number
-  notes?: string; // Campo opcional de observações
+  notes?: string; // Campo opcional de observações (Chat com Estabelecimento)
+  customerChat?: string; // Campo exclusivo para o Chat com o Cliente
   updatedAt?: string; // Timestamp para controle de concorrência
 }
 
@@ -259,6 +262,13 @@ const syncToSupabase = async (table: string, data: any[]) => {
         };
       }
       if (table === 'schedules') {
+        // Serialização JSON robusta para contornar a falta das colunas 'chat' e 'updated_at' no Supabase
+        const payload = {
+          createdBy: item.createdBy,
+          chat: item.chat || '',
+          updatedAt: item.updatedAt || item.createdAt || new Date().toISOString()
+        };
+
         return {
           id: item.id,
           rider_id: item.riderId,
@@ -267,14 +277,18 @@ const syncToSupabase = async (table: string, data: any[]) => {
           shift: item.shift,
           start_time: item.startTime,
           end_time: item.endTime,
-          created_by: item.createdBy,
+          created_by: JSON.stringify(payload), // Armazena o payload completo na coluna 'created_by'
           created_at: item.createdAt
         };
       }
       if (table === 'deliveries') {
-        const orderNumberSync = item.orderNumber || '';
-        const notesSync = item.notes || '';
-        const combinedOrderNumber = notesSync ? `${orderNumberSync}|||${notesSync}` : orderNumberSync;
+        // Serialização JSON robusta para contornar a falta das colunas 'notes', 'customer_chat' e 'updated_at' no Supabase
+        const payload = {
+          orderNumber: item.orderNumber || '',
+          notes: item.notes || '',
+          customerChat: item.customerChat || '',
+          updatedAt: item.updatedAt || new Date().toISOString()
+        };
 
         return {
           id: item.id,
@@ -285,9 +299,7 @@ const syncToSupabase = async (table: string, data: any[]) => {
           value: item.value,
           status: item.status,
           schedule_id: item.scheduleId || null,
-          order_number: combinedOrderNumber || null,
-          notes: item.notes || null,
-          updated_at: item.updatedAt || new Date().toISOString()
+          order_number: JSON.stringify(payload) // Armazena o payload completo na coluna 'order_number'
         };
       }
       if (table === 'notifications') {
@@ -379,35 +391,6 @@ export const db = {
     const ests = getStorageData<Establishment[]>('dm_establishments', INITIAL_ESTABLISHMENTS);
     let updated = false;
     const merged = [...ests];
-    
-    // Migração automática inteligente: se a Pizzaria Bella Italia ainda estiver em SP, migra para João Pessoa - PB
-    const bellaItalia = merged.find(e => e.id === 'e1');
-    if (bellaItalia && bellaItalia.address.street === 'Avenida Paulista') {
-      bellaItalia.address = {
-        street: 'Avenida Cabo Branco',
-        number: '1500',
-        neighborhood: 'Cabo Branco',
-        city: 'João Pessoa',
-        state: 'PB',
-        zipCode: '58045-010'
-      };
-      bellaItalia.phone = '(83) 3222-1111';
-      updated = true;
-    }
-
-    const burgerHouse = merged.find(e => e.id === 'e2');
-    if (burgerHouse && burgerHouse.address.street === 'Rua Augusta') {
-      burgerHouse.address = {
-        street: 'Avenida Olinda',
-        number: '200',
-        neighborhood: 'Tambaú',
-        city: 'João Pessoa',
-        state: 'PB',
-        zipCode: '58039-120'
-      };
-      burgerHouse.phone = '(83) 3111-2222';
-      updated = true;
-    }
 
     INITIAL_ESTABLISHMENTS.forEach(initEst => {
       if (!merged.some(e => e.id === initEst.id)) {
@@ -537,7 +520,6 @@ export const db = {
             if (local.id !== remoteMatch.id) {
               estIdMap.set(local.id, remoteMatch.id);
             }
-            // CORREÇÃO: Sobrescreve os dados locais com os dados remotos do Supabase (endereço real)
             mergedEsts.push({ ...local, ...remoteMatch, id: remoteMatch.id });
           } else {
             mergedEsts.push(local);
@@ -582,7 +564,6 @@ export const db = {
             if (local.id !== remoteMatch.id) {
               userIdMap.set(local.id, remoteMatch.id);
             }
-            // CORREÇÃO: Sobrescreve os dados locais com os dados remotos do Supabase
             mergedUsers.push({ 
               ...local, 
               ...remoteMatch,
@@ -636,17 +617,37 @@ export const db = {
       }
 
       if (!schsError && schs) {
-        const mappedSchs: Schedule[] = schs.map(s => ({
-          id: s.id,
-          riderId: s.rider_id,
-          establishmentId: s.establishment_id,
-          date: s.date,
-          shift: s.shift as any,
-          startTime: s.start_time,
-          endTime: s.end_time,
-          createdBy: s.created_by || 'Admin',
-          createdAt: s.created_at
-        }));
+        const mappedSchs: Schedule[] = schs.map(s => {
+          let createdBy = s.created_by || 'Admin';
+          let chat = undefined;
+          let updatedAt = s.updated_at || undefined;
+
+          // Desserializa o payload JSON se a coluna 'created_by' contiver um JSON válido
+          if (s.created_by && s.created_by.startsWith('{')) {
+            try {
+              const parsed = JSON.parse(s.created_by);
+              createdBy = parsed.createdBy || 'Admin';
+              chat = parsed.chat || undefined;
+              updatedAt = parsed.updatedAt || undefined;
+            } catch (e) {
+              console.warn('Erro ao fazer parse do JSON do schedule:', e);
+            }
+          }
+
+          return {
+            id: s.id,
+            riderId: s.rider_id,
+            establishmentId: s.establishment_id,
+            date: s.date,
+            shift: s.shift as any,
+            startTime: s.start_time,
+            endTime: s.end_time,
+            createdBy,
+            createdAt: s.created_at,
+            chat,
+            updatedAt
+          };
+        });
 
         const merged = mergeById(localSchs, mappedSchs);
         localSchs = merged;
@@ -671,7 +672,22 @@ export const db = {
         const mappedDels: Delivery[] = dels.map(d => {
           let orderNumber = d.order_number || undefined;
           let notes = d.notes || undefined;
-          if (d.order_number && d.order_number.includes('|||')) {
+          let customerChat = d.customer_chat || undefined;
+          let updatedAt = d.updated_at || undefined;
+
+          // Desserializa o payload JSON se a coluna 'order_number' contiver um JSON válido
+          if (d.order_number && d.order_number.startsWith('{')) {
+            try {
+              const parsed = JSON.parse(d.order_number);
+              orderNumber = parsed.orderNumber || undefined;
+              notes = parsed.notes || undefined;
+              customerChat = parsed.customerChat || undefined;
+              updatedAt = parsed.updatedAt || undefined;
+            } catch (e) {
+              console.warn('Erro ao fazer parse do JSON do delivery:', e);
+            }
+          } else if (d.order_number && d.order_number.includes('|||')) {
+            // Fallback para o formato antigo de string concatenada
             const parts = d.order_number.split('|||');
             orderNumber = parts[0] || undefined;
             notes = parts[1] || undefined;
@@ -686,9 +702,10 @@ export const db = {
             value: Number(d.value),
             status: d.status as any,
             scheduleId: d.schedule_id || undefined,
-            orderNumber: orderNumber,
-            notes: notes || d.notes || undefined,
-            updatedAt: d.updated_at || undefined
+            orderNumber,
+            notes,
+            customerChat,
+            updatedAt
           };
         });
 

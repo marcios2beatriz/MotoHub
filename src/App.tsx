@@ -9,14 +9,18 @@ import RiderDashboard from './pages/RiderDashboard';
 import EstablishmentDashboard from './pages/EstablishmentDashboard';
 import CustomerTracking from './pages/CustomerTracking';
 import { db } from './utils/db';
+import { requestNotificationPermission } from './utils/notifications';
 
-// Componente para gerenciar a inatividade do usuário (30 minutos)
-function InactivityHandler({ children }: { children: React.ReactNode }) {
+// Componente para gerenciar a sincronização e permissões iniciais
+function AppHandler({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
 
   useEffect(() => {
     // Puxar dados do Supabase na inicialização
     db.pullFromSupabase();
+
+    // Solicitar permissão de notificações nativas logo no início
+    requestNotificationPermission();
 
     // Sincronização periódica a cada 10 segundos para manter os dados atualizados em tempo real
     const syncInterval = setInterval(() => {
@@ -26,45 +30,8 @@ function InactivityHandler({ children }: { children: React.ReactNode }) {
       }
     }, 10000);
 
-    const checkInactivity = () => {
-      const currentUser = db.getCurrentUser();
-      if (currentUser) {
-        const lastActivity = localStorage.getItem('dm_last_activity');
-        if (lastActivity) {
-          const diff = Date.now() - parseInt(lastActivity);
-          const thirtyMinutes = 30 * 60 * 1000;
-          if (diff > thirtyMinutes) {
-            db.setCurrentUser(null);
-            alert('Sua sessão expirou por inatividade.');
-            navigate('/login');
-          }
-        }
-      }
-    };
-
-    const updateActivity = () => {
-      const currentUser = db.getCurrentUser();
-      if (currentUser) {
-        localStorage.setItem('dm_last_activity', Date.now().toString());
-      }
-    };
-
-    // Verificar inatividade a cada 10 segundos
-    const inactivityInterval = setInterval(checkInactivity, 10000);
-
-    // Escutar eventos de interação do usuário
-    window.addEventListener('mousemove', updateActivity);
-    window.addEventListener('keydown', updateActivity);
-    window.addEventListener('click', updateActivity);
-    window.addEventListener('scroll', updateActivity);
-
     return () => {
       clearInterval(syncInterval);
-      clearInterval(inactivityInterval);
-      window.removeEventListener('mousemove', updateActivity);
-      window.removeEventListener('keydown', updateActivity);
-      window.removeEventListener('click', updateActivity);
-      window.removeEventListener('scroll', updateActivity);
     };
   }, [navigate]);
 
@@ -107,7 +74,7 @@ function EstablishmentRoute({ children }: { children: React.ReactNode }) {
 export default function App() {
   return (
     <Router>
-      <InactivityHandler>
+      <AppHandler>
         <Routes>
           <Route path="/" element={<Landing />} />
           <Route path="/login" element={<Login />} />
@@ -157,7 +124,7 @@ export default function App() {
             } 
           />
         </Routes>
-      </InactivityHandler>
+      </AppHandler>
     </Router>
   );
 }

@@ -6,6 +6,7 @@ import { db, Delivery, User, Establishment, RiderLocation } from '../utils/db';
 import { Bike, MapPin, Clock, ShieldCheck, RefreshCw, MessageSquare, Navigation } from 'lucide-react';
 import L from 'leaflet';
 import CustomerChatModal from '../components/CustomerChatModal';
+import { sendDeviceNotification } from '../utils/notifications';
 
 export default function CustomerTracking() {
   const { deliveryId } = useParams<{ deliveryId: string }>();
@@ -24,6 +25,7 @@ export default function CustomerTracking() {
   const riderMarkerRef = useRef<L.Marker | null>(null);
   
   const hasSetInitialBoundsRef = useRef(false);
+  const prevChatRef = useRef<string>('');
 
   const loadTrackingData = () => {
     if (!deliveryId) return;
@@ -59,6 +61,52 @@ export default function CustomerTracking() {
     return () => clearInterval(interval);
   }, [deliveryId]);
 
+  // Monitoramento de novas mensagens no chat para o Cliente
+  useEffect(() => {
+    if (delivery && prevChatRef.current !== undefined && delivery.customerChat && delivery.customerChat !== prevChatRef.current) {
+      const prevLines = prevChatRef.current ? prevChatRef.current.split('\n') : [];
+      const currentLines = delivery.customerChat.split('\n');
+
+      if (currentLines.length > prevLines.length) {
+        const newLines = currentLines.slice(prevLines.length);
+        newLines.forEach(line => {
+          // Verifica se a mensagem foi enviada por outra pessoa (não pelo Cliente)
+          const isMe = line.includes('- Cliente');
+          if (!isMe) {
+            const sender = line.includes('- Motoboy') ? 'Motoboy' : 'Estabelecimento';
+            const messageText = line.substring(line.indexOf(']: ') + 3);
+            
+            // 1. Notificação Nativa do Dispositivo
+            sendDeviceNotification(
+              `Nova mensagem de ${sender}`,
+              `Pedido #${delivery.orderNumber || delivery.id.slice(-4)}: "${messageText}"`
+            );
+
+            // 2. Alerta Visual na Tela
+            const alertDiv = document.createElement('div');
+            alertDiv.className = 'fixed top-4 left-4 right-4 bg-indigo-600 text-white p-4 rounded-xl shadow-2xl z-50 flex items-center justify-between animate-bounce';
+            alertDiv.innerHTML = `
+              <div class="flex items-center gap-2">
+                <span class="text-lg">💬</span>
+                <div>
+                  <p class="font-bold text-xs uppercase tracking-wider">Mensagem de ${sender}</p>
+                  <p class="text-sm font-medium">${messageText}</p>
+                </div>
+              </div>
+              <button class="text-white/80 hover:text-white font-bold text-sm px-2 py-1">OK</button>
+            `;
+            alertDiv.querySelector('button')?.addEventListener('click', () => alertDiv.remove());
+            document.body.appendChild(alertDiv);
+            setTimeout(() => alertDiv.remove(), 6000);
+          }
+        });
+      }
+    }
+    if (delivery) {
+      prevChatRef.current = delivery.customerChat || '';
+    }
+  }, [delivery]);
+
   // Inicialização do Mapa e Geocodificação do Estabelecimento
   useEffect(() => {
     if (!establishment || !mapContainerRef.current || mapRef.current) return;
@@ -92,7 +140,7 @@ export default function CustomerTracking() {
 
       const marker = L.marker([lat, lng], { icon: estIcon })
         .addTo(mapInstance)
-        .bindPopup(`<b>${establishment.name}</b><br/>Ponto de Partida`);
+        .bindPopup(`<b>${establishment.name}</b><br/>Ponto de Partiva`);
       
       estMarkerRef.current = marker;
       setEstCoords({ lat, lng });
@@ -205,17 +253,17 @@ export default function CustomerTracking() {
     const dateStr = now.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
     
     const formattedMessage = `[${dateStr} ${timeStr} - Cliente]: ${text}`;
-    const updatedNotes = delivery.notes ? `${delivery.notes}\n${formattedMessage}` : formattedMessage;
+    const updatedChat = delivery.customerChat ? `${delivery.customerChat}\n${formattedMessage}` : formattedMessage;
 
     const allDeliveries = db.getDeliveries();
     const updated = allDeliveries.map(d => d.id === delivery.id ? {
       ...d,
-      notes: updatedNotes,
+      customerChat: updatedChat,
       updatedAt: new Date().toISOString()
     } : d);
 
     db.setDeliveries(updated);
-    setDelivery({ ...delivery, notes: updatedNotes });
+    setDelivery({ ...delivery, customerChat: updatedChat });
   };
 
   if (loading) {
