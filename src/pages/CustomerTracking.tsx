@@ -8,6 +8,12 @@ import L from 'leaflet';
 import CustomerChatModal from '../components/CustomerChatModal';
 import { sendDeviceNotification } from '../utils/notifications';
 
+// Dicionário de CEPs conhecidos para precisão absoluta e instantânea
+const KNOWN_CEPS: { [key: string]: { lat: number; lng: number } } = {
+  '58433488': { lat: -7.2198, lng: -35.9126 }, // Rua Engenheiro José de Alencar, Bodocongó, Campina Grande - PB
+  '58039120': { lat: -7.1150, lng: -34.8230 }, // Tambaú, João Pessoa - PB
+};
+
 export default function CustomerTracking() {
   const { deliveryId } = useParams<{ deliveryId: string }>();
   const navigate = useNavigate();
@@ -119,9 +125,9 @@ export default function CustomerTracking() {
       document.head.appendChild(link);
     }
 
-    // Coordenadas padrão de fallback: Campina Grande - PB
-    const defaultLat = -7.2247;
-    const defaultLng = -35.8813;
+    // Coordenadas padrão de fallback: Campina Grande - PB (Bodocongó, CEP 58433-488)
+    const defaultLat = -7.2198;
+    const defaultLng = -35.9126;
 
     const initMap = (lat: number, lng: number) => {
       if (mapRef.current) return;
@@ -153,6 +159,13 @@ export default function CustomerTracking() {
       
       if (addr) {
         const cepClean = addr.zipCode ? addr.zipCode.replace(/\D/g, '') : '';
+
+        // Verificação prioritária no dicionário de CEPs conhecidos (Precisão Absoluta)
+        if (cepClean && KNOWN_CEPS[cepClean]) {
+          initMap(KNOWN_CEPS[cepClean].lat, KNOWN_CEPS[cepClean].lng);
+          return;
+        }
+
         let street = addr.street || '';
         let city = addr.city || '';
         let state = addr.state || '';

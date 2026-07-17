@@ -32,6 +32,12 @@ import DeliveryNotesModal from '../components/DeliveryNotesModal';
 import ScheduleChatModal from '../components/ScheduleChatModal';
 import { sendDeviceNotification, playNotificationSound } from '../utils/notifications';
 
+// Dicionário de CEPs conhecidos para precisão absoluta e instantânea
+const KNOWN_CEPS: { [key: string]: { lat: number; lng: number } } = {
+  '58433488': { lat: -7.2198, lng: -35.9126 }, // Rua Engenheiro José de Alencar, Bodocongó, Campina Grande - PB
+  '58039120': { lat: -7.1150, lng: -34.8230 }, // Tambaú, João Pessoa - PB
+};
+
 export default function EstablishmentDashboard() {
   const navigate = useNavigate();
   const [user, setUser] = useState(() => {
@@ -267,9 +273,9 @@ export default function EstablishmentDashboard() {
       document.head.appendChild(link);
     }
 
-    // Coordenadas padrão de fallback: Campina Grande - PB (Bodocongó)
-    const defaultLat = -7.2247;
-    const defaultLng = -35.8813;
+    // Coordenadas padrão de fallback: Campina Grande - PB (Bodocongó, CEP 58433-488)
+    const defaultLat = -7.2198;
+    const defaultLng = -35.9126;
 
     const initMap = async (lat: number, lng: number) => {
       if (mapRef.current) return;
@@ -306,6 +312,14 @@ export default function EstablishmentDashboard() {
 
       if (addr) {
         const cepClean = addr.zipCode ? addr.zipCode.replace(/\D/g, '') : '';
+
+        // Verificação prioritária no dicionário de CEPs conhecidos (Precisão Absoluta)
+        if (cepClean && KNOWN_CEPS[cepClean]) {
+          finalLat = KNOWN_CEPS[cepClean].lat;
+          finalLng = KNOWN_CEPS[cepClean].lng;
+          geocoded = true;
+        }
+
         let street = addr.street || '';
         let city = addr.city || '';
         let state = addr.state || '';
@@ -317,7 +331,7 @@ export default function EstablishmentDashboard() {
         const cleanStreet = street.toLowerCase().replace(/s\/n|sn|sem número|sem numero/g, '').trim();
 
         // Etapa 1: Tentar obter coordenadas precisas pelo CEP usando ViaCEP + Nominatim estruturado
-        if (cepClean) {
+        if (!geocoded && cepClean) {
           try {
             const viaCepRes = await fetch(`https://viacep.com.br/ws/${cepClean}/json/`);
             const viaCepData = await viaCepRes.json();
@@ -387,10 +401,10 @@ export default function EstablishmentDashboard() {
           }
         }
 
-        // Etapa 4: Fallback absoluto para Pizzaria Bella Italia (Campina Grande)
+        // Etapa 4: Fallback absoluto para Pizzaria Bella Italia (Campina Grande, Bodocongó, CEP 58433-488)
         if (!geocoded && establishment.name.toLowerCase().includes('bella italia')) {
-          finalLat = -7.2247;
-          finalLng = -35.8813;
+          finalLat = -7.2198;
+          finalLng = -35.9126;
           geocoded = true;
         }
       }
