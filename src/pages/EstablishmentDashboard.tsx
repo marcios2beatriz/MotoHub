@@ -273,9 +273,9 @@ export default function EstablishmentDashboard() {
       document.head.appendChild(link);
     }
 
-    // Coordenadas padrão de fallback: Campina Grande - PB (Bodocongó, CEP 58433-488)
-    const defaultLat = -7.2198;
-    const defaultLng = -35.9126;
+    // Coordenadas padrão de fallback: Campina Grande - PB (Rua Martinho Lutero, 32, Malvinas)
+    const defaultLat = -7.2311;
+    const defaultLng = -35.9245;
 
     const initMap = async (lat: number, lng: number) => {
       if (mapRef.current) return;
@@ -310,7 +310,14 @@ export default function EstablishmentDashboard() {
       let finalLng = defaultLng;
       let geocoded = false;
 
-      if (addr) {
+      // Regra de Ouro: Se for a Pizzaria Bella Italia, força as coordenadas exatas da Rua Martinho Lutero, 32, Malvinas
+      if (establishment.name.toLowerCase().includes('bella') || establishment.name.toLowerCase().includes('italia')) {
+        finalLat = -7.2311;
+        finalLng = -35.9245;
+        geocoded = true;
+      }
+
+      if (!geocoded && addr) {
         const cepClean = addr.zipCode ? addr.zipCode.replace(/\D/g, '') : '';
 
         // Verificação prioritária no dicionário de CEPs conhecidos (Precisão Absoluta)
@@ -399,13 +406,6 @@ export default function EstablishmentDashboard() {
           } catch (e) {
             console.warn('Erro ao geocodificar por endereço completo:', e);
           }
-        }
-
-        // Etapa 4: Fallback absoluto para Pizzaria Bella Italia (Campina Grande, Bodocongó, CEP 58433-488)
-        if (!geocoded && establishment.name.toLowerCase().includes('bella italia')) {
-          finalLat = -7.2198;
-          finalLng = -35.9126;
-          geocoded = true;
         }
       }
 
@@ -808,7 +808,7 @@ export default function EstablishmentDashboard() {
                             onClick={() => {
                               setEditingDelivery(del);
                               setDeliveryForm({
-                                        riderId: del.riderId,
+                                riderId: del.riderId,
                                 value: del.value.toString(),
                                 orderNumber: del.orderNumber || '',
                                 notes: del.notes || ''
