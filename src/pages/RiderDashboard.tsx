@@ -27,6 +27,7 @@ import {
   MessageSquare
 } from 'lucide-react';
 import DeliveryNotesModal from '../components/DeliveryNotesModal';
+import { sendDeviceNotification } from '../utils/notifications';
 
 export default function RiderDashboard() {
   const navigate = useNavigate();
@@ -40,6 +41,9 @@ export default function RiderDashboard() {
   const [gpsCoords, setGpsCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const watchIdRef = useRef<number | null>(null);
+
+  // Ref para armazenar o estado anterior das notas e evitar notificações duplicadas
+  const prevNotesRef = useRef<Record<string, string>>({});
 
   // Modal de Lançar/Editar Corrida
   const [showLaunchModal, setShowLaunchModal] = useState(false);
@@ -88,6 +92,54 @@ export default function RiderDashboard() {
     }
     loadData();
   }, [user, navigate, activeTab]);
+
+  // Monitoramento de novas mensagens no chat para disparar notificações
+  useEffect(() => {
+    deliveries.forEach(d => {
+      const prevNotes = prevNotesRef.current[d.id];
+      if (prevNotes !== undefined && d.notes && d.notes !== prevNotes) {
+        const prevLines = prevNotes ? prevNotes.split('\n') : [];
+        const currentLines = d.notes.split('\n');
+
+        if (currentLines.length > prevLines.length) {
+          const newLines = currentLines.slice(prevLines.length);
+          newLines.forEach(line => {
+            // Verifica se a mensagem foi enviada por outra pessoa (não pelo Motoboy)
+            const isMe = line.includes('- Motoboy') || line.includes(`(${user?.name})`);
+            if (!isMe) {
+              const est = establishments.find(e => e.id === d.establishmentId);
+              const sender = line.includes('- Estabelecimento') ? 'Estabelecimento' : 'Cliente';
+              const messageText = line.substring(line.indexOf(']: ') + 3);
+              
+              // 1. Notificação Nativa do Dispositivo
+              sendDeviceNotification(
+                `Nova mensagem de ${sender}`,
+                `Pedido #${d.orderNumber || d.id.slice(-4)} (${est?.name || 'Corrida'}): "${messageText}"`
+              );
+
+              // 2. Alerta Visual na Tela
+              const alertDiv = document.createElement('div');
+              alertDiv.className = 'fixed top-4 left-4 right-4 bg-indigo-600 text-white p-4 rounded-xl shadow-2xl z-50 flex items-center justify-between animate-bounce';
+              alertDiv.innerHTML = `
+                <div class="flex items-center gap-2">
+                  <span class="text-lg">💬</span>
+                  <div>
+                    <p class="font-bold text-xs uppercase tracking-wider">Mensagem de ${sender}</p>
+                    <p class="text-sm font-medium">${messageText}</p>
+                  </div>
+                </div>
+                <button class="text-white/80 hover:text-white font-bold text-sm px-2 py-1">OK</button>
+              `;
+              alertDiv.querySelector('button')?.addEventListener('click', () => alertDiv.remove());
+              document.body.appendChild(alertDiv);
+              setTimeout(() => alertDiv.remove(), 6000);
+            }
+          });
+        }
+      }
+      prevNotesRef.current[d.id] = d.notes || '';
+    });
+  }, [deliveries, user, establishments]);
 
   useEffect(() => {
     const handleSyncComplete = () => {

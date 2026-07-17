@@ -29,6 +29,7 @@ import {
 // Leaflet imports
 import L from 'leaflet';
 import DeliveryNotesModal from '../components/DeliveryNotesModal';
+import { sendDeviceNotification } from '../utils/notifications';
 
 export default function EstablishmentDashboard() {
   const navigate = useNavigate();
@@ -55,6 +56,9 @@ export default function EstablishmentDashboard() {
 
   // Map expansion state
   const [isMapExpanded, setIsMapExpanded] = useState(false);
+
+  // Ref para armazenar o estado anterior das notas e evitar notificações duplicadas
+  const prevNotesRef = useRef<Record<string, string>>({});
 
   // Form state
   const [showDeliveryModal, setShowDeliveryModal] = useState(false);
@@ -148,6 +152,54 @@ export default function EstablishmentDashboard() {
       window.removeEventListener('db-sync-complete', handleSyncComplete);
     };
   }, [user, navigate]);
+
+  // Monitoramento de novas mensagens no chat para disparar notificações
+  useEffect(() => {
+    todayDeliveries.forEach(d => {
+      const prevNotes = prevNotesRef.current[d.id];
+      if (prevNotes !== undefined && d.notes && d.notes !== prevNotes) {
+        const prevLines = prevNotes ? prevNotes.split('\n') : [];
+        const currentLines = d.notes.split('\n');
+
+        if (currentLines.length > prevLines.length) {
+          const newLines = currentLines.slice(prevLines.length);
+          newLines.forEach(line => {
+            // Verifica se a mensagem foi enviada por outra pessoa (não pelo Estabelecimento)
+            const isMe = line.includes('- Estabelecimento') || line.includes(`(${user?.name})`);
+            if (!isMe) {
+              const rider = db.getUsers().find(u => u.id === d.riderId);
+              const sender = line.includes('- Motoboy') ? 'Motoboy' : 'Cliente';
+              const messageText = line.substring(line.indexOf(']: ') + 3);
+              
+              // 1. Notificação Nativa do Dispositivo
+              sendDeviceNotification(
+                `Nova mensagem de ${sender}`,
+                `Pedido #${d.orderNumber || d.id.slice(-4)} (${rider?.name || 'Entregador'}): "${messageText}"`
+              );
+
+              // 2. Alerta Visual na Tela
+              const alertDiv = document.createElement('div');
+              alertDiv.className = 'fixed top-4 left-4 right-4 bg-indigo-600 text-white p-4 rounded-xl shadow-2xl z-50 flex items-center justify-between animate-bounce';
+              alertDiv.innerHTML = `
+                <div class="flex items-center gap-2">
+                  <span class="text-lg">💬</span>
+                  <div>
+                    <p class="font-bold text-xs uppercase tracking-wider">Mensagem de ${sender}</p>
+                    <p class="text-sm font-medium">${messageText}</p>
+                  </div>
+                </div>
+                <button class="text-white/80 hover:text-white font-bold text-sm px-2 py-1">OK</button>
+              `;
+              alertDiv.querySelector('button')?.addEventListener('click', () => alertDiv.remove());
+              document.body.appendChild(alertDiv);
+              setTimeout(() => alertDiv.remove(), 6000);
+            }
+          });
+        }
+      }
+      prevNotesRef.current[d.id] = d.notes || '';
+    });
+  }, [todayDeliveries, user]);
 
   // 1. Hook de Inicialização Única do Mapa (Vinculado apenas ao ID do estabelecimento)
   useEffect(() => {
@@ -335,11 +387,6 @@ export default function EstablishmentDashboard() {
       }, 300);
     }
   }, [isMapExpanded]);
-
-  const handleLogout = () => {
-    db.setCurrentUser(null);
-    navigate('/login');
-  };
 
   const handleRecenterMap = () => {
     const currentMap = mapRef.current;
