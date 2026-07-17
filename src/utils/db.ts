@@ -285,7 +285,8 @@ const syncToSupabase = async (table: string, data: any[]) => {
           active: item.active,
           password_hash: item.passwordHash,
           must_reset_password: item.mustResetPassword || false,
-          establishment_id: item.establishmentId || null
+          establishment_id: item.establishmentId || null,
+          updated_at: item.updatedAt || new Date().toISOString()
         };
       }
       if (table === 'establishments') {
@@ -300,7 +301,8 @@ const syncToSupabase = async (table: string, data: any[]) => {
           state: item.address.state,
           zip_code: item.address.zipCode,
           phone: item.phone,
-          active: item.active
+          active: item.active,
+          updated_at: item.updatedAt || new Date().toISOString()
         };
       }
       if (table === 'schedules') {
@@ -319,7 +321,8 @@ const syncToSupabase = async (table: string, data: any[]) => {
           start_time: item.startTime,
           end_time: item.endTime,
           created_by: JSON.stringify(payload),
-          created_at: item.createdAt
+          created_at: item.createdAt,
+          updated_at: item.updatedAt || item.createdAt || new Date().toISOString()
         };
       }
       if (table === 'deliveries') {
@@ -339,7 +342,8 @@ const syncToSupabase = async (table: string, data: any[]) => {
           value: item.value,
           status: item.status,
           schedule_id: item.scheduleId || null,
-          order_number: JSON.stringify(payload)
+          order_number: JSON.stringify(payload),
+          updated_at: item.updatedAt || new Date().toISOString()
         };
       }
       if (table === 'notifications') {
@@ -596,7 +600,7 @@ export const db = {
             },
             phone: e.phone || '',
             active: e.active,
-            updatedAt: e.updated_at || new Date().toISOString()
+            updatedAt: e.updated_at || undefined
           }));
 
         const merged = mergeById(localEsts, mappedEsts);
@@ -623,7 +627,7 @@ export const db = {
             passwordHash: u.password_hash,
             mustResetPassword: u.must_reset_password,
             establishmentId: u.establishment_id || undefined,
-            updatedAt: u.updated_at || new Date().toISOString()
+            updatedAt: u.updated_at || undefined
           }));
 
         const merged = mergeById(localUsers, mappedUsers);
