@@ -476,7 +476,8 @@ export default function AdminDashboard() {
       startTime: scheduleForm.startTime,
       endTime: scheduleForm.endTime,
       createdBy: adminUser?.name || 'Admin',
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
     };
 
     const updatedSchedules = [...schedules, newSchedule];
@@ -577,7 +578,8 @@ export default function AdminDashboard() {
         startTime: weeklyForm.startTime,
         endTime: weeklyForm.endTime,
         createdBy: adminUser?.name || 'Admin',
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
       });
       newNotifs.push({
         id: 'n_' + Date.now() + '_' + day.date,
@@ -618,6 +620,8 @@ export default function AdminDashboard() {
       s.date === deliveryForm.date
     );
 
+    const nowStr = new Date().toISOString();
+
     if (editingDelivery) {
       const todayStr = new Date().toISOString().split('T')[0];
       if (editingDelivery.date !== todayStr) {
@@ -634,7 +638,8 @@ export default function AdminDashboard() {
         value: val,
         scheduleId: activeSchedule?.id || d.scheduleId,
         orderNumber: deliveryForm.orderNumber.trim() || undefined,
-        notes: deliveryForm.notes.trim() || undefined
+        notes: deliveryForm.notes.trim() || undefined,
+        updatedAt: nowStr
       } : d);
       db.setDeliveries(updated);
     } else {
@@ -648,7 +653,8 @@ export default function AdminDashboard() {
         status: 'active',
         scheduleId: activeSchedule?.id,
         orderNumber: deliveryForm.orderNumber.trim() || undefined,
-        notes: deliveryForm.notes.trim() || undefined
+        notes: deliveryForm.notes.trim() || undefined,
+        updatedAt: nowStr
       };
       db.setDeliveries([...deliveries, newDelivery]);
     }
@@ -670,7 +676,7 @@ export default function AdminDashboard() {
     }
 
     if (confirm('Deseja realmente cancelar esta corrida? O valor será deduzido do faturamento do motoboy.')) {
-      const updated = deliveries.map(d => d.id === id ? { ...d, status: 'cancelled' as const } : d);
+      const updated = deliveries.map(d => d.id === id ? { ...d, status: 'cancelled' as const, updatedAt: new Date().toISOString() } : d);
       db.setDeliveries(updated);
       loadData();
     }
@@ -680,7 +686,7 @@ export default function AdminDashboard() {
     const delivery = deliveries.find(d => d.id === id);
     if (!delivery) return;
 
-    const updated = deliveries.map(d => d.id === id ? { ...d, status: 'active' as const } : d);
+    const updated = deliveries.map(d => d.id === id ? { ...d, status: 'active' as const, updatedAt: new Date().toISOString() } : d);
     db.setDeliveries(updated);
 
     const est = establishments.find(e => e.id === delivery.establishmentId);
@@ -709,7 +715,7 @@ export default function AdminDashboard() {
         ? `${delivery.notes} | Rejeitado: ${reason}` 
         : `Motivo da rejeição: ${reason}`;
 
-      const updated = deliveries.map(d => d.id === id ? { ...d, status: 'rejected' as const, notes: updatedNotes } : d);
+      const updated = deliveries.map(d => d.id === id ? { ...d, status: 'rejected' as const, notes: updatedNotes, updatedAt: new Date().toISOString() } : d);
       db.setDeliveries(updated);
 
       const est = establishments.find(e => e.id === delivery.establishmentId);
