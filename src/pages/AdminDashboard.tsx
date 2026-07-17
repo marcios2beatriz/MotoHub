@@ -716,7 +716,7 @@ export default function AdminDashboard() {
       const allNotif = db.getNotifications();
       const newNotif: Notification = {
         id: 'n_' + Date.now(),
-        riderId: delivery.role === 'rider' ? delivery.riderId : delivery.riderId, // fallback safe
+        riderId: delivery.riderId,
         title: '❌ Corrida Rejeitada',
         message: `Sua corrida no valor de R$ ${delivery.value.toFixed(2)} foi rejeitada pelo administrador para o estabelecimento ${est?.name}. Motivo: ${reason || 'Não especificado'}.`,
         date: new Date().toISOString(),
