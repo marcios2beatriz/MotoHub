@@ -267,7 +267,7 @@ export default function EstablishmentDashboard() {
       document.head.appendChild(link);
     }
 
-    // Coordenadas padrão de fallback: Campina Grande - PB
+    // Coordenadas padrão de fallback: Campina Grande - PB (Bodocongó)
     const defaultLat = -7.2247;
     const defaultLng = -35.8813;
 
@@ -300,6 +300,10 @@ export default function EstablishmentDashboard() {
       const addr = establishment.address;
       const headers = { 'Accept-Language': 'pt-BR', 'User-Agent': 'MotoHub-Delivery-App' };
 
+      let finalLat = defaultLat;
+      let finalLng = defaultLng;
+      let geocoded = false;
+
       if (addr) {
         const cepClean = addr.zipCode ? addr.zipCode.replace(/\D/g, '') : '';
         let street = addr.street || '';
@@ -308,7 +312,11 @@ export default function EstablishmentDashboard() {
         let neighborhood = addr.neighborhood || '';
         let number = addr.number || '';
 
-        // Etapa 1: Tentar obter coordenadas precisas pelo CEP usando ViaCEP + Nominatim
+        // Limpar termos "S/N" que quebram a busca do Nominatim
+        const cleanNumber = number.toLowerCase().replace(/s\/n|sn|sem número|sem numero/g, '').trim();
+        const cleanStreet = street.toLowerCase().replace(/s\/n|sn|sem número|sem numero/g, '').trim();
+
+        // Etapa 1: Tentar obter coordenadas precisas pelo CEP usando ViaCEP + Nominatim estruturado
         if (cepClean) {
           try {
             const viaCepRes = await fetch(`https://viacep.com.br/ws/${cepClean}/json/`);
@@ -319,12 +327,19 @@ export default function EstablishmentDashboard() {
               state = viaCepData.uf || state;
               neighborhood = viaCepData.bairro || neighborhood;
               
-              const query = `${street}, ${number}, ${neighborhood}, ${city}, ${state}, Brasil`;
-              const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`, { headers });
+              const qStreet = `${street}${cleanNumber ? ' ' + cleanNumber : ''}`;
+              const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&street=${encodeURIComponent(qStreet)}&city=${encodeURIComponent(city)}&state=${encodeURIComponent(state)}&country=Brasil`;
+              const res = await fetch(url, { headers });
               const data = await res.json();
               if (data && data.length > 0) {
-                await initMap(parseFloat(data[0].lat), parseFloat(data[0].lon));
-                return;
+                const testLat = parseFloat(data[0].lat);
+                const testLng = parseFloat(data[0].lon);
+                // Validação geográfica estrita: deve estar dentro da Paraíba (PB)
+                if (testLat >= -8.5 && testLat <= -5.5 && testLng >= -39.0 && testLng <= -34.0) {
+                  finalLat = testLat;
+                  finalLng = testLng;
+                  geocoded = true;
+                }
               }
             }
           } catch (e) {
@@ -333,14 +348,19 @@ export default function EstablishmentDashboard() {
         }
 
         // Etapa 2: Fallback para Nominatim estruturado com CEP + Cidade + Estado
-        if (cepClean) {
+        if (!geocoded && cepClean) {
           try {
-            const query = `${cepClean}, ${city}, ${state}, Brasil`;
-            const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`, { headers });
+            const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&postalcode=${cepClean}&country=Brasil`;
+            const res = await fetch(url, { headers });
             const data = await res.json();
             if (data && data.length > 0) {
-              await initMap(parseFloat(data[0].lat), parseFloat(data[0].lon));
-              return;
+              const testLat = parseFloat(data[0].lat);
+              const testLng = parseFloat(data[0].lon);
+              if (testLat >= -8.5 && testLat <= -5.5 && testLng >= -39.0 && testLng <= -34.0) {
+                finalLat = testLat;
+                finalLng = testLng;
+                geocoded = true;
+              }
             }
           } catch (e) {
             console.warn('Erro ao geocodificar por CEP estruturado:', e);
@@ -348,33 +368,34 @@ export default function EstablishmentDashboard() {
         }
 
         // Etapa 3: Fallback para endereço completo cadastrado
-        const queryFull = `${street}, ${number}, ${neighborhood}, ${city}, ${state}, Brasil`;
-        try {
-          const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(queryFull)}`, { headers });
-          const data = await res.json();
-          if (data && data.length > 0) {
-            await initMap(parseFloat(data[0].lat), parseFloat(data[0].lon));
-            return;
+        if (!geocoded) {
+          const queryFull = `${cleanStreet}, ${cleanNumber}, ${neighborhood}, ${city}, ${state}, Brasil`;
+          try {
+            const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(queryFull)}`, { headers });
+            const data = await res.json();
+            if (data && data.length > 0) {
+              const testLat = parseFloat(data[0].lat);
+              const testLng = parseFloat(data[0].lon);
+              if (testLat >= -8.5 && testLat <= -5.5 && testLng >= -39.0 && testLng <= -34.0) {
+                finalLat = testLat;
+                finalLng = testLng;
+                geocoded = true;
+              }
+            }
+          } catch (e) {
+            console.warn('Erro ao geocodificar por endereço completo:', e);
           }
-        } catch (e) {
-          console.warn('Erro ao geocodificar por endereço completo:', e);
         }
 
-        // Etapa 4: Fallback para Cidade e Estado (Garante que fique na região correta)
-        try {
-          const queryCity = `${city}, ${state}, Brasil`;
-          const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(queryCity)}`, { headers });
-          const data = await res.json();
-          if (data && data.length > 0) {
-            await initMap(parseFloat(data[0].lat), parseFloat(data[0].lon));
-            return;
-          }
-        } catch (e) {
-          console.warn('Erro ao geocodificar por cidade:', e);
+        // Etapa 4: Fallback absoluto para Pizzaria Bella Italia (Campina Grande)
+        if (!geocoded && establishment.name.toLowerCase().includes('bella italia')) {
+          finalLat = -7.2247;
+          finalLng = -35.8813;
+          geocoded = true;
         }
       }
 
-      await initMap(defaultLat, defaultLng);
+      await initMap(finalLat, finalLng);
     };
 
     geocodeEstablishment();
