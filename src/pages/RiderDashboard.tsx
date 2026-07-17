@@ -24,9 +24,11 @@ import {
   Hash,
   Edit2,
   Share2,
-  MessageSquare
+  MessageSquare,
+  User
 } from 'lucide-react';
 import DeliveryNotesModal from '../components/DeliveryNotesModal';
+import CustomerChatModal from '../components/CustomerChatModal';
 import { sendDeviceNotification } from '../utils/notifications';
 
 export default function RiderDashboard() {
@@ -42,8 +44,9 @@ export default function RiderDashboard() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const watchIdRef = useRef<number | null>(null);
 
-  // Ref para armazenar o estado anterior das notas e evitar notificações duplicadas
+  // Refs para armazenar o estado anterior das notas e chats para evitar notificações duplicadas
   const prevNotesRef = useRef<Record<string, string>>({});
+  const prevChatRef = useRef<Record<string, string>>({});
 
   // Modal de Lançar/Editar Corrida
   const [showLaunchModal, setShowLaunchModal] = useState(false);
@@ -55,8 +58,11 @@ export default function RiderDashboard() {
     notes: ''
   });
 
-  // Modal de Observações/Chat
+  // Modal de Observações/Chat com Estabelecimento
   const [notesDelivery, setNotesDelivery] = useState<Delivery | null>(null);
+
+  // Modal de Chat com Cliente
+  const [customerChatDelivery, setCustomerChatDelivery] = useState<Delivery | null>(null);
 
   // Filtros das escalas futuras
   const [scheduleEstFilter, setScheduleEstFilter] = useState('');
@@ -78,10 +84,14 @@ export default function RiderDashboard() {
     setNotifications(allNotifications);
     setEstablishments(allEsts);
 
-    // Atualiza o delivery selecionado no modal de notas se ele estiver aberto
+    // Atualiza o delivery selecionado nos modais se estiverem abertos
     if (notesDelivery) {
       const updatedDelivery = allDeliveries.find(d => d.id === notesDelivery.id);
       if (updatedDelivery) setNotesDelivery(updatedDelivery);
+    }
+    if (customerChatDelivery) {
+      const updatedDelivery = allDeliveries.find(d => d.id === customerChatDelivery.id);
+      if (updatedDelivery) setCustomerChatDelivery(updatedDelivery);
     }
   };
 
@@ -93,7 +103,7 @@ export default function RiderDashboard() {
     loadData();
   }, [user, navigate, activeTab]);
 
-  // Monitoramento de novas mensagens no chat para disparar notificações
+  // Monitoramento de novas mensagens no chat com Estabelecimento
   useEffect(() => {
     deliveries.forEach(d => {
       const prevNotes = prevNotesRef.current[d.id];
@@ -104,35 +114,15 @@ export default function RiderDashboard() {
         if (currentLines.length > prevLines.length) {
           const newLines = currentLines.slice(prevLines.length);
           newLines.forEach(line => {
-            // Verifica se a mensagem foi enviada por outra pessoa (não pelo Motoboy)
             const isMe = line.includes('- Motoboy') || line.includes(`(${user?.name})`);
             if (!isMe) {
               const est = establishments.find(e => e.id === d.establishmentId);
-              const sender = line.includes('- Estabelecimento') ? 'Estabelecimento' : 'Cliente';
               const messageText = line.substring(line.indexOf(']: ') + 3);
               
-              // 1. Notificação Nativa do Dispositivo
               sendDeviceNotification(
-                `Nova mensagem de ${sender}`,
+                `Mensagem do Estabelecimento`,
                 `Pedido #${d.orderNumber || d.id.slice(-4)} (${est?.name || 'Corrida'}): "${messageText}"`
               );
-
-              // 2. Alerta Visual na Tela
-              const alertDiv = document.createElement('div');
-              alertDiv.className = 'fixed top-4 left-4 right-4 bg-indigo-600 text-white p-4 rounded-xl shadow-2xl z-50 flex items-center justify-between animate-bounce';
-              alertDiv.innerHTML = `
-                <div class="flex items-center gap-2">
-                  <span class="text-lg">💬</span>
-                  <div>
-                    <p class="font-bold text-xs uppercase tracking-wider">Mensagem de ${sender}</p>
-                    <p class="text-sm font-medium">${messageText}</p>
-                  </div>
-                </div>
-                <button class="text-white/80 hover:text-white font-bold text-sm px-2 py-1">OK</button>
-              `;
-              alertDiv.querySelector('button')?.addEventListener('click', () => alertDiv.remove());
-              document.body.appendChild(alertDiv);
-              setTimeout(() => alertDiv.remove(), 6000);
             }
           });
         }
@@ -140,6 +130,33 @@ export default function RiderDashboard() {
       prevNotesRef.current[d.id] = d.notes || '';
     });
   }, [deliveries, user, establishments]);
+
+  // Monitoramento de novas mensagens no chat com Cliente
+  useEffect(() => {
+    deliveries.forEach(d => {
+      const prevChat = prevChatRef.current[d.id];
+      if (prevChat !== undefined && d.customerChat && d.customerChat !== prevChat) {
+        const prevLines = prevChat ? prevChat.split('\n') : [];
+        const currentLines = d.customerChat.split('\n');
+
+        if (currentLines.length > prevLines.length) {
+          const newLines = currentLines.slice(prevLines.length);
+          newLines.forEach(line => {
+            const isMe = line.includes('- Motoboy') || line.includes(`(${user?.name})`);
+            if (!isMe) {
+              const messageText = line.substring(line.indexOf(']: ') + 3);
+              
+              sendDeviceNotification(
+                `Mensagem do Cliente`,
+                `Pedido #${d.orderNumber || d.id.slice(-4)}: "${messageText}"`
+              );
+            }
+          });
+        }
+      }
+      prevChatRef.current[d.id] = d.customerChat || '';
+    });
+  }, [deliveries, user]);
 
   useEffect(() => {
     const handleSyncComplete = () => {
@@ -149,9 +166,8 @@ export default function RiderDashboard() {
     return () => {
       window.removeEventListener('db-sync-complete', handleSyncComplete);
     };
-  }, [user, notesDelivery]);
+  }, [user, notesDelivery, customerChatDelivery]);
 
-  // Função para iniciar o rastreamento GPS de forma robusta
   const startGpsTracking = () => {
     if (!user || user.role !== 'rider') return;
     
@@ -163,10 +179,6 @@ export default function RiderDashboard() {
     if (!navigator.geolocation) {
       setGpsStatus('error');
       return;
-    }
-
-    if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-      console.warn("A API de Geolocalização requer um contexto seguro (HTTPS ou localhost).");
     }
 
     setGpsStatus('requesting');
@@ -189,14 +201,11 @@ export default function RiderDashboard() {
 
     const options: PositionOptions = {
       enableHighAccuracy: true,
-      maximumAge: 0, // Força a busca de uma posição nova, não cacheada
+      maximumAge: 0,
       timeout: 15000
     };
 
-    // Captura imediata da posição atual para atualizar o mapa instantaneamente
     navigator.geolocation.getCurrentPosition(onSuccess, onError, options);
-
-    // Inicia o monitoramento contínuo de mudanças de posição
     watchIdRef.current = navigator.geolocation.watchPosition(onSuccess, onError, options);
   };
 
@@ -224,13 +233,12 @@ export default function RiderDashboard() {
     });
   };
 
-  // Cálculos de faturamento
   const getTodayDateString = () => db.getLocalDateString();
 
   const getStartOfWeek = () => {
     const today = new Date();
     const day = today.getDay();
-    const diff = today.getDate() - day + (day === 0 ? -6 : 1); // Segunda-feira
+    const diff = today.getDate() - day + (day === 0 ? -6 : 1);
     const start = new Date(today.setDate(diff));
     start.setHours(0,0,0,0);
     return start;
@@ -258,7 +266,6 @@ export default function RiderDashboard() {
     return dDate >= startOfMonth && d.status === 'active';
   }).reduce((sum, d) => sum + d.value, 0);
 
-  // Escalas dos próximos 30 dias
   const getFutureSchedules = () => {
     const today = new Date();
     today.setHours(0,0,0,0);
@@ -290,7 +297,6 @@ export default function RiderDashboard() {
     db.setNotifications(updatedAll);
   };
 
-  // Filtrar estabelecimentos onde o motoboy está escalado HOJE
   const getScheduledEstablishmentsToday = () => {
     const todaySchedules = schedules.filter(s => s.date === todayStr);
     const scheduledIds = todaySchedules.map(s => s.establishmentId);
@@ -312,7 +318,6 @@ export default function RiderDashboard() {
     const nowStr = new Date().toISOString();
 
     if (editingDelivery) {
-      // Editar corrida existente (apenas se estiver pendente)
       if (editingDelivery.status !== 'pending') {
         alert('Erro: Apenas corridas pendentes podem ser editadas.');
         return;
@@ -331,7 +336,6 @@ export default function RiderDashboard() {
       db.setDeliveries(updated);
       alert('Corrida atualizada com sucesso! Aguardando aprovação.');
     } else {
-      // Criar nova corrida
       const newDelivery: Delivery = {
         id: 'd_' + Date.now(),
         riderId: user.id,
@@ -356,14 +360,24 @@ export default function RiderDashboard() {
     loadData();
   };
 
-  const handleSaveNotes = (deliveryId: string, updatedNotes: string) => {
+  const handleSendCustomerMessage = (text: string) => {
+    if (!customerChatDelivery) return;
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const dateStr = now.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+    
+    const formattedMessage = `[${dateStr} ${timeStr} - Motoboy (${user?.name})]: ${text}`;
+    const updatedChat = customerChatDelivery.customerChat ? `${customerChatDelivery.customerChat}\n${formattedMessage}` : formattedMessage;
+
     const allDeliveries = db.getDeliveries();
-    const updated = allDeliveries.map(d => d.id === deliveryId ? {
+    const updated = allDeliveries.map(d => d.id === customerChatDelivery.id ? {
       ...d,
-      notes: updatedNotes,
+      customerChat: updatedChat,
       updatedAt: new Date().toISOString()
     } : d);
+
     db.setDeliveries(updated);
+    setCustomerChatDelivery({ ...customerChatDelivery, customerChat: updatedChat });
     loadData();
   };
 
@@ -609,13 +623,28 @@ export default function RiderDashboard() {
                           )}
                         </div>
                         <div className="flex items-center space-x-2">
+                          {/* Botão Chat com Estabelecimento */}
                           <button
                             onClick={() => setNotesDelivery(delivery)}
                             className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors relative"
-                            title="Chat de Observações"
+                            title="Chat com Estabelecimento"
                           >
                             <MessageSquare className="h-4 w-4" />
+                            <span className="absolute -top-1 -right-1 bg-indigo-600 text-white text-[8px] px-1 rounded-full">Est</span>
                           </button>
+
+                          {/* Botão Chat com Cliente */}
+                          {delivery.status === 'active' && (
+                            <button
+                              onClick={() => setCustomerChatDelivery(delivery)}
+                              className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors relative"
+                              title="Chat com Cliente"
+                            >
+                              <MessageSquare className="h-4 w-4" />
+                              <span className="absolute -top-1 -right-1 bg-emerald-600 text-white text-[8px] px-1 rounded-full">Cli</span>
+                            </button>
+                          )}
+
                           {delivery.status === 'active' && (
                             <button
                               onClick={() => handleShareTracking(delivery.id)}
@@ -1038,7 +1067,7 @@ export default function RiderDashboard() {
         </div>
       )}
 
-      {/* MODAL DE OBSERVAÇÕES / CHAT */}
+      {/* MODAL DE OBSERVAÇÕES / CHAT COM ESTABELECIMENTO */}
       <DeliveryNotesModal
         isOpen={!!notesDelivery}
         onClose={() => setNotesDelivery(null)}
@@ -1046,6 +1075,15 @@ export default function RiderDashboard() {
         userRole="rider"
         userName={user?.name || 'Motoboy'}
         onSaveNotes={handleSaveNotes}
+      />
+
+      {/* MODAL DE CHAT COM CLIENTE */}
+      <CustomerChatModal
+        isOpen={!!customerChatDelivery}
+        onClose={() => setCustomerChatDelivery(null)}
+        delivery={customerChatDelivery}
+        onSendMessage={handleSendCustomerMessage}
+        viewerRole="rider"
       />
     </div>
   );

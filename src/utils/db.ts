@@ -53,7 +53,8 @@ export interface Delivery {
   status: 'active' | 'cancelled' | 'pending' | 'rejected';
   scheduleId?: string;
   orderNumber?: string; // Optional order number
-  notes?: string; // Campo opcional de observações
+  notes?: string; // Campo opcional de observações (Chat com Estabelecimento)
+  customerChat?: string; // Campo exclusivo para o Chat com o Cliente
   updatedAt?: string; // Timestamp para controle de concorrência
 }
 
@@ -287,6 +288,7 @@ const syncToSupabase = async (table: string, data: any[]) => {
           schedule_id: item.scheduleId || null,
           order_number: combinedOrderNumber || null,
           notes: item.notes || null,
+          customer_chat: item.customerChat || null,
           updated_at: item.updatedAt || new Date().toISOString()
         };
       }
@@ -382,7 +384,9 @@ export const db = {
     
     // Migração automática inteligente: se a Pizzaria Bella Italia ainda estiver em SP, migra para João Pessoa - PB
     const bellaItalia = merged.find(e => e.id === 'e1');
-    if (bellaItalia && bellaItalia.address.street === 'Avenida Paulista') {
+    if (bellaItalia && bellaItalia.address.street === 'Avenida Cabo Branco') {
+      // Já está em João Pessoa
+    } else if (bellaItalia) {
       bellaItalia.address = {
         street: 'Avenida Cabo Branco',
         number: '1500',
@@ -396,7 +400,9 @@ export const db = {
     }
 
     const burgerHouse = merged.find(e => e.id === 'e2');
-    if (burgerHouse && burgerHouse.address.street === 'Rua Augusta') {
+    if (burgerHouse && burgerHouse.address.street === 'Avenida Olinda') {
+      // Já está em João Pessoa
+    } else if (burgerHouse) {
       burgerHouse.address = {
         street: 'Avenida Olinda',
         number: '200',
@@ -537,7 +543,6 @@ export const db = {
             if (local.id !== remoteMatch.id) {
               estIdMap.set(local.id, remoteMatch.id);
             }
-            // CORREÇÃO: Sobrescreve os dados locais com os dados remotos do Supabase (endereço real)
             mergedEsts.push({ ...local, ...remoteMatch, id: remoteMatch.id });
           } else {
             mergedEsts.push(local);
@@ -582,7 +587,6 @@ export const db = {
             if (local.id !== remoteMatch.id) {
               userIdMap.set(local.id, remoteMatch.id);
             }
-            // CORREÇÃO: Sobrescreve os dados locais com os dados remotos do Supabase
             mergedUsers.push({ 
               ...local, 
               ...remoteMatch,
@@ -688,6 +692,7 @@ export const db = {
             scheduleId: d.schedule_id || undefined,
             orderNumber: orderNumber,
             notes: notes || d.notes || undefined,
+            customerChat: d.customer_chat || undefined,
             updatedAt: d.updated_at || undefined
           };
         });

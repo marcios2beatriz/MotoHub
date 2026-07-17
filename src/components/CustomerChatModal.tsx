@@ -9,13 +9,15 @@ interface CustomerChatModalProps {
   onClose: () => void;
   delivery: Delivery | null;
   onSendMessage: (text: string) => void;
+  viewerRole?: 'customer' | 'rider';
 }
 
 export default function CustomerChatModal({
   isOpen,
   onClose,
   delivery,
-  onSendMessage
+  onSendMessage,
+  viewerRole = 'customer'
 }: CustomerChatModalProps) {
   const [newMessage, setNewMessage] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -25,7 +27,7 @@ export default function CustomerChatModal({
     if (isOpen) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [isOpen, delivery?.notes]);
+  }, [isOpen, delivery?.customerChat]);
 
   if (!isOpen || !delivery) return null;
 
@@ -47,7 +49,7 @@ export default function CustomerChatModal({
     setNewMessage('');
   };
 
-  const messages = delivery.notes ? delivery.notes.split('\n') : [];
+  const messages = delivery.customerChat ? delivery.customerChat.split('\n') : [];
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center p-0 sm:p-4 z-50">
@@ -57,7 +59,9 @@ export default function CustomerChatModal({
           <div className="flex items-center gap-2">
             <MessageSquare className="h-5 w-5 text-indigo-600" />
             <div>
-              <h3 className="text-sm font-bold text-slate-800">Chat com o Entregador</h3>
+              <h3 className="text-sm font-bold text-slate-800">
+                {viewerRole === 'rider' ? 'Chat com o Cliente' : 'Chat com o Entregador'}
+              </h3>
               <p className="text-[10px] text-slate-500">Pedido #{delivery.orderNumber || delivery.id.slice(-4)}</p>
             </div>
           </div>
@@ -81,7 +85,7 @@ export default function CustomerChatModal({
         <div className="flex-1 overflow-y-auto space-y-2 p-2 bg-slate-50 rounded-lg">
           {messages.length === 0 ? (
             <div className="text-center py-12 text-slate-400 text-xs">
-              Envie uma mensagem para combinar a entrega com o motoboy!
+              Envie uma mensagem para combinar a entrega!
             </div>
           ) : (
             messages.map((msg, idx) => {
@@ -94,7 +98,7 @@ export default function CustomerChatModal({
                 );
               }
 
-              const isMe = msg.includes('- Cliente');
+              const isMe = viewerRole === 'rider' ? msg.includes('- Motoboy') : msg.includes('- Cliente');
               const senderInfo = msg.substring(msg.indexOf('- ') + 2, msg.indexOf(']:'));
 
               return (

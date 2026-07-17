@@ -25,7 +25,7 @@ export default function CustomerTracking() {
   const riderMarkerRef = useRef<L.Marker | null>(null);
   
   const hasSetInitialBoundsRef = useRef(false);
-  const prevNotesRef = useRef<string>('');
+  const prevChatRef = useRef<string>('');
 
   const loadTrackingData = () => {
     if (!deliveryId) return;
@@ -63,9 +63,9 @@ export default function CustomerTracking() {
 
   // Monitoramento de novas mensagens no chat para o Cliente
   useEffect(() => {
-    if (delivery && prevNotesRef.current !== undefined && delivery.notes && delivery.notes !== prevNotesRef.current) {
-      const prevLines = prevNotesRef.current ? prevNotesRef.current.split('\n') : [];
-      const currentLines = delivery.notes.split('\n');
+    if (delivery && prevChatRef.current !== undefined && delivery.customerChat && delivery.customerChat !== prevChatRef.current) {
+      const prevLines = prevChatRef.current ? prevChatRef.current.split('\n') : [];
+      const currentLines = delivery.customerChat.split('\n');
 
       if (currentLines.length > prevLines.length) {
         const newLines = currentLines.slice(prevLines.length);
@@ -103,7 +103,7 @@ export default function CustomerTracking() {
       }
     }
     if (delivery) {
-      prevNotesRef.current = delivery.notes || '';
+      prevChatRef.current = delivery.customerChat || '';
     }
   }, [delivery]);
 
@@ -253,17 +253,17 @@ export default function CustomerTracking() {
     const dateStr = now.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
     
     const formattedMessage = `[${dateStr} ${timeStr} - Cliente]: ${text}`;
-    const updatedNotes = delivery.notes ? `${delivery.notes}\n${formattedMessage}` : formattedMessage;
+    const updatedChat = delivery.customerChat ? `${delivery.customerChat}\n${formattedMessage}` : formattedMessage;
 
     const allDeliveries = db.getDeliveries();
     const updated = allDeliveries.map(d => d.id === delivery.id ? {
       ...d,
-      notes: updatedNotes,
+      customerChat: updatedChat,
       updatedAt: new Date().toISOString()
     } : d);
 
     db.setDeliveries(updated);
-    setDelivery({ ...delivery, notes: updatedNotes });
+    setDelivery({ ...delivery, customerChat: updatedChat });
   };
 
   if (loading) {
