@@ -119,8 +119,9 @@ export default function CustomerTracking() {
       document.head.appendChild(link);
     }
 
-    const defaultLat = -7.1150;
-    const defaultLng = -34.8270;
+    // Coordenadas padrão de fallback: Campina Grande - PB
+    const defaultLat = -7.2247;
+    const defaultLng = -35.8813;
 
     const initMap = (lat: number, lng: number) => {
       if (mapRef.current) return;
@@ -151,14 +152,25 @@ export default function CustomerTracking() {
       const headers = { 'Accept-Language': 'pt-BR', 'User-Agent': 'MotoHub-Delivery-App' };
       
       if (addr) {
+        const cepClean = addr.zipCode ? addr.zipCode.replace(/\D/g, '') : '';
+        let street = addr.street || '';
+        let city = addr.city || '';
+        let state = addr.state || '';
+        let neighborhood = addr.neighborhood || '';
+        let number = addr.number || '';
+
         // Etapa 1: Tentar obter coordenadas precisas pelo CEP usando ViaCEP + Nominatim
-        if (addr.zipCode) {
-          const cep = addr.zipCode.replace(/\D/g, '');
+        if (cepClean) {
           try {
-            const viaCepRes = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+            const viaCepRes = await fetch(`https://viacep.com.br/ws/${cepClean}/json/`);
             const viaCepData = await viaCepRes.json();
             if (viaCepData && !viaCepData.erro) {
-              const query = `${viaCepData.logradouro}, ${addr.number || 'S/N'}, ${viaCepData.bairro}, ${viaCepData.localidade}, ${viaCepData.uf}, Brasil`;
+              street = viaCepData.logradouro || street;
+              city = viaCepData.localidade || city;
+              state = viaCepData.uf || state;
+              neighborhood = viaCepData.bairro || neighborhood;
+
+              const query = `${street}, ${number}, ${neighborhood}, ${city}, ${state}, Brasil`;
               const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`, { headers });
               const data = await res.json();
               if (data && data.length > 0) {
@@ -171,11 +183,10 @@ export default function CustomerTracking() {
           }
         }
 
-        // Etapa 2: Fallback para Nominatim estruturado com CEP + Cidade + Estado (Evita São Paulo)
-        if (addr.zipCode) {
-          const cep = addr.zipCode.replace(/\D/g, '');
+        // Etapa 2: Fallback para Nominatim estruturado com CEP + Cidade + Estado
+        if (cepClean) {
           try {
-            const query = `${cep}, ${addr.city || 'João Pessoa'}, ${addr.state || 'PB'}, Brasil`;
+            const query = `${cepClean}, ${city}, ${state}, Brasil`;
             const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`, { headers });
             const data = await res.json();
             if (data && data.length > 0) {
@@ -188,7 +199,7 @@ export default function CustomerTracking() {
         }
 
         // Etapa 3: Fallback para endereço completo cadastrado
-        const queryFull = `${addr.street}, ${addr.number}, ${addr.neighborhood}, ${addr.city}, ${addr.state}, Brasil`;
+        const queryFull = `${street}, ${number}, ${neighborhood}, ${city}, ${state}, Brasil`;
         try {
           const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(queryFull)}`, { headers });
           const data = await res.json();
@@ -202,7 +213,7 @@ export default function CustomerTracking() {
 
         // Etapa 4: Fallback para Cidade e Estado (Garante que fique na região correta)
         try {
-          const queryCity = `${addr.city || 'João Pessoa'}, ${addr.state || 'PB'}, Brasil`;
+          const queryCity = `${city}, ${state}, Brasil`;
           const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(queryCity)}`, { headers });
           const data = await res.json();
           if (data && data.length > 0) {

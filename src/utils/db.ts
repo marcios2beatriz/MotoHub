@@ -90,7 +90,7 @@ export interface RiderLocation {
 // Tables that don't exist or fail in Supabase will be disabled dynamically to use only LocalStorage
 const disabledTables = new Set<string>();
 
-// Seed Data com endereços reais de João Pessoa - PB
+// Seed Data com endereços reais de Campina Grande e João Pessoa - PB
 const INITIAL_USERS: User[] = [
   {
     id: 'u1',
@@ -140,12 +140,12 @@ const INITIAL_ESTABLISHMENTS: Establishment[] = [
     id: 'e1',
     name: 'Pizzaria Bella Italia',
     address: {
-      street: 'Avenida Cabo Branco',
-      number: '1500',
-      neighborhood: 'Cabo Branco',
-      city: 'João Pessoa',
+      street: 'Rua Engenheiro José de Alencar',
+      number: 'S/N',
+      neighborhood: 'Bodocongó',
+      city: 'Campina Grande',
       state: 'PB',
-      zipCode: '58045-010'
+      zipCode: '58433-488'
     },
     phone: '(83) 3222-1111',
     active: true
@@ -166,20 +166,20 @@ const INITIAL_ESTABLISHMENTS: Establishment[] = [
   }
 ];
 
-// Coordenadas iniciais de teste em João Pessoa - PB (Cabo Branco / Tambaú)
+// Coordenadas iniciais de teste em Campina Grande - PB (Bodocongó)
 const INITIAL_LOCATIONS: RiderLocation[] = [
   {
     riderId: 'u2',
     riderName: 'Carlos Silva (Motoqueiro)',
-    lat: -7.1160,
-    lng: -34.8290,
+    lat: -7.2247,
+    lng: -35.8813,
     updatedAt: new Date().toISOString()
   },
   {
     riderId: 'u3',
     riderName: 'Lucas Souza (Motoqueiro)',
-    lat: -7.1180,
-    lng: -34.8250,
+    lat: -7.2260,
+    lng: -35.8830,
     updatedAt: new Date().toISOString()
   }
 ];
