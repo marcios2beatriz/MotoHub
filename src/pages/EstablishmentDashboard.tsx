@@ -588,7 +588,8 @@ export default function EstablishmentDashboard() {
       return;
     }
 
-    if (!user?.establishmentId) return;
+    const estId = establishment?.id || user?.establishmentId;
+    if (!estId) return;
 
     const todayStr = db.getLocalDateString();
     const activeSchedule = todaySchedules.find(s => s.riderId === deliveryForm.riderId);
@@ -611,7 +612,7 @@ export default function EstablishmentDashboard() {
       const newDelivery: Delivery = {
         id: 'd_' + Date.now(),
         riderId: deliveryForm.riderId,
-        establishmentId: user.establishmentId,
+        establishmentId: estId,
         date: todayStr,
         time: new Date().toTimeString().slice(0, 5),
         value: val,
@@ -748,7 +749,7 @@ export default function EstablishmentDashboard() {
 
   // Buscar TODAS as corridas pendentes do estabelecimento (sem filtro de data para evitar problemas de fuso horário)
   const allDeliveries = db.getDeliveries();
-  const pendingDeliveries = allDeliveries.filter(d => d.establishmentId === user?.establishmentId && d.status === 'pending');
+  const pendingDeliveries = allDeliveries.filter(d => d.establishmentId === establishment?.id && d.status === 'pending');
   const processedDeliveries = todayDeliveries.filter(d => d.status !== 'pending');
 
   // Derivação de Estados dos Chats em Tempo Real
