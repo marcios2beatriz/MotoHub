@@ -29,6 +29,7 @@ import {
 // Leaflet imports
 import L from 'leaflet';
 import DeliveryNotesModal from '../components/DeliveryNotesModal';
+import ScheduleChatModal from '../components/ScheduleChatModal';
 import { sendDeviceNotification } from '../utils/notifications';
 
 export default function EstablishmentDashboard() {
@@ -59,6 +60,7 @@ export default function EstablishmentDashboard() {
 
   // Ref para armazenar o estado anterior das notas e evitar notificações duplicadas
   const prevNotesRef = useRef<Record<string, string>>({});
+  const prevScheduleChatRef = useRef<Record<string, string>>({});
 
   // Form state
   const [showDeliveryModal, setShowDeliveryModal] = useState(false);
@@ -72,6 +74,9 @@ export default function EstablishmentDashboard() {
 
   // Modal de Observações/Chat
   const [notesDelivery, setNotesDelivery] = useState<Delivery | null>(null);
+
+  // Modal de Chat de Turno/Escala
+  const [activeScheduleChat, setActiveScheduleChat] = useState<Schedule | null>(null);
 
   // Map reference
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -124,6 +129,12 @@ export default function EstablishmentDashboard() {
     if (notesDelivery) {
       const updatedDelivery = allDeliveries.find(d => d.id === notesDelivery.id);
       if (updatedDelivery) setNotesDelivery(updatedDelivery);
+    }
+
+    // Atualiza a escala selecionada no modal de chat de turno se estiver aberto
+    if (activeScheduleChat) {
+      const updatedSchedule = estSchedules.find(s => s.id === activeScheduleChat.id);
+      if (updatedSchedule) setActiveScheduleChat(updatedSchedule);
     }
   };
 
@@ -205,6 +216,34 @@ export default function EstablishmentDashboard() {
       prevNotesRef.current[d.id] = d.notes || '';
     });
   }, [todayDeliveries, user]);
+
+  // Monitoramento de novas mensagens no chat de turno
+  useEffect(() => {
+    todaySchedules.forEach(s => {
+      const prevChat = prevScheduleChatRef.current[s.id];
+      if (prevChat !== undefined && s.chat && s.chat !== prevChat) {
+        const prevLines = prevChat ? prevChat.split('\n') : [];
+        const currentLines = s.chat.split('\n');
+
+        if (currentLines.length > prevLines.length) {
+          const newLines = currentLines.slice(prevLines.length);
+          newLines.forEach(line => {
+            const isMe = line.includes('- Estabelecimento') || line.includes(`(${user?.name})`);
+            if (!isMe) {
+              const rider = db.getUsers().find(u => u.id === s.riderId);
+              const messageText = line.substring(line.indexOf(']: ') + 3);
+              
+              sendDeviceNotification(
+                `Mensagem de Turno de ${rider?.name || 'Motoboy'}`,
+                `"${messageText}"`
+              );
+            }
+          });
+        }
+      }
+      prevScheduleChatRef.current[s.id] = s.chat || '';
+    });
+  }, [todaySchedules, user]);
 
   // 1. Hook de Inicialização Única do Mapa (Vinculado apenas ao ID do estabelecimento)
   useEffect(() => {
@@ -549,6 +588,17 @@ export default function EstablishmentDashboard() {
     loadData();
   };
 
+  const handleSaveScheduleChat = (scheduleId: string, updatedChat: string) => {
+    const allSchedules = db.getSchedules();
+    const updated = allSchedules.map(s => s.id === scheduleId ? {
+      ...s,
+      chat: updatedChat,
+      updatedAt: new Date().toISOString()
+    } : s);
+    db.setSchedules(updated);
+    loadData();
+  };
+
   const handleCopyTrackingLink = (deliveryId: string) => {
     const link = `${window.location.origin}/#/track/${deliveryId}`;
     navigator.clipboard.writeText(link).then(() => {
@@ -760,6 +810,7 @@ export default function EstablishmentDashboard() {
                   const total = getRiderTotalEarnings(rider.id);
                   const count = getRiderDeliveryCount(rider.id);
                   const isOnline = riderLocations.some(l => l.riderId === rider.id && (Date.now() - new Date(l.updatedAt).getTime() < 60000));
+                  const riderSchedule = todaySchedules.find(s => s.riderId === rider.id);
 
                   return (
                     <div key={rider.id} className="border border-slate-200 rounded-xl p-4 bg-slate-50/50 flex flex-col justify-between space-y-3">
@@ -773,7 +824,21 @@ export default function EstablishmentDashboard() {
                             <p className="text-xs text-slate-500">{rider.phone}</p>
                           </div>
                         </div>
-                        <span className={`h-2.5 w-2.5 rounded-full ${isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`} title={isOnline ? 'Online' : 'Offline'} />
+                        <div className="flex items-center space-x-2">
+                          {riderSchedule && (
+                            <button
+                              onClick={() => setActiveScheduleChat(riderSchedule)}
+                              className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors relative"
+                              title="Chat de Turno"
+                            >
+                              <MessageSquare className="h-4 w-4" />
+                              {riderSchedule.chat && (
+                                <span className="absolute top-0 right-0 h-2 w-2 bg-indigo-600 rounded-full" />
+                              )}
+                            </button>
+                          )}
+                          <span className={`h-2.5 w-2.5 rounded-full ${isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`} title={isOnline ? 'Online' : 'Offline'} />
+                        </div>
                       </div>
 
                       <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100">
@@ -1083,6 +1148,16 @@ export default function EstablishmentDashboard() {
         userRole="establishment"
         userName={user?.name || 'Gerente'}
         onSaveNotes={handleSaveNotes}
+      />
+
+      {/* MODAL DE CHAT DE TURNO */}
+      <ScheduleChatModal
+        isOpen={!!activeScheduleChat}
+        onClose={() => setActiveScheduleChat(null)}
+        schedule={activeScheduleChat}
+        userRole="establishment"
+        userName={user?.name || 'Gerente'}
+        onSaveChat={handleSaveScheduleChat}
       />
     </div>
   );
