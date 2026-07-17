@@ -287,15 +287,26 @@ export default function AdminDashboard() {
 
   const handleApproveRider = (id: string) => {
     const allUsers = db.getUsers();
-    const updated = allUsers.map(u => u.id === id ? { ...u, active: true, updatedAt: new Date().toISOString() } : u);
-    db.setUsers(updated);
+    const allEsts = db.getEstablishments();
     
-    const rider = allUsers.find(u => u.id === id);
-    if (rider) {
+    const userToApprove = allUsers.find(u => u.id === id);
+    if (!userToApprove) return;
+
+    // Ativar Usuário
+    const updatedUsers = allUsers.map(u => u.id === id ? { ...u, active: true, updatedAt: new Date().toISOString() } : u);
+    db.setUsers(updatedUsers);
+
+    // Se for gerente, ativar também o estabelecimento vinculado
+    if (userToApprove.role === 'establishment' && userToApprove.establishmentId) {
+      const updatedEsts = allEsts.map(e => e.id === userToApprove.establishmentId ? { ...e, active: true, updatedAt: new Date().toISOString() } : e);
+      db.setEstablishments(updatedEsts);
+    }
+    
+    if (userToApprove.role === 'rider') {
       const allNotif = db.getNotifications();
       const newNotif: Notification = {
         id: 'n_' + Date.now(),
-        riderId: rider.id,
+        riderId: userToApprove.id,
         title: '🎉 Cadastro Aprovado!',
         message: 'Seu cadastro foi aprovado! Você já pode acessar o sistema com seu e-mail e senha.',
         date: new Date().toISOString(),
@@ -305,6 +316,7 @@ export default function AdminDashboard() {
     }
     
     loadData();
+    alert('Usuário aprovado e ativado com sucesso!');
   };
 
   // --- GESTÃO DE ESTABELECIMENTOS ---
@@ -744,24 +756,48 @@ export default function AdminDashboard() {
   };
 
   const handleApproveRequest = (req: PartnerRequest) => {
-    setEditingEst(null);
-    setEstForm({
-      name: req.establishmentName,
-      street: '',
-      number: '',
-      complement: '',
-      neighborhood: '',
-      city: '',
-      state: '',
-      zipCode: '',
-      phone: req.phone,
-      email: '',
-      password: ''
-    });
-    setShowEstModal(true);
+    const allEsts = db.getEstablishments();
+    const allUsers = db.getUsers();
 
-    const updated = partnerRequests.map(r => r.id === req.id ? { ...r, status: 'contacted' as const } : r);
-    db.setPartnerRequests(updated);
+    // Encontrar o estabelecimento pré-criado pelo nome
+    const est = allEsts.find(e => e.name.toLowerCase() === req.establishmentName.toLowerCase());
+    
+    if (est) {
+      // Ativar o estabelecimento
+      const updatedEsts = allEsts.map(e => e.id === est.id ? { ...e, active: true, updatedAt: new Date().toISOString() } : e);
+      db.setEstablishments(updatedEsts);
+
+      // Ativar a conta do gerente vinculada
+      const updatedUsers = allUsers.map(u => u.establishmentId === est.id ? { ...u, active: true, updatedAt: new Date().toISOString() } : u);
+      db.setUsers(updatedUsers);
+
+      // Marcar solicitação como contatada/aprovada
+      const updatedRequests = partnerRequests.map(r => r.id === req.id ? { ...r, status: 'contacted' as const } : r);
+      db.setPartnerRequests(updatedRequests);
+
+      loadData();
+      alert('Solicitação aprovada! O estabelecimento e a conta do gerente foram ativados com sucesso.');
+    } else {
+      // Fallback caso o estabelecimento não tenha sido pré-criado (abre o modal)
+      setEditingEst(null);
+      setEstForm({
+        name: req.establishmentName,
+        street: '',
+        number: '',
+        complement: '',
+        neighborhood: '',
+        city: '',
+        state: '',
+        zipCode: '',
+        phone: req.phone,
+        email: '',
+        password: ''
+      });
+      setShowEstModal(true);
+
+      const updated = partnerRequests.map(r => r.id === req.id ? { ...r, status: 'contacted' as const } : r);
+      db.setPartnerRequests(updated);
+    }
   };
 
   // --- RELATÓRIOS E EXPORTAÇÃO ---
