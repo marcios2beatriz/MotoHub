@@ -151,18 +151,37 @@ export default function CustomerTracking() {
       const headers = { 'Accept-Language': 'pt-BR', 'User-Agent': 'MotoHub-Delivery-App' };
       
       if (addr) {
+        const zipCode = addr.zipCode ? addr.zipCode.trim() : '';
+        const cleanCep = zipCode.replace(/\D/g, '');
+
         // Etapa 1: Tentar obter coordenadas precisas pelo CEP usando ViaCEP + Nominatim
-        if (addr.zipCode) {
-          const cep = addr.zipCode.replace(/\D/g, '');
+        if (cleanCep.length === 8) {
           try {
-            const viaCepRes = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+            const viaCepRes = await fetch(`https://viacep.com.br/ws/${cleanCep}/json/`);
             const viaCepData = await viaCepRes.json();
             if (viaCepData && !viaCepData.erro) {
-              const query = `${viaCepData.logradouro}, ${addr.number || 'S/N'}, ${viaCepData.bairro}, ${viaCepData.localidade}, ${viaCepData.uf}, Brasil`;
-              const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`, { headers });
+              const queryFull = `${viaCepData.logradouro}, ${addr.number || 'S/N'}, ${viaCepData.bairro}, ${viaCepData.localidade} - ${viaCepData.uf}, Brasil`;
+              const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(queryFull)}`, { headers });
               const data = await res.json();
               if (data && data.length > 0) {
                 initMap(parseFloat(data[0].lat), parseFloat(data[0].lon));
+                return;
+              }
+
+              // Se falhar, tenta buscar apenas pelo CEP no Nominatim (extremamente preciso para localização geral do CEP)
+              const resCep = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(cleanCep + ', Brasil')}`, { headers });
+              const dataCep = await resCep.json();
+              if (dataCep && dataCep.length > 0) {
+                initMap(parseFloat(dataCep[0].lat), parseFloat(dataCep[0].lon));
+                return;
+              }
+
+              // Se falhar, tenta pela cidade/estado do ViaCEP
+              const queryCity = `${viaCepData.localidade} - ${viaCepData.uf}, Brasil`;
+              const resCity = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(queryCity)}`, { headers });
+              const dataCity = await resCity.json();
+              if (dataCity && dataCity.length > 0) {
+                initMap(parseFloat(dataCity[0].lat), parseFloat(dataCity[0].lon));
                 return;
               }
             }
@@ -171,46 +190,51 @@ export default function CustomerTracking() {
           }
         }
 
-        // Etapa 2: Fallback para Nominatim estruturado com CEP + Cidade + Estado (Evita São Paulo)
-        if (addr.zipCode) {
-          const cep = addr.zipCode.replace(/\D/g, '');
+        // Etapa 2: Fallback se o ViaCEP falhar ou não houver CEP válido: usar dados cadastrados do estabelecimento
+        if (cleanCep) {
           try {
-            const query = `${cep}, ${addr.city || 'João Pessoa'}, ${addr.state || 'PB'}, Brasil`;
-            const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`, { headers });
+            const resCep = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(cleanCep + ', Brasil')}`, { headers });
+            const dataCep = await resCep.json();
+            if (dataCep && dataCep.length > 0) {
+              initMap(parseFloat(dataCep[0].lat), parseFloat(dataCep[0].lon));
+              return;
+            }
+          } catch (e) {
+            console.warn('Erro ao buscar por CEP cadastrado:', e);
+          }
+        }
+
+        const street = addr.street || '';
+        const number = addr.number || '';
+        const city = addr.city || '';
+        const state = addr.state || '';
+
+        if (street && city) {
+          try {
+            const queryFull = `${street}, ${number}, ${city} - ${state}, Brasil`;
+            const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(queryFull)}`, { headers });
             const data = await res.json();
             if (data && data.length > 0) {
               initMap(parseFloat(data[0].lat), parseFloat(data[0].lon));
               return;
             }
           } catch (e) {
-            console.warn('Erro ao geocodificar por CEP estruturado:', e);
+            console.warn('Erro ao buscar por endereço cadastrado:', e);
           }
         }
 
-        // Etapa 3: Fallback para endereço completo cadastrado
-        const queryFull = `${addr.street}, ${addr.number}, ${addr.neighborhood}, ${addr.city}, ${addr.state}, Brasil`;
-        try {
-          const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(queryFull)}`, { headers });
-          const data = await res.json();
-          if (data && data.length > 0) {
-            initMap(parseFloat(data[0].lat), parseFloat(data[0].lon));
-            return;
+        if (city) {
+          try {
+            const queryCity = `${city} - ${state}, Brasil`;
+            const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(queryCity)}`, { headers });
+            const data = await res.json();
+            if (data && data.length > 0) {
+              initMap(parseFloat(data[0].lat), parseFloat(data[0].lon));
+              return;
+            }
+          } catch (e) {
+            console.warn('Erro ao buscar por cidade cadastrada:', e);
           }
-        } catch (e) {
-          console.warn('Erro ao geocodificar por endereço completo:', e);
-        }
-
-        // Etapa 4: Fallback para Cidade e Estado (Garante que fique na região correta)
-        try {
-          const queryCity = `${addr.city || 'João Pessoa'}, ${addr.state || 'PB'}, Brasil`;
-          const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(queryCity)}`, { headers });
-          const data = await res.json();
-          if (data && data.length > 0) {
-            initMap(parseFloat(data[0].lat), parseFloat(data[0].lon));
-            return;
-          }
-        } catch (e) {
-          console.warn('Erro ao geocodificar por cidade:', e);
         }
       }
 
