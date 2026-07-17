@@ -24,8 +24,7 @@ import {
   Hash,
   Edit2,
   Share2,
-  MessageSquare,
-  User
+  MessageSquare
 } from 'lucide-react';
 import DeliveryNotesModal from '../components/DeliveryNotesModal';
 import CustomerChatModal from '../components/CustomerChatModal';
@@ -415,6 +414,17 @@ export default function RiderDashboard() {
 
     db.setDeliveries(updated);
     setCustomerChatDelivery({ ...customerChatDelivery, customerChat: updatedChat });
+    loadData();
+  };
+
+  const handleSaveNotes = (deliveryId: string, updatedNotes: string) => {
+    const allDeliveries = db.getDeliveries();
+    const updated = allDeliveries.map(d => d.id === deliveryId ? {
+      ...d,
+      notes: updatedNotes,
+      updatedAt: new Date().toISOString()
+    } : d);
+    db.setDeliveries(updated);
     loadData();
   };
 
@@ -995,7 +1005,7 @@ export default function RiderDashboard() {
                               <span className="font-mono text-slate-600 text-xs bg-slate-100 px-1.5 py-0.5 rounded">{schedule.startTime} — {schedule.endTime}</span>
                             </p>
                           </div>
-                          <span className="bg-slate-100 text-slate-500 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase flex-shrink-0">
+                          <span className="bg-slate-100 text-slate-500 text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase flex-shrink-0">
                             Concluída
                           </span>
                         </div>
@@ -1153,7 +1163,7 @@ export default function RiderDashboard() {
         delivery={notesDelivery}
         userRole="rider"
         userName={user?.name || 'Motoboy'}
-        onSaveNotes={handleSaveScheduleChat}
+        onSaveNotes={handleSaveNotes}
       />
 
       {/* MODAL DE CHAT COM CLIENTE */}
