@@ -273,7 +273,7 @@ export default function EstablishmentDashboard() {
 
     const initMap = async (lat: number, lng: number) => {
       if (mapRef.current) return;
-      const mapInstance = L.map(mapContainerRef.current!).setView([lat, lng], 16);
+      const mapInstance = L.map(mapContainerRef.current!).setView([lat, lng], 17);
       mapRef.current = mapInstance;
 
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -424,10 +424,10 @@ export default function EstablishmentDashboard() {
 
       if (points.length >= 2) {
         const bounds = L.latLngBounds(points);
-        currentMap.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
+        currentMap.fitBounds(bounds, { padding: [50, 50], maxZoom: 17 });
         hasSetInitialBoundsRef.current = true;
       } else if (points.length === 1) {
-        currentMap.setView(points[0], 16);
+        currentMap.setView(points[0], 17);
         hasSetInitialBoundsRef.current = true;
       }
     }
@@ -460,9 +460,9 @@ export default function EstablishmentDashboard() {
 
     if (points.length >= 2) {
       const bounds = L.latLngBounds(points);
-      currentMap.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
+      currentMap.fitBounds(bounds, { padding: [50, 50], maxZoom: 17 });
     } else if (points.length === 1) {
-      currentMap.setView(points[0], 16);
+      currentMap.setView(points[0], 17);
     }
   };
 

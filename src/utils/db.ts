@@ -391,39 +391,6 @@ export const db = {
     const ests = getStorageData<Establishment[]>('dm_establishments', INITIAL_ESTABLISHMENTS);
     let updated = false;
     const merged = [...ests];
-    
-    // Migração automática inteligente: se a Pizzaria Bella Italia ainda estiver em SP, migra para João Pessoa - PB
-    const bellaItalia = merged.find(e => e.id === 'e1');
-    if (bellaItalia && bellaItalia.address.street === 'Avenida Cabo Branco') {
-      // Já está em João Pessoa
-    } else if (bellaItalia) {
-      bellaItalia.address = {
-        street: 'Avenida Cabo Branco',
-        number: '1500',
-        neighborhood: 'Cabo Branco',
-        city: 'João Pessoa',
-        state: 'PB',
-        zipCode: '58045-010'
-      };
-      bellaItalia.phone = '(83) 3222-1111';
-      updated = true;
-    }
-
-    const burgerHouse = merged.find(e => e.id === 'e2');
-    if (burgerHouse && burgerHouse.address.street === 'Avenida Olinda') {
-      // Já está em João Pessoa
-    } else if (burgerHouse) {
-      burgerHouse.address = {
-        street: 'Avenida Olinda',
-        number: '200',
-        neighborhood: 'Tambaú',
-        city: 'João Pessoa',
-        state: 'PB',
-        zipCode: '58039-120'
-      };
-      burgerHouse.phone = '(83) 3111-2222';
-      updated = true;
-    }
 
     INITIAL_ESTABLISHMENTS.forEach(initEst => {
       if (!merged.some(e => e.id === initEst.id)) {
