@@ -862,6 +862,19 @@ export default function EstablishmentDashboard() {
                           >
                             <MessageSquare className="h-4 w-4" />
                           </button>
+                          {/* Link de Rastreamento disponível para corridas pendentes */}
+                          <button
+                            onClick={() => handleCopyTrackingLink(del.id)}
+                            className={`px-2 py-1 rounded text-xs font-bold flex items-center gap-1 transition-colors ${
+                              copiedId === del.id 
+                                ? 'bg-emerald-100 text-emerald-800' 
+                                : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700'
+                            }`}
+                            title="Copiar Link de Rastreamento"
+                          >
+                            <Share2 className="h-3.5 w-3.5" />
+                            <span>{copiedId === del.id ? 'Copiado!' : 'Rastrear'}</span>
+                          </button>
                           <button
                             onClick={() => {
                               setEditingDelivery(del);
@@ -1061,7 +1074,8 @@ export default function EstablishmentDashboard() {
                               >
                                 <MessageSquare className="h-4 w-4" />
                               </button>
-                              {del.status === 'active' && (
+                              {/* Link de Rastreamento disponível para corridas ativas e pendentes */}
+                              {(del.status === 'active' || del.status === 'pending') && (
                                 <button
                                   onClick={() => handleCopyTrackingLink(del.id)}
                                   className={`px-2 py-1 rounded text-xs font-bold flex items-center gap-1 transition-colors ${

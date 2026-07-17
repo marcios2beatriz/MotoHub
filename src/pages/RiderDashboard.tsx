@@ -695,7 +695,7 @@ export default function RiderDashboard() {
                             <span>{delivery.time}</span>
                           </p>
                           {delivery.notes && (
-                            <p className="text-xs text-slate-500 bg-slate-50 border border-slate-100 rounded px-2 py-1 mt-1 italic truncate max-w-[300px]">
+                            <p className="text-xs text-slate-500 bg-slate-50 border border-slate-100 rounded px-2 py-1 mt-1.5 italic truncate max-w-[300px]">
                               Obs: {delivery.notes.split('\n').pop()?.replace(/\[.*?\]: /, '') || delivery.notes}
                             </p>
                           )}
@@ -723,7 +723,8 @@ export default function RiderDashboard() {
                             </button>
                           )}
 
-                          {delivery.status === 'active' && (
+                          {/* Link de Rastreamento disponível para corridas Ativas e Pendentes */}
+                          {(delivery.status === 'active' || delivery.status === 'pending') && (
                             <button
                               onClick={() => handleShareTracking(delivery.id)}
                               className={`px-2 py-1 rounded text-xs font-bold flex items-center gap-1 transition-colors ${
