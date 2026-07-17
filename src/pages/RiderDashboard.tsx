@@ -24,7 +24,8 @@ import {
   Hash,
   Edit2,
   Share2,
-  MessageSquare
+  MessageSquare,
+  ShieldAlert
 } from 'lucide-react';
 import DeliveryNotesModal from '../components/DeliveryNotesModal';
 import CustomerChatModal from '../components/CustomerChatModal';
@@ -42,7 +43,10 @@ export default function RiderDashboard() {
   const [gpsStatus, setGpsStatus] = useState<'requesting' | 'active' | 'error' | 'denied'>('requesting');
   const [gpsCoords, setGpsCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  
   const watchIdRef = useRef<number | null>(null);
+  const fallbackIntervalRef = useRef<any>(null);
+  const wakeLockRef = useRef<any>(null);
 
   // Refs para armazenar o estado anterior das notas e chats para evitar notificações duplicadas
   const prevNotesRef = useRef<Record<string, string>>({});
@@ -195,12 +199,40 @@ export default function RiderDashboard() {
     };
   }, [user]);
 
+  // Solicitar Wake Lock para manter a tela ativa e evitar suspensão do GPS
+  const requestWakeLock = async () => {
+    try {
+      if ('wakeLock' in navigator) {
+        wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
+        console.log('Wake Lock ativado com sucesso. Tela permanecerá ligada.');
+      }
+    } catch (err) {
+      console.warn('Não foi possível ativar o Wake Lock:', err);
+    }
+  };
+
+  const releaseWakeLock = () => {
+    if (wakeLockRef.current) {
+      wakeLockRef.current.release().then(() => {
+        wakeLockRef.current = null;
+      });
+    }
+  };
+
   const startGpsTracking = () => {
     if (!user || user.role !== 'rider') return;
     
+    // Ativar Wake Lock para manter a tela ligada e o GPS ativo
+    requestWakeLock();
+
     if (watchIdRef.current !== null) {
       navigator.geolocation.clearWatch(watchIdRef.current);
       watchIdRef.current = null;
+    }
+
+    if (fallbackIntervalRef.current) {
+      clearInterval(fallbackIntervalRef.current);
+      fallbackIntervalRef.current = null;
     }
 
     if (!navigator.geolocation) {
@@ -223,27 +255,50 @@ export default function RiderDashboard() {
       } else {
         setGpsStatus('error');
       }
-      console.warn('GPS error:', err.message);
+      console.warn('Erro de GPS:', err.message);
     };
 
+    // Configurações de Alta Precisão Absoluta
     const options: PositionOptions = {
-      enableHighAccuracy: true,
-      maximumAge: 0,
-      timeout: 15000
+      enableHighAccuracy: true, // Força o uso do chip de GPS integrado (Hardware)
+      maximumAge: 0,            // Ignora cache, exige leitura em tempo real
+      timeout: 10000            // Timeout de 10 segundos
     };
 
+    // Primeira leitura imediata
     navigator.geolocation.getCurrentPosition(onSuccess, onError, options);
+    
+    // Monitoramento contínuo nativo
     watchIdRef.current = navigator.geolocation.watchPosition(onSuccess, onError, options);
+
+    // Loop de Atualização Ativa (Força nova leitura a cada 5 segundos para evitar suspensão do navegador)
+    fallbackIntervalRef.current = setInterval(() => {
+      navigator.geolocation.getCurrentPosition(onSuccess, (err) => {
+        console.warn('Atualização ativa de GPS falhou:', err.message);
+      }, options);
+    }, 5000);
   };
 
   useEffect(() => {
     startGpsTracking();
 
+    // Re-solicitar Wake Lock se a página voltar a ficar visível
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        requestWakeLock();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     return () => {
       if (watchIdRef.current !== null) {
         navigator.geolocation.clearWatch(watchIdRef.current);
-        watchIdRef.current = null;
       }
+      if (fallbackIntervalRef.current) {
+        clearInterval(fallbackIntervalRef.current);
+      }
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      releaseWakeLock();
     };
   }, [user]);
 
@@ -488,6 +543,17 @@ export default function RiderDashboard() {
       </header>
 
       <main className="max-w-4xl mx-auto px-4 mt-6">
+        {/* Banner de Orientação de GPS de Alta Precisão */}
+        <div className="bg-indigo-50 border-l-4 border-indigo-600 p-4 rounded-xl mb-6 flex items-start gap-3 shadow-sm">
+          <ShieldAlert className="h-5 w-5 text-indigo-600 flex-shrink-0 mt-0.5" />
+          <div>
+            <h4 className="text-sm font-bold text-indigo-900">Rastreamento em Tempo Real Ativo</h4>
+            <p className="text-xs text-indigo-700 mt-1 leading-relaxed">
+              Para garantir que o estabelecimento e o cliente acompanhem sua rota com precisão absoluta, <strong>mantenha esta tela ligada</strong> e certifique-se de que concedeu permissão de <strong>Alta Precisão (GPS)</strong> ao seu navegador.
+            </p>
+          </div>
+        </div>
+
         {/* Tabs */}
         <div className="grid grid-cols-4 bg-white rounded-lg p-1 shadow-sm mb-6 border border-slate-200 gap-1">
           <button
