@@ -17,6 +17,12 @@ interface UserModalProps {
     password: string;
     establishmentId?: string;
     establishmentName?: string;
+    zipCode?: string;
+    street?: string;
+    number?: string;
+    neighborhood?: string;
+    city?: string;
+    state?: string;
   };
   setUserForm: React.Dispatch<React.SetStateAction<{
     name: string;
@@ -27,6 +33,12 @@ interface UserModalProps {
     password: string;
     establishmentId?: string;
     establishmentName?: string;
+    zipCode?: string;
+    street?: string;
+    number?: string;
+    neighborhood?: string;
+    city?: string;
+    state?: string;
   }>>;
   establishments: Establishment[];
   onSave: (e: React.FormEvent) => void;
@@ -96,17 +108,95 @@ export default function UserModal({
           </div>
 
           {isEstablishment && (
-            <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nome do Estabelecimento</label>
-              <input
-                type="text"
-                required
-                placeholder="Ex: Pizzaria Bella Italia"
-                value={userForm.establishmentName || ''}
-                onChange={(e) => setUserForm({ ...userForm, establishmentName: e.target.value })}
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
-              />
-            </div>
+            <>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nome do Estabelecimento</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ex: Pizzaria Bella Italia"
+                  value={userForm.establishmentName || ''}
+                  onChange={(e) => setUserForm({ ...userForm, establishmentName: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
+                <div className="col-span-2">
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Rua / Logradouro</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ex: Rua Martinho Lutero"
+                    value={userForm.street || ''}
+                    onChange={(e) => setUserForm({ ...userForm, street: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Número</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ex: 32"
+                    value={userForm.number || ''}
+                    onChange={(e) => setUserForm({ ...userForm, number: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Bairro</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ex: Malvinas"
+                    value={userForm.neighborhood || ''}
+                    onChange={(e) => setUserForm({ ...userForm, neighborhood: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">CEP</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ex: 58433-488"
+                    value={userForm.zipCode || ''}
+                    onChange={(e) => setUserForm({ ...userForm, zipCode: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
+                <div className="col-span-2">
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Cidade</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ex: Campina Grande"
+                    value={userForm.city || ''}
+                    onChange={(e) => setUserForm({ ...userForm, city: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Estado</label>
+                  <input
+                    type="text"
+                    required
+                    maxLength={2}
+                    placeholder="PB"
+                    value={userForm.state || ''}
+                    onChange={(e) => setUserForm({ ...userForm, state: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  />
+                </div>
+              </div>
+            </>
           )}
 
           <div className="grid grid-cols-2 gap-2">

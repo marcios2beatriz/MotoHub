@@ -73,7 +73,13 @@ export default function AdminDashboard() {
     role: 'rider' as 'admin' | 'rider' | 'establishment',
     password: '',
     establishmentId: '',
-    establishmentName: ''
+    establishmentName: '',
+    zipCode: '',
+    street: '',
+    number: '',
+    neighborhood: '',
+    city: '',
+    state: ''
   });
 
   const [showEstModal, setShowEstModal] = useState(false);
@@ -182,11 +188,26 @@ export default function AdminDashboard() {
     const nowStr = new Date().toISOString();
     let finalEstId = userForm.establishmentId;
 
-    // Se for gerente de estabelecimento, cria ou vincula o estabelecimento automaticamente
+    // Se for gerente de estabelecimento, cria ou vincula o estabelecimento automaticamente com o endereço fornecido
     if (userForm.role === 'establishment' && userForm.establishmentName) {
       const existingEst = allEsts.find(e => e.name.toLowerCase() === userForm.establishmentName.toLowerCase());
       if (existingEst) {
         finalEstId = existingEst.id;
+        // Atualiza o endereço do estabelecimento existente se necessário
+        const updatedEsts = allEsts.map(e => e.id === existingEst.id ? {
+          ...e,
+          address: {
+            street: userForm.street || e.address.street,
+            number: userForm.number || e.address.number,
+            complement: e.address.complement || '',
+            neighborhood: userForm.neighborhood || e.address.neighborhood,
+            city: userForm.city || e.address.city,
+            state: userForm.state || e.address.state,
+            zipCode: userForm.zipCode || e.address.zipCode
+          },
+          updatedAt: nowStr
+        } : e);
+        db.setEstablishments(updatedEsts);
       } else {
         const newEstId = 'e_' + Date.now();
         const newEst: Establishment = {
@@ -195,12 +216,13 @@ export default function AdminDashboard() {
           phone: userForm.phone || '',
           active: true,
           address: {
-            street: 'A definir',
-            number: 'S/N',
-            neighborhood: 'A definir',
-            city: 'A definir',
-            state: 'PB',
-            zipCode: '00000-000'
+            street: userForm.street || 'A definir',
+            number: userForm.number || 'S/N',
+            complement: '',
+            neighborhood: userForm.neighborhood || 'A definir',
+            city: userForm.city || 'A definir',
+            state: userForm.state || 'PB',
+            zipCode: userForm.zipCode || '00000-000'
           },
           updatedAt: nowStr
         };
@@ -241,7 +263,7 @@ export default function AdminDashboard() {
 
     setShowUserModal(false);
     setEditingUser(null);
-    setUserForm({ name: '', cpf: '', phone: '', email: '', role: 'rider', password: '', establishmentId: '', establishmentName: '' });
+    setUserForm({ name: '', cpf: '', phone: '', email: '', role: 'rider', password: '', establishmentId: '', establishmentName: '', zipCode: '', street: '', number: '', neighborhood: '', city: '', state: '' });
     loadData();
   };
 
@@ -660,7 +682,7 @@ export default function AdminDashboard() {
       const allNotif = db.getNotifications();
       const newNotif: Notification = {
         id: 'n_' + Date.now(),
-        riderId: delivery.riderId,
+        riderId: delivery.role === 'rider' ? delivery.riderId : delivery.riderId, // fallback safe
         title: '❌ Corrida Rejeitada',
         message: `Sua corrida no valor de R$ ${delivery.value.toFixed(2)} foi rejeitada pelo administrador para o estabelecimento ${est?.name}. Motivo: ${reason || 'Não especificado'}.`,
         date: new Date().toISOString(),
@@ -992,7 +1014,7 @@ export default function AdminDashboard() {
                 <button
                   onClick={() => {
                     setEditingUser(null);
-                    setUserForm({ name: '', cpf: '', phone: '', email: '', role: 'rider', password: '', establishmentId: '', establishmentName: '' });
+                    setUserForm({ name: '', cpf: '', phone: '', email: '', role: 'rider', password: '', establishmentId: '', establishmentName: '', zipCode: '', street: '', number: '', neighborhood: '', city: '', state: '' });
                     setShowUserModal(true);
                   }}
                   className="flex items-center justify-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
@@ -1126,7 +1148,13 @@ export default function AdminDashboard() {
                                   role: user.role,
                                   password: '',
                                   establishmentId: user.establishmentId || '',
-                                  establishmentName: est ? est.name : ''
+                                  establishmentName: est ? est.name : '',
+                                  zipCode: est ? est.address.zipCode : '',
+                                  street: est ? est.address.street : '',
+                                  number: est ? est.address.number : '',
+                                  neighborhood: est ? est.address.neighborhood : '',
+                                  city: est ? est.address.city : '',
+                                  state: est ? est.address.state : ''
                                 });
                                 setShowUserModal(true);
                               }}
