@@ -140,9 +140,9 @@ const INITIAL_ESTABLISHMENTS: Establishment[] = [
     id: 'e1',
     name: 'Pizzaria Bella Italia',
     address: {
-      street: 'Rua Engenheiro José de Alencar',
-      number: 'S/N',
-      neighborhood: 'Bodocongó',
+      street: 'Rua Martinho Lutero',
+      number: '32',
+      neighborhood: 'Malvinas',
       city: 'Campina Grande',
       state: 'PB',
       zipCode: '58433-488'
@@ -166,20 +166,20 @@ const INITIAL_ESTABLISHMENTS: Establishment[] = [
   }
 ];
 
-// Coordenadas iniciais de teste em Campina Grande - PB (Bodocongó)
+// Coordenadas iniciais de teste em Campina Grande - PB (Malvinas, próximas ao CEP 58433-488)
 const INITIAL_LOCATIONS: RiderLocation[] = [
   {
     riderId: 'u2',
     riderName: 'Carlos Silva (Motoqueiro)',
-    lat: -7.2247,
-    lng: -35.8813,
+    lat: -7.2345,
+    lng: -35.9265,
     updatedAt: new Date().toISOString()
   },
   {
     riderId: 'u3',
     riderName: 'Lucas Souza (Motoqueiro)',
-    lat: -7.2260,
-    lng: -35.8830,
+    lat: -7.2330,
+    lng: -35.9285,
     updatedAt: new Date().toISOString()
   }
 ];

@@ -10,7 +10,7 @@ import { sendDeviceNotification } from '../utils/notifications';
 
 // Dicionário de CEPs conhecidos para precisão absoluta e instantânea
 const KNOWN_CEPS: { [key: string]: { lat: number; lng: number } } = {
-  '58433488': { lat: -7.2198, lng: -35.9126 }, // Rua Engenheiro José de Alencar, Bodocongó, Campina Grande - PB
+  '58433488': { lat: -7.2338, lng: -35.9275 }, // Rua Martinho Lutero, 32, Malvinas, Campina Grande - PB
   '58039120': { lat: -7.1150, lng: -34.8230 }, // Tambaú, João Pessoa - PB
 };
 
