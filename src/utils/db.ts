@@ -13,6 +13,7 @@ export interface User {
   passwordHash: string;
   mustResetPassword?: boolean;
   establishmentId?: string; // Linked establishment for establishment users
+  updatedAt?: string;
 }
 
 export interface Establishment {
@@ -29,6 +30,7 @@ export interface Establishment {
   };
   phone: string;
   active: boolean;
+  updatedAt?: string;
 }
 
 export interface Schedule {
@@ -100,7 +102,8 @@ const INITIAL_USERS: User[] = [
     email: 'admin@delivery.com',
     role: 'admin',
     active: true,
-    passwordHash: 'admin123'
+    passwordHash: 'admin123',
+    updatedAt: new Date().toISOString()
   },
   {
     id: 'u2',
@@ -110,7 +113,8 @@ const INITIAL_USERS: User[] = [
     email: 'carlos@delivery.com',
     role: 'rider',
     active: true,
-    passwordHash: 'moto123'
+    passwordHash: 'moto123',
+    updatedAt: new Date().toISOString()
   },
   {
     id: 'u3',
@@ -120,7 +124,8 @@ const INITIAL_USERS: User[] = [
     email: 'lucas@delivery.com',
     role: 'rider',
     active: true,
-    passwordHash: 'moto123'
+    passwordHash: 'moto123',
+    updatedAt: new Date().toISOString()
   },
   {
     id: 'u4',
@@ -131,7 +136,8 @@ const INITIAL_USERS: User[] = [
     role: 'establishment',
     active: true,
     passwordHash: 'bella123',
-    establishmentId: 'e1'
+    establishmentId: 'e1',
+    updatedAt: new Date().toISOString()
   }
 ];
 
@@ -148,7 +154,8 @@ const INITIAL_ESTABLISHMENTS: Establishment[] = [
       zipCode: '58433-488'
     },
     phone: '(83) 3222-1111',
-    active: true
+    active: true,
+    updatedAt: new Date().toISOString()
   },
   {
     id: 'e2',
@@ -162,7 +169,8 @@ const INITIAL_ESTABLISHMENTS: Establishment[] = [
       zipCode: '58039-120'
     },
     phone: '(83) 3111-2222',
-    active: true
+    active: true,
+    updatedAt: new Date().toISOString()
   }
 ];
 
@@ -197,11 +205,44 @@ export const setStorageData = <T>(key: string, data: T): void => {
   localStorage.setItem(key, JSON.stringify(data));
 };
 
+// Tombstone Helpers para rastrear exclusões
+const getDeletedIds = (): string[] => getStorageData<string[]>('dm_deleted_ids', []);
+
+const addDeletedId = (id: string, supabaseTable: string) => {
+  const deleted = getDeletedIds();
+  if (!deleted.includes(id)) {
+    const updated = [...deleted, id];
+    setStorageData('dm_deleted_ids', updated);
+    
+    // Tenta excluir do Supabase imediatamente
+    supabase.from(supabaseTable).delete().eq('id', id).then(({ error }) => {
+      if (error) console.warn(`[Supabase] Erro ao excluir ID ${id} da tabela ${supabaseTable}:`, error.message);
+    });
+  }
+};
+
+// Compara a lista antiga com a nova para detectar exclusões automáticas (ex: filtros de array)
+const trackDeletions = (key: string, newData: { id: string }[], supabaseTable: string) => {
+  const oldData = getStorageData<{ id: string }[]>(key, []);
+  const newIds = new Set(newData.map(item => item.id));
+  
+  oldData.forEach(oldItem => {
+    if (!newIds.has(oldItem.id)) {
+      addDeletedId(oldItem.id, supabaseTable);
+    }
+  });
+};
+
 // Helper to merge local and remote data by ID with timestamp check
 const mergeById = <T extends { id: string; updatedAt?: string }>(local: T[], remote: T[]): T[] => {
+  const deletedIds = getDeletedIds();
   const map = new Map<string, T>();
-  local.forEach(item => map.set(item.id, item));
-  remote.forEach(item => {
+  
+  // Filtra locais que já foram deletados
+  local.filter(item => !deletedIds.includes(item.id)).forEach(item => map.set(item.id, item));
+  
+  // Filtra remotos que já foram deletados
+  remote.filter(item => !deletedIds.includes(item.id)).forEach(item => {
     const existing = map.get(item.id);
     if (existing) {
       const localTime = existing.updatedAt ? new Date(existing.updatedAt).getTime() : 0;
@@ -262,7 +303,6 @@ const syncToSupabase = async (table: string, data: any[]) => {
         };
       }
       if (table === 'schedules') {
-        // Serialização JSON robusta para contornar a falta das colunas 'chat' e 'updated_at' no Supabase
         const payload = {
           createdBy: item.createdBy,
           chat: item.chat || '',
@@ -277,12 +317,11 @@ const syncToSupabase = async (table: string, data: any[]) => {
           shift: item.shift,
           start_time: item.startTime,
           end_time: item.endTime,
-          created_by: JSON.stringify(payload), // Armazena o payload completo na coluna 'created_by'
+          created_by: JSON.stringify(payload),
           created_at: item.createdAt
         };
       }
       if (table === 'deliveries') {
-        // Serialização JSON robusta para contornar a falta das colunas 'notes', 'customer_chat' e 'updated_at' no Supabase
         const payload = {
           orderNumber: item.orderNumber || '',
           notes: item.notes || '',
@@ -299,7 +338,7 @@ const syncToSupabase = async (table: string, data: any[]) => {
           value: item.value,
           status: item.status,
           schedule_id: item.scheduleId || null,
-          order_number: JSON.stringify(payload) // Armazena o payload completo na coluna 'order_number'
+          order_number: JSON.stringify(payload)
         };
       }
       if (table === 'notifications') {
@@ -368,11 +407,12 @@ export const db = {
   },
 
   getUsers: () => {
-    const users = getStorageData<User[]>('dm_users', INITIAL_USERS);
+    const deletedIds = getDeletedIds();
+    const users = getStorageData<User[]>('dm_users', INITIAL_USERS).filter(u => !deletedIds.includes(u.id));
     let updated = false;
     const merged = [...users];
     INITIAL_USERS.forEach(initUser => {
-      if (!merged.some(u => u.email.toLowerCase() === initUser.email.toLowerCase())) {
+      if (!deletedIds.includes(initUser.id) && !merged.some(u => u.email.toLowerCase() === initUser.email.toLowerCase())) {
         merged.push(initUser);
         updated = true;
       }
@@ -383,14 +423,20 @@ export const db = {
     return merged;
   },
   setUsers: (users: User[]) => {
+    trackDeletions('dm_users', users, 'users');
     setStorageData('dm_users', users);
     syncToSupabase('users', users);
   },
+  deleteUser: (id: string) => {
+    addDeletedId(id, 'users');
+    const users = db.getUsers().filter(u => u.id !== id);
+    setStorageData('dm_users', users);
+  },
   
   getEstablishments: () => {
-    const ests = getStorageData<Establishment[]>('dm_establishments', INITIAL_ESTABLISHMENTS);
+    const deletedIds = getDeletedIds();
+    const ests = getStorageData<Establishment[]>('dm_establishments', INITIAL_ESTABLISHMENTS).filter(e => !deletedIds.includes(e.id));
     
-    // Força a atualização da Pizzaria Bella Italia (e1) para garantir que o endereço correto seja gravado no localStorage
     const updatedEsts = ests.map(e => {
       if (e.id === 'e1') {
         return {
@@ -416,30 +462,52 @@ export const db = {
     return ests;
   },
   setEstablishments: (est: Establishment[]) => {
+    trackDeletions('dm_establishments', est, 'establishments');
     setStorageData('dm_establishments', est);
     syncToSupabase('establishments', est);
   },
+  deleteEstablishment: (id: string) => {
+    addDeletedId(id, 'establishments');
+    const ests = db.getEstablishments().filter(e => e.id !== id);
+    setStorageData('dm_establishments', ests);
+  },
   
-  getSchedules: () => getStorageData<Schedule[]>('dm_schedules', []),
+  getSchedules: () => {
+    const deletedIds = getDeletedIds();
+    return getStorageData<Schedule[]>('dm_schedules', []).filter(s => !deletedIds.includes(s.id));
+  },
   setSchedules: (sch: Schedule[]) => {
+    trackDeletions('dm_schedules', sch, 'schedules');
     setStorageData('dm_schedules', sch);
     syncToSupabase('schedules', sch);
   },
   
-  getDeliveries: () => getStorageData<Delivery[]>('dm_deliveries', []),
+  getDeliveries: () => {
+    const deletedIds = getDeletedIds();
+    return getStorageData<Delivery[]>('dm_deliveries', []).filter(d => !deletedIds.includes(d.id));
+  },
   setDeliveries: (del: Delivery[]) => {
+    trackDeletions('dm_deliveries', del, 'deliveries');
     setStorageData('dm_deliveries', del);
     syncToSupabase('deliveries', del);
   },
   
-  getNotifications: () => getStorageData<Notification[]>('dm_notifications', []),
+  getNotifications: () => {
+    const deletedIds = getDeletedIds();
+    return getStorageData<Notification[]>('dm_notifications', []).filter(n => !deletedIds.includes(n.id));
+  },
   setNotifications: (notif: Notification[]) => {
+    trackDeletions('dm_notifications', notif, 'notifications');
     setStorageData('dm_notifications', notif);
     syncToSupabase('notifications', notif);
   },
 
-  getPartnerRequests: () => getStorageData<PartnerRequest[]>('dm_partner_requests', []),
+  getPartnerRequests: () => {
+    const deletedIds = getDeletedIds();
+    return getStorageData<PartnerRequest[]>('dm_partner_requests', []).filter(r => !deletedIds.includes(r.id));
+  },
   setPartnerRequests: (reqs: PartnerRequest[]) => {
+    trackDeletions('dm_partner_requests', reqs, 'partner_requests');
     setStorageData('dm_partner_requests', reqs);
     syncToSupabase('partner_requests', reqs);
   },
@@ -504,47 +572,34 @@ export const db = {
 
   pullFromSupabase: async () => {
     try {
+      const deletedIds = getDeletedIds();
+
       const { data: ests, error: estsError } = await supabase.from('establishments').select('*');
       let localEsts = getStorageData<Establishment[]>('dm_establishments', INITIAL_ESTABLISHMENTS);
       const estIdMap = new Map<string, string>();
 
       if (!estsError && ests) {
-        const mappedEsts: Establishment[] = ests.map(e => ({
-          id: e.id,
-          name: e.name,
-          address: {
-            street: e.street,
-            number: e.number,
-            complement: e.complement || '',
-            neighborhood: e.neighborhood,
-            city: e.city,
-            state: e.state,
-            zipCode: e.zip_code
-          },
-          phone: e.phone || '',
-          active: e.active
-        }));
+        const mappedEsts: Establishment[] = ests
+          .filter(e => !deletedIds.includes(e.id))
+          .map(e => ({
+            id: e.id,
+            name: e.name,
+            address: {
+              street: e.street,
+              number: e.number,
+              complement: e.complement || '',
+              neighborhood: e.neighborhood,
+              city: e.city,
+              state: e.state,
+              zipCode: e.zip_code
+            },
+            phone: e.phone || '',
+            active: e.active,
+            updatedAt: e.updated_at || new Date().toISOString()
+          }));
 
-        const mergedEsts: Establishment[] = [];
-        localEsts.forEach(local => {
-          const remoteMatch = mappedEsts.find(r => r.name.toLowerCase() === local.name.toLowerCase());
-          if (remoteMatch) {
-            if (local.id !== remoteMatch.id) {
-              estIdMap.set(local.id, remoteMatch.id);
-            }
-            mergedEsts.push({ ...local, ...remoteMatch, id: remoteMatch.id });
-          } else {
-            mergedEsts.push(local);
-          }
-        });
-
-        mappedEsts.forEach(remote => {
-          if (!mergedEsts.some(e => e.id === remote.id)) {
-            mergedEsts.push(remote);
-          }
-        });
-
-        localEsts = mergedEsts;
+        const merged = mergeById(localEsts, mappedEsts);
+        localEsts = merged;
         setStorageData('dm_establishments', localEsts);
         await syncToSupabase('establishments', localEsts);
       }
@@ -554,46 +609,24 @@ export const db = {
       const userIdMap = new Map<string, string>();
 
       if (!usersError && users) {
-        const mappedUsers: User[] = users.map(u => ({
-          id: u.id,
-          name: u.name,
-          cpf: u.cpf,
-          phone: u.phone || '',
-          email: u.email,
-          role: u.role as any,
-          active: u.active,
-          passwordHash: u.password_hash,
-          mustResetPassword: u.must_reset_password,
-          establishmentId: u.establishment_id || undefined
-        }));
+        const mappedUsers: User[] = users
+          .filter(u => !deletedIds.includes(u.id))
+          .map(u => ({
+            id: u.id,
+            name: u.name,
+            cpf: u.cpf,
+            phone: u.phone || '',
+            email: u.email,
+            role: u.role as any,
+            active: u.active,
+            passwordHash: u.password_hash,
+            mustResetPassword: u.must_reset_password,
+            establishmentId: u.establishment_id || undefined,
+            updatedAt: u.updated_at || new Date().toISOString()
+          }));
 
-        const mergedUsers: User[] = [];
-        localUsers.forEach(local => {
-          const remoteMatch = mappedUsers.find(
-            r => r.email.toLowerCase() === local.email.toLowerCase() || r.cpf === local.cpf
-          );
-          if (remoteMatch) {
-            if (local.id !== remoteMatch.id) {
-              userIdMap.set(local.id, remoteMatch.id);
-            }
-            mergedUsers.push({ 
-              ...local, 
-              ...remoteMatch,
-              id: remoteMatch.id,
-              establishmentId: remoteMatch.establishmentId || local.establishmentId 
-            });
-          } else {
-            mergedUsers.push(local);
-          }
-        });
-
-        mappedUsers.forEach(remote => {
-          if (!mergedUsers.some(u => u.id === remote.id)) {
-            mergedUsers.push(remote);
-          }
-        });
-
-        localUsers = mergedUsers;
+        const merged = mergeById(localUsers, mappedUsers);
+        localUsers = merged;
 
         if (estIdMap.size > 0) {
           localUsers = localUsers.map(u => {
@@ -629,37 +662,38 @@ export const db = {
       }
 
       if (!schsError && schs) {
-        const mappedSchs: Schedule[] = schs.map(s => {
-          let createdBy = s.created_by || 'Admin';
-          let chat = undefined;
-          let updatedAt = s.updated_at || undefined;
+        const mappedSchs: Schedule[] = schs
+          .filter(s => !deletedIds.includes(s.id))
+          .map(s => {
+            let createdBy = s.created_by || 'Admin';
+            let chat = undefined;
+            let updatedAt = s.updated_at || undefined;
 
-          // Desserializa o payload JSON se a coluna 'created_by' contiver um JSON válido
-          if (s.created_by && s.created_by.startsWith('{')) {
-            try {
-              const parsed = JSON.parse(s.created_by);
-              createdBy = parsed.createdBy || 'Admin';
-              chat = parsed.chat || undefined;
-              updatedAt = parsed.updatedAt || undefined;
-            } catch (e) {
-              console.warn('Erro ao fazer parse do JSON do schedule:', e);
+            if (s.created_by && s.created_by.startsWith('{')) {
+              try {
+                const parsed = JSON.parse(s.created_by);
+                createdBy = parsed.createdBy || 'Admin';
+                chat = parsed.chat || undefined;
+                updatedAt = parsed.updatedAt || undefined;
+              } catch (e) {
+                console.warn('Erro ao fazer parse do JSON do schedule:', e);
+              }
             }
-          }
 
-          return {
-            id: s.id,
-            riderId: s.rider_id,
-            establishmentId: s.establishment_id,
-            date: s.date,
-            shift: s.shift as any,
-            startTime: s.start_time,
-            endTime: s.end_time,
-            createdBy,
-            createdAt: s.created_at,
-            chat,
-            updatedAt
-          };
-        });
+            return {
+              id: s.id,
+              riderId: s.rider_id,
+              establishmentId: s.establishment_id,
+              date: s.date,
+              shift: s.shift as any,
+              startTime: s.start_time,
+              endTime: s.end_time,
+              createdBy,
+              createdAt: s.created_at,
+              chat,
+              updatedAt
+            };
+          });
 
         const merged = mergeById(localSchs, mappedSchs);
         localSchs = merged;
@@ -681,45 +715,45 @@ export const db = {
       }
 
       if (!delsError && dels) {
-        const mappedDels: Delivery[] = dels.map(d => {
-          let orderNumber = d.order_number || undefined;
-          let notes = d.notes || undefined;
-          let customerChat = d.customer_chat || undefined;
-          let updatedAt = d.updated_at || undefined;
+        const mappedDels: Delivery[] = dels
+          .filter(d => !deletedIds.includes(d.id))
+          .map(d => {
+            let orderNumber = d.order_number || undefined;
+            let notes = d.notes || undefined;
+            let customerChat = d.customer_chat || undefined;
+            let updatedAt = d.updated_at || undefined;
 
-          // Desserializa o payload JSON se a coluna 'order_number' contiver um JSON válido
-          if (d.order_number && d.order_number.startsWith('{')) {
-            try {
-              const parsed = JSON.parse(d.order_number);
-              orderNumber = parsed.orderNumber || undefined;
-              notes = parsed.notes || undefined;
-              customerChat = parsed.customerChat || undefined;
-              updatedAt = parsed.updatedAt || undefined;
-            } catch (e) {
-              console.warn('Erro ao fazer parse do JSON do delivery:', e);
+            if (d.order_number && d.order_number.startsWith('{')) {
+              try {
+                const parsed = JSON.parse(d.order_number);
+                orderNumber = parsed.orderNumber || undefined;
+                notes = parsed.notes || undefined;
+                customerChat = parsed.customerChat || undefined;
+                updatedAt = parsed.updatedAt || undefined;
+              } catch (e) {
+                console.warn('Erro ao fazer parse do JSON do delivery:', e);
+              }
+            } else if (d.order_number && d.order_number.includes('|||')) {
+              const parts = d.order_number.split('|||');
+              orderNumber = parts[0] || undefined;
+              notes = parts[1] || undefined;
             }
-          } else if (d.order_number && d.order_number.includes('|||')) {
-            // Fallback para o formato antigo de string concatenada
-            const parts = d.order_number.split('|||');
-            orderNumber = parts[0] || undefined;
-            notes = parts[1] || undefined;
-          }
 
-          return {
-            id: d.id,
-            riderId: d.rider_id,
-            establishmentId: d.establishment_id,
-            date: d.date,
-            time: d.time,
-            value: Number(d.value),
-            status: d.status as any,
-            scheduleId: d.schedule_id || undefined,
-            orderNumber,
-            notes,
-            customerChat,
-            updatedAt
-          };
-        });
+            return {
+              id: d.id,
+              riderId: d.rider_id,
+              establishmentId: d.establishment_id,
+              date: d.date,
+              time: d.time,
+              value: Number(d.value),
+              status: d.status as any,
+              scheduleId: d.schedule_id || undefined,
+              orderNumber,
+              notes,
+              customerChat,
+              updatedAt
+            };
+          });
 
         const merged = mergeById(localDels, mappedDels);
         localDels = merged;
@@ -740,14 +774,16 @@ export const db = {
       }
 
       if (!notifsError && notifs) {
-        const mappedNotifs: Notification[] = notifs.map(n => ({
-          id: n.id,
-          riderId: n.rider_id,
-          title: n.title,
-          message: n.message,
-          date: n.date,
-          read: n.read
-        }));
+        const mappedNotifs: Notification[] = notifs
+          .filter(n => !deletedIds.includes(n.id))
+          .map(n => ({
+            id: n.id,
+            riderId: n.rider_id,
+            title: n.title,
+            message: n.message,
+            date: n.date,
+            read: n.read
+          }));
 
         const merged = mergeById(localNotifs, mappedNotifs);
         localNotifs = merged;
@@ -759,15 +795,17 @@ export const db = {
 
       const { data: reqs, error: reqsError } = await supabase.from('partner_requests').select('*');
       if (!reqsError && reqs) {
-        const mappedReqs: PartnerRequest[] = reqs.map(r => ({
-          id: r.id,
-          establishmentName: r.establishment_name,
-          ownerName: r.owner_name,
-          phone: r.phone,
-          address: r.address,
-          status: r.status as any,
-          createdAt: r.created_at
-        }));
+        const mappedReqs: PartnerRequest[] = reqs
+          .filter(r => !deletedIds.includes(r.id))
+          .map(r => ({
+            id: r.id,
+            establishmentName: r.establishment_name,
+            ownerName: r.owner_name,
+            phone: r.phone,
+            address: r.address,
+            status: r.status as any,
+            createdAt: r.created_at
+          }));
         const localReqs = getStorageData<PartnerRequest[]>('dm_partner_requests', []);
         const merged = mergeById(localReqs, mappedReqs);
         setStorageData('dm_partner_requests', merged);

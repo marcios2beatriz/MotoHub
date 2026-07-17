@@ -125,9 +125,9 @@ export default function CustomerTracking() {
       document.head.appendChild(link);
     }
 
-    // Coordenadas padrão de fallback: Campina Grande - PB (Rua Martinho Lutero, 32, Malvinas)
-    const defaultLat = -7.2311;
-    const defaultLng = -35.9245;
+    // Coordenadas padrão de fallback: Campina Grande - PB (Centro)
+    const defaultLat = -7.2247;
+    const defaultLng = -35.8878;
 
     const initMap = (lat: number, lng: number) => {
       if (mapRef.current) return;
@@ -147,7 +147,7 @@ export default function CustomerTracking() {
 
       const marker = L.marker([lat, lng], { icon: estIcon })
         .addTo(mapInstance)
-        .bindPopup(`<b>${establishment.name}</b><br/>Ponto de Partida`);
+        .bindPopup(`<b>${establishment.name}</b><br/>Ponto de Partiva`);
       
       estMarkerRef.current = marker;
       setEstCoords({ lat, lng });
@@ -183,6 +183,10 @@ export default function CustomerTracking() {
         let state = addr.state || '';
         let neighborhood = addr.neighborhood || '';
         let number = addr.number || '';
+
+        // Limpar termos "S/N" que quebram a busca do Nominatim
+        const cleanNumber = number.toLowerCase().replace(/s\/n|sn|sem número|sem numero/g, '').trim();
+        const cleanStreet = street.toLowerCase().replace(/s\/n|sn|sem número|sem numero/g, '').trim();
 
         // Etapa 1: Tentar obter coordenadas precisas pelo CEP usando ViaCEP + Nominatim
         if (cepClean) {
@@ -227,7 +231,7 @@ export default function CustomerTracking() {
 
         // Etapa 3: Fallback para endereço completo cadastrado (Rua + Bairro + Cidade + Estado)
         if (!geocoded) {
-          const queryFull = `${street}, ${number}, ${neighborhood}, ${city}, ${state}, Brasil`;
+          const queryFull = `${cleanStreet}, ${cleanNumber}, ${neighborhood}, ${city}, ${state}, Brasil`;
           try {
             const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(queryFull)}`, { headers });
             const data = await res.json();
@@ -243,7 +247,7 @@ export default function CustomerTracking() {
 
         // Etapa 4: Fallback para Rua + Bairro + Cidade (sem o número)
         if (!geocoded) {
-          const queryStreetOnly = `${street}, ${neighborhood}, ${city}, ${state}, Brasil`;
+          const queryStreetOnly = `${cleanStreet}, ${neighborhood}, ${city}, ${state}, Brasil`;
           try {
             const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(queryStreetOnly)}`, { headers });
             const data = await res.json();

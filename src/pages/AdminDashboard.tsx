@@ -24,11 +24,13 @@ import {
   MessageSquare,
   Building2,
   CheckCircle2,
-  UserCheck
+  UserCheck,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 
 // Importando os modais modulares
-import RiderModal from '../components/RiderModal';
+import UserModal from '../components/UserModal';
 import EstablishmentModal from '../components/EstablishmentModal';
 import ScheduleModal from '../components/ScheduleModal';
 import WeeklyScheduleModal from '../components/WeeklyScheduleModal';
@@ -42,10 +44,10 @@ const DAY_LABELS = ['Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-fei
 export default function AdminDashboard() {
   const navigate = useNavigate();
   const [adminUser, setAdminUser] = useState(db.getCurrentUser());
-  const [activeTab, setActiveTab] = useState<'riders' | 'establishments' | 'schedules' | 'deliveries' | 'reports' | 'requests'>('riders');
+  const [activeTab, setActiveTab] = useState<'users' | 'establishments' | 'schedules' | 'deliveries' | 'reports' | 'requests'>('users');
 
   // Listas de dados
-  const [riders, setRiders] = useState<User[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
   const [establishments, setEstablishments] = useState<Establishment[]>([]);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
@@ -54,12 +56,31 @@ export default function AdminDashboard() {
   // Filtros e buscas
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [roleFilter, setRoleFilter] = useState<'all' | 'admin' | 'rider' | 'establishment'>('all');
   const [requestStatusFilter, setRequestStatusFilter] = useState<'all' | 'pending' | 'contacted'>('all');
 
+  // Controle de visualização de senhas
+  const [visiblePasswords, setVisiblePasswords] = useState<Record<string, boolean>>({});
+
   // Modais e Formulários
-  const [showRiderModal, setShowRiderModal] = useState(false);
-  const [editingRider, setEditingRider] = useState<User | null>(null);
-  const [riderForm, setRiderForm] = useState({ name: '', cpf: '', phone: '', email: '', password: '' as '' | string });
+  const [showUserModal, setShowUserModal] = useState(false);
+  const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [userForm, setUserForm] = useState({
+    name: '',
+    cpf: '',
+    phone: '',
+    email: '',
+    role: 'rider' as 'admin' | 'rider' | 'establishment',
+    password: '',
+    establishmentId: '',
+    establishmentName: '',
+    zipCode: '',
+    street: '',
+    number: '',
+    neighborhood: '',
+    city: '',
+    state: ''
+  });
 
   const [showEstModal, setShowEstModal] = useState(false);
   const [editingEst, setEditingEst] = useState<Establishment | null>(null);
@@ -114,7 +135,7 @@ export default function AdminDashboard() {
   const [customEndDate, setCustomEndDate] = useState('');
 
   const loadData = () => {
-    setRiders(db.getUsers().filter(u => u.role === 'rider'));
+    setUsers(db.getUsers());
     setEstablishments(db.getEstablishments());
     setSchedules(db.getSchedules());
     setDeliveries(db.getDeliveries());
@@ -144,15 +165,18 @@ export default function AdminDashboard() {
     navigate('/login');
   };
 
-  // --- GESTÃO DE MOTOBOYS ---
-  const handleSaveRider = (e: React.FormEvent) => {
+  // --- GESTÃO DE USUÁRIOS ---
+  const handleSaveUser = (e: React.FormEvent) => {
     e.preventDefault();
     const allUsers = db.getUsers();
+    const allEsts = db.getEstablishments();
 
-    const duplicateCpf = allUsers.find(u => u.cpf === riderForm.cpf && (!editingRider || u.id !== editingRider.id));
-    const duplicateEmail = allUsers.find(u => u.email.toLowerCase() === riderForm.email.toLowerCase() && (!editingRider || u.id !== editingRider.id));
+    const userCpf = userForm.role === 'establishment' ? '000.000.000-00' : userForm.cpf;
 
-    if (duplicateCpf) {
+    const duplicateCpf = allUsers.find(u => u.cpf === userCpf && (!editingUser || u.id !== editingUser.id));
+    const duplicateEmail = allUsers.find(u => u.email.toLowerCase() === userForm.email.toLowerCase() && (!editingUser || u.id !== editingUser.id));
+
+    if (userForm.role !== 'establishment' && duplicateCpf && userCpf !== '000.000.000-00') {
       alert('Erro: CPF já cadastrado no sistema.');
       return;
     }
@@ -161,55 +185,128 @@ export default function AdminDashboard() {
       return;
     }
 
-    if (editingRider) {
-      const updated = allUsers.map(u => u.id === editingRider.id ? {
+    const nowStr = new Date().toISOString();
+    let finalEstId = userForm.establishmentId;
+
+    // Se for gerente de estabelecimento, cria ou vincula o estabelecimento automaticamente com o endereço fornecido
+    if (userForm.role === 'establishment' && userForm.establishmentName) {
+      const existingEst = allEsts.find(e => e.name.toLowerCase() === userForm.establishmentName.toLowerCase());
+      if (existingEst) {
+        finalEstId = existingEst.id;
+        // Atualiza o endereço do estabelecimento existente se necessário
+        const updatedEsts = allEsts.map(e => e.id === existingEst.id ? {
+          ...e,
+          address: {
+            street: userForm.street || e.address.street,
+            number: userForm.number || e.address.number,
+            complement: e.address.complement || '',
+            neighborhood: userForm.neighborhood || e.address.neighborhood,
+            city: userForm.city || e.address.city,
+            state: userForm.state || e.address.state,
+            zipCode: userForm.zipCode || e.address.zipCode
+          },
+          updatedAt: nowStr
+        } : e);
+        db.setEstablishments(updatedEsts);
+      } else {
+        const newEstId = 'e_' + Date.now();
+        const newEst: Establishment = {
+          id: newEstId,
+          name: userForm.establishmentName,
+          phone: userForm.phone || '',
+          active: true,
+          address: {
+            street: userForm.street || 'A definir',
+            number: userForm.number || 'S/N',
+            complement: '',
+            neighborhood: userForm.neighborhood || 'A definir',
+            city: userForm.city || 'A definir',
+            state: userForm.state || 'PB',
+            zipCode: userForm.zipCode || '00000-000'
+          },
+          updatedAt: nowStr
+        };
+        db.setEstablishments([...allEsts, newEst]);
+        finalEstId = newEstId;
+      }
+    }
+
+    if (editingUser) {
+      const updated = allUsers.map(u => u.id === editingUser.id ? {
         ...u,
-        name: riderForm.name,
-        cpf: riderForm.cpf,
-        phone: riderForm.phone,
-        email: riderForm.email,
-        passwordHash: riderForm.password || u.passwordHash,
-        mustResetPassword: riderForm.password ? true : u.mustResetPassword
+        name: userForm.name,
+        cpf: userCpf,
+        phone: userForm.phone,
+        email: userForm.email,
+        role: userForm.role,
+        establishmentId: userForm.role === 'establishment' ? finalEstId : undefined,
+        passwordHash: userForm.password || u.passwordHash,
+        mustResetPassword: userForm.password ? true : u.mustResetPassword,
+        updatedAt: nowStr
       } : u);
       db.setUsers(updated);
     } else {
-      const newRider: User = {
+      const newUser: User = {
         id: 'u_' + Date.now(),
-        name: riderForm.name,
-        cpf: riderForm.cpf,
-        phone: riderForm.phone,
-        email: riderForm.email,
-        role: 'rider',
+        name: userForm.name,
+        cpf: userCpf,
+        phone: userForm.phone,
+        email: userForm.email,
+        role: userForm.role,
         active: true,
-        passwordHash: riderForm.password || 'moto123'
+        passwordHash: userForm.password || 'moto123',
+        establishmentId: userForm.role === 'establishment' ? finalEstId : undefined,
+        updatedAt: nowStr
       };
-      db.setUsers([...allUsers, newRider]);
+      db.setUsers([...allUsers, newUser]);
     }
 
-    setShowRiderModal(false);
-    setEditingRider(null);
-    setRiderForm({ name: '', cpf: '', phone: '', email: '', password: '' });
+    setShowUserModal(false);
+    setEditingUser(null);
+    setUserForm({ name: '', cpf: '', phone: '', email: '', role: 'rider', password: '', establishmentId: '', establishmentName: '', zipCode: '', street: '', number: '', neighborhood: '', city: '', state: '' });
     loadData();
   };
 
-  const toggleRiderStatus = (id: string) => {
+  const handleDeleteUser = (id: string) => {
+    if (id === adminUser?.id) {
+      alert('Erro: Você não pode excluir a si mesmo.');
+      return;
+    }
+    if (confirm('Deseja realmente excluir este usuário definitivamente? Esta ação não pode ser desfeita.')) {
+      db.deleteUser(id);
+      loadData();
+    }
+  };
+
+  const toggleUserStatus = (id: string) => {
     const allUsers = db.getUsers();
-    const updated = allUsers.map(u => u.id === id ? { ...u, active: !u.active } : u);
+    const updated = allUsers.map(u => u.id === id ? { ...u, active: !u.active, updatedAt: new Date().toISOString() } : u);
     db.setUsers(updated);
     loadData();
   };
 
   const handleApproveRider = (id: string) => {
     const allUsers = db.getUsers();
-    const updated = allUsers.map(u => u.id === id ? { ...u, active: true } : u);
-    db.setUsers(updated);
+    const allEsts = db.getEstablishments();
     
-    const rider = allUsers.find(u => u.id === id);
-    if (rider) {
+    const userToApprove = allUsers.find(u => u.id === id);
+    if (!userToApprove) return;
+
+    // Ativar Usuário
+    const updatedUsers = allUsers.map(u => u.id === id ? { ...u, active: true, updatedAt: new Date().toISOString() } : u);
+    db.setUsers(updatedUsers);
+
+    // Se for gerente, ativar também o estabelecimento vinculado
+    if (userToApprove.role === 'establishment' && userToApprove.establishmentId) {
+      const updatedEsts = allEsts.map(e => e.id === userToApprove.establishmentId ? { ...e, active: true, updatedAt: new Date().toISOString() } : e);
+      db.setEstablishments(updatedEsts);
+    }
+    
+    if (userToApprove.role === 'rider') {
       const allNotif = db.getNotifications();
       const newNotif: Notification = {
         id: 'n_' + Date.now(),
-        riderId: rider.id,
+        riderId: userToApprove.id,
         title: '🎉 Cadastro Aprovado!',
         message: 'Seu cadastro foi aprovado! Você já pode acessar o sistema com seu e-mail e senha.',
         date: new Date().toISOString(),
@@ -219,6 +316,7 @@ export default function AdminDashboard() {
     }
     
     loadData();
+    alert('Usuário aprovado e ativado com sucesso!');
   };
 
   // --- GESTÃO DE ESTABELECIMENTOS ---
@@ -240,6 +338,7 @@ export default function AdminDashboard() {
     }
 
     const estId = editingEst ? editingEst.id : 'e_' + Date.now();
+    const nowStr = new Date().toISOString();
 
     if (editingEst) {
       // Atualizar Estabelecimento
@@ -255,19 +354,41 @@ export default function AdminDashboard() {
           city: estForm.city,
           state: estForm.state,
           zipCode: estForm.zipCode
-        }
+        },
+        updatedAt: nowStr
       } : es);
       db.setEstablishments(updated);
 
-      // Atualizar Usuário correspondente
-      const updatedUsers = allUsers.map(u => u.establishmentId === editingEst.id ? {
-        ...u,
-        name: 'Gerente ' + estForm.name,
-        email: estForm.email,
-        passwordHash: estForm.password || u.passwordHash,
-        phone: estForm.phone
-      } : u);
-      db.setUsers(updatedUsers);
+      // Verificar se já existe um usuário gerente para este estabelecimento
+      const hasManager = allUsers.some(u => u.establishmentId === editingEst.id);
+
+      if (hasManager) {
+        // Atualizar Usuário correspondente existente
+        const updatedUsers = allUsers.map(u => u.establishmentId === editingEst.id ? {
+          ...u,
+          name: 'Gerente ' + estForm.name,
+          email: estForm.email,
+          passwordHash: estForm.password || u.passwordHash,
+          phone: estForm.phone,
+          updatedAt: nowStr
+        } : u);
+        db.setUsers(updatedUsers);
+      } else if (estForm.email) {
+        // Criar um novo Usuário gerente caso não existisse antes
+        const newEstUser: User = {
+          id: 'u_' + Date.now(),
+          name: 'Gerente ' + estForm.name,
+          cpf: '000.000.000-00',
+          phone: estForm.phone,
+          email: estForm.email,
+          role: 'establishment',
+          active: true,
+          passwordHash: estForm.password || 'bella123',
+          establishmentId: editingEst.id,
+          updatedAt: nowStr
+        };
+        db.setUsers([...allUsers, newEstUser]);
+      }
     } else {
       // Criar Estabelecimento
       const newEst: Establishment = {
@@ -283,23 +404,27 @@ export default function AdminDashboard() {
           city: estForm.city,
           state: estForm.state,
           zipCode: estForm.zipCode
-        }
+        },
+        updatedAt: nowStr
       };
       db.setEstablishments([...allEst, newEst]);
 
       // Criar Usuário correspondente
-      const newEstUser: User = {
-        id: 'u_' + Date.now(),
-        name: 'Gerente ' + estForm.name,
-        cpf: '000.000.000-00',
-        phone: estForm.phone,
-        email: estForm.email,
-        role: 'establishment',
-        active: true,
-        passwordHash: estForm.password || 'bella123',
-        establishmentId: estId
-      };
-      db.setUsers([...allUsers, newEstUser]);
+      if (estForm.email) {
+        const newEstUser: User = {
+          id: 'u_' + Date.now(),
+          name: 'Gerente ' + estForm.name,
+          cpf: '000.000.000-00',
+          phone: estForm.phone,
+          email: estForm.email,
+          role: 'establishment',
+          active: true,
+          passwordHash: estForm.password || 'bella123',
+          establishmentId: estId,
+          updatedAt: nowStr
+        };
+        db.setUsers([...allUsers, newEstUser]);
+      }
     }
 
     setShowEstModal(false);
@@ -308,9 +433,16 @@ export default function AdminDashboard() {
     loadData();
   };
 
+  const handleDeleteEst = (id: string) => {
+    if (confirm('Deseja realmente excluir este estabelecimento definitivamente? Todos os gerentes vinculados perderão o acesso.')) {
+      db.deleteEstablishment(id);
+      loadData();
+    }
+  };
+
   const toggleEstStatus = (id: string) => {
     const allEst = db.getEstablishments();
-    const updated = allEst.map(es => es.id === id ? { ...es, active: !es.active } : es);
+    const updated = allEst.map(es => es.id === id ? { ...es, active: !es.active, updatedAt: new Date().toISOString() } : es);
     db.setEstablishments(updated);
     loadData();
   };
@@ -319,7 +451,7 @@ export default function AdminDashboard() {
   const checkScheduleConflict = (riderId: string, date: string, shift: string) => {
     const conflict = schedules.find(s => s.riderId === riderId && s.date === date && s.shift === shift);
     if (conflict) {
-      const rider = riders.find(r => r.id === riderId);
+      const rider = users.find(r => r.id === riderId);
       const est = establishments.find(e => e.id === conflict.establishmentId);
       return `Aviso: O motoboy ${rider?.name} já está escalado no estabelecimento ${est?.name} neste mesmo dia e turno!`;
     }
@@ -624,26 +756,48 @@ export default function AdminDashboard() {
   };
 
   const handleApproveRequest = (req: PartnerRequest) => {
-    // Pré-preenche o formulário de estabelecimento com os dados da solicitação
-    setEditingEst(null);
-    setEstForm({
-      name: req.establishmentName,
-      street: '',
-      number: '',
-      complement: '',
-      neighborhood: '',
-      city: '',
-      state: '',
-      zipCode: '',
-      phone: req.phone,
-      email: '',
-      password: ''
-    });
-    setShowEstModal(true);
+    const allEsts = db.getEstablishments();
+    const allUsers = db.getUsers();
 
-    // Marca a solicitação como contatada
-    const updated = partnerRequests.map(r => r.id === req.id ? { ...r, status: 'contacted' as const } : r);
-    db.setPartnerRequests(updated);
+    // Encontrar o estabelecimento pré-criado pelo nome
+    const est = allEsts.find(e => e.name.toLowerCase() === req.establishmentName.toLowerCase());
+    
+    if (est) {
+      // Ativar o estabelecimento
+      const updatedEsts = allEsts.map(e => e.id === est.id ? { ...e, active: true, updatedAt: new Date().toISOString() } : e);
+      db.setEstablishments(updatedEsts);
+
+      // Ativar a conta do gerente vinculada
+      const updatedUsers = allUsers.map(u => u.establishmentId === est.id ? { ...u, active: true, updatedAt: new Date().toISOString() } : u);
+      db.setUsers(updatedUsers);
+
+      // Marcar solicitação como contatada/aprovada
+      const updatedRequests = partnerRequests.map(r => r.id === req.id ? { ...r, status: 'contacted' as const } : r);
+      db.setPartnerRequests(updatedRequests);
+
+      loadData();
+      alert('Solicitação aprovada! O estabelecimento e a conta do gerente foram ativados com sucesso.');
+    } else {
+      // Fallback caso o estabelecimento não tenha sido pré-criado (abre o modal)
+      setEditingEst(null);
+      setEstForm({
+        name: req.establishmentName,
+        street: '',
+        number: '',
+        complement: '',
+        neighborhood: '',
+        city: '',
+        state: '',
+        zipCode: '',
+        phone: req.phone,
+        email: '',
+        password: ''
+      });
+      setShowEstModal(true);
+
+      const updated = partnerRequests.map(r => r.id === req.id ? { ...r, status: 'contacted' as const } : r);
+      db.setPartnerRequests(updated);
+    }
   };
 
   // --- RELATÓRIOS E EXPORTAÇÃO ---
@@ -664,6 +818,8 @@ export default function AdminDashboard() {
       start = new Date(customStartDate + 'T00:00:00');
       end = new Date(customEndDate + 'T23:59:59');
     }
+
+    const riders = users.filter(u => u.role === 'rider');
 
     if (reportType === 'earnings') {
       const summary: { [key: string]: { name: string; total: number; count: number } } = {};
@@ -760,10 +916,15 @@ export default function AdminDashboard() {
     }
   };
 
-  const filteredRiders = riders.filter(r => {
-    const matchesSearch = r.name.toLowerCase().includes(searchQuery.toLowerCase()) || r.cpf.includes(searchQuery);
-    const matchesStatus = statusFilter === 'all' || (statusFilter === 'active' && r.active) || (statusFilter === 'inactive' && !r.active);
-    return matchesSearch && matchesStatus;
+  const togglePasswordVisibility = (userId: string) => {
+    setVisiblePasswords(prev => ({ ...prev, [userId]: !prev[userId] }));
+  };
+
+  const filteredUsers = users.filter(u => {
+    const matchesSearch = u.name.toLowerCase().includes(searchQuery.toLowerCase()) || u.cpf.includes(searchQuery) || u.email.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesStatus = statusFilter === 'all' || (statusFilter === 'active' && u.active) || (statusFilter === 'inactive' && !u.active);
+    const matchesRole = roleFilter === 'all' || u.role === roleFilter;
+    return matchesSearch && matchesStatus && matchesRole;
   });
 
   const filteredEsts = establishments.filter(e => {
@@ -812,7 +973,7 @@ export default function AdminDashboard() {
         <div className="lg:hidden border-t border-slate-700 overflow-x-auto">
           <div className="flex min-w-max">
             {[
-              { tab: 'riders', icon: <Users className="h-4 w-4" />, label: 'Motoboys' },
+              { tab: 'users', icon: <Users className="h-4 w-4" />, label: 'Usuários' },
               { tab: 'establishments', icon: <Store className="h-4 w-4" />, label: 'Estabelec.' },
               { tab: 'requests', icon: <Building2 className="h-4 w-4" />, label: `Solicitações (${pendingRequestsCount})` },
               { tab: 'schedules', icon: <Calendar className="h-4 w-4" />, label: 'Escalas' },
@@ -839,13 +1000,13 @@ export default function AdminDashboard() {
         {/* Sidebar Navigation — desktop only */}
         <div className="hidden lg:block lg:col-span-1 bg-white p-4 rounded-xl shadow-sm border border-slate-200 h-fit space-y-1">
           <button
-            onClick={() => { setActiveTab('riders'); setSearchQuery(''); setStatusFilter('all'); }}
+            onClick={() => { setActiveTab('users'); setSearchQuery(''); setStatusFilter('all'); setRoleFilter('all'); }}
             className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
-              activeTab === 'riders' ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-50'
+              activeTab === 'users' ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-50'
             }`}
           >
             <Users className="h-5 w-5" />
-            <span>Motoboys</span>
+            <span>Usuários</span>
           </button>
           <button
             onClick={() => { setActiveTab('establishments'); setSearchQuery(''); setStatusFilter('all'); }}
@@ -867,7 +1028,7 @@ export default function AdminDashboard() {
               <span>Solicitações</span>
             </div>
             {pendingRequestsCount > 0 && (
-              <span className="bg-emerald-600 text-white text-xs font-bold px-2 py-0.5 rounded-full">
+              <span className="bg-emerald-600 text-white text-xs font-bold px-2.5 py-0.5 rounded-full">
                 {pendingRequestsCount}
               </span>
             )}
@@ -903,36 +1064,46 @@ export default function AdminDashboard() {
 
         {/* Content Area */}
         <div className="lg:col-span-4 space-y-4 sm:space-y-6">
-          {/* TAB: MOTOBOYS */}
-          {activeTab === 'riders' && (
+          {/* TAB: USUÁRIOS */}
+          {activeTab === 'users' && (
             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <h2 className="text-xl font-bold text-slate-800">Gerenciamento de Motoboys</h2>
+                <h2 className="text-xl font-bold text-slate-800">Gerenciamento de Usuários</h2>
                 <button
                   onClick={() => {
-                    setEditingRider(null);
-                    setRiderForm({ name: '', cpf: '', phone: '', email: '', password: '' });
-                    setShowRiderModal(true);
+                    setEditingUser(null);
+                    setUserForm({ name: '', cpf: '', phone: '', email: '', role: 'rider', password: '', establishmentId: '', establishmentName: '', zipCode: '', street: '', number: '', neighborhood: '', city: '', state: '' });
+                    setShowUserModal(true);
                   }}
                   className="flex items-center justify-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
                 >
                   <Plus className="h-4 w-4" />
-                  <span>Novo Motoboy</span>
+                  <span>Novo Usuário</span>
                 </button>
               </div>
 
               {/* Filtros */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="relative">
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                <div className="relative sm:col-span-2">
                   <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
                   <input
                     type="text"
-                    placeholder="Buscar por nome ou CPF..."
+                    placeholder="Buscar por nome, e-mail ou CPF..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="pl-9 pr-4 py-2 w-full border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
                   />
                 </div>
+                <select
+                  value={roleFilter}
+                  onChange={(e: any) => setRoleFilter(e.target.value)}
+                  className="px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                >
+                  <option value="all">Todos os Perfis</option>
+                  <option value="rider">Motoboys</option>
+                  <option value="establishment">Gerentes</option>
+                  <option value="admin">Administradores</option>
+                </select>
                 <select
                   value={statusFilter}
                   onChange={(e: any) => setStatusFilter(e.target.value)}
@@ -940,102 +1111,149 @@ export default function AdminDashboard() {
                 >
                   <option value="all">Todos os Status</option>
                   <option value="active">Ativos</option>
-                  <option value="inactive">Inativos</option>
+                  <option value="inactive">Inativos / Pendentes</option>
                 </select>
               </div>
 
               {/* Tabela */}
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[580px] text-left border-collapse">
+                <table className="w-full min-w-[680px] text-left border-collapse">
                   <thead>
                     <tr className="border-b border-slate-200 text-slate-500 text-xs uppercase font-semibold">
-                      <th className="py-3 px-4">Nome</th>
-                      <th className="py-3 px-4">CPF</th>
-                      <th className="py-3 px-4">Contato</th>
+                      <th className="py-3 px-4">Nome / Perfil</th>
+                      <th className="py-3 px-4">CPF / Contato</th>
+                      <th className="py-3 px-4">Senha Cadastrada</th>
                       <th className="py-3 px-4">Status</th>
                       <th className="py-3 px-4 text-right">Ações</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-sm">
-                    {filteredRiders.map(rider => (
-                      <tr key={rider.id} className="hover:bg-slate-50/50">
-                        <td className="py-3 px-4 font-medium text-slate-800">{rider.name}</td>
-                        <td className="py-3 px-4 text-slate-600">{rider.cpf}</td>
-                        <td className="py-3 px-4 text-slate-600">
-                          <p>{rider.email}</p>
-                          <p className="text-xs text-slate-400">{rider.phone}</p>
-                        </td>
-                        <td className="py-3 px-4">
-                          <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
-                            rider.active ? 'bg-emerald-100 text-emerald-800' : 'bg-blue-100 text-blue-800'
-                          }`}>
-                            {rider.active ? 'Ativo' : 'Pendente'}
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 text-right space-x-2">
-                          {rider.active && (
+                    {filteredUsers.map(user => {
+                      const isPassVisible = !!visiblePasswords[user.id];
+                      const linkedEst = user.establishmentId ? establishments.find(e => e.id === user.establishmentId) : null;
+
+                      return (
+                        <tr key={user.id} className="hover:bg-slate-50/50">
+                          <td className="py-3 px-4">
+                            <p className="font-bold text-slate-800">{user.name}</p>
+                            <p className="text-xs text-slate-400 flex items-center gap-1 mt-0.5">
+                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${
+                                user.role === 'admin' ? 'bg-purple-100 text-purple-800' :
+                                user.role === 'establishment' ? 'bg-emerald-100 text-emerald-800' : 'bg-blue-100 text-blue-800'
+                              }`}>
+                                {user.role === 'admin' ? 'Admin' : user.role === 'establishment' ? 'Gerente' : 'Motoboy'}
+                              </span>
+                              {linkedEst && <span className="text-slate-500">• {linkedEst.name}</span>}
+                            </p>
+                          </td>
+                          <td className="py-3 px-4 text-slate-600">
+                            <p className="font-mono text-xs">{user.role === 'establishment' ? '—' : user.cpf}</p>
+                            <p className="text-xs text-slate-400">{user.email}</p>
+                            <p className="text-xs text-slate-400">{user.phone}</p>
+                          </td>
+                          <td className="py-3 px-4">
+                            <div className="flex items-center space-x-2">
+                              <span className="font-mono text-sm bg-slate-100 px-2 py-1 rounded border border-slate-200">
+                                {isPassVisible ? user.passwordHash : '••••••••'}
+                              </span>
+                              <button
+                                onClick={() => togglePasswordVisibility(user.id)}
+                                className="text-slate-400 hover:text-slate-600 p-1"
+                                title={isPassVisible ? "Ocultar Senha" : "Ver Senha"}
+                              >
+                                {isPassVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                              </button>
+                            </div>
+                          </td>
+                          <td className="py-3 px-4">
+                            <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
+                              user.active ? 'bg-emerald-100 text-emerald-800' : 'bg-blue-100 text-blue-800'
+                            }`}>
+                              {user.active ? 'Ativo' : 'Pendente'}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 text-right space-x-2 whitespace-nowrap">
+                            {user.active && user.role === 'rider' && (
+                              <button
+                                onClick={() => {
+                                  setScheduleForm({
+                                    riderId: user.id,
+                                    establishmentId: '',
+                                    date: new Date().toISOString().split('T')[0],
+                                    shift: 'morning',
+                                    startTime: '08:00',
+                                    endTime: '12:00'
+                                  });
+                                  setScheduleConflictWarning('');
+                                  setShowScheduleModal(true);
+                                }}
+                                className="p-1.5 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 rounded transition-colors inline-flex items-center space-x-1 text-xs font-bold"
+                                title="Designar Motoboy"
+                              >
+                                <Send className="h-3.5 w-3.5" />
+                                <span className="hidden md:inline">Designar</span>
+                              </button>
+                            )}
                             <button
                               onClick={() => {
-                                setScheduleForm({
-                                  riderId: rider.id,
-                                  establishmentId: '',
-                                  date: new Date().toISOString().split('T')[0],
-                                  shift: 'morning',
-                                  startTime: '08:00',
-                                  endTime: '12:00'
+                                setEditingUser(user);
+                                const est = user.establishmentId ? establishments.find(e => e.id === user.establishmentId) : null;
+                                setUserForm({
+                                  name: user.name,
+                                  cpf: user.cpf,
+                                  phone: user.phone,
+                                  email: user.email,
+                                  role: user.role,
+                                  password: '',
+                                  establishmentId: user.establishmentId || '',
+                                  establishmentName: est ? est.name : '',
+                                  zipCode: est ? est.address.zipCode : '',
+                                  street: est ? est.address.street : '',
+                                  number: est ? est.address.number : '',
+                                  neighborhood: est ? est.address.neighborhood : '',
+                                  city: est ? est.address.city : '',
+                                  state: est ? est.address.state : ''
                                 });
-                                setScheduleConflictWarning('');
-                                setShowScheduleModal(true);
+                                setShowUserModal(true);
                               }}
-                              className="p-1.5 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 rounded transition-colors inline-flex items-center space-x-1 text-xs font-bold"
-                              title="Designar Motoboy"
+                              className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors inline-flex"
                             >
-                              <Send className="h-3.5 w-3.5" />
-                              <span className="hidden md:inline">Designar</span>
+                              <Edit2 className="h-4 w-4" />
                             </button>
-                          )}
-                          <button
-                            onClick={() => {
-                              setEditingRider(rider);
-                              setRiderForm({
-                                name: rider.name,
-                                cpf: rider.cpf,
-                                phone: rider.phone,
-                                email: rider.email,
-                                password: ''
-                              });
-                              setShowRiderModal(true);
-                            }}
-                            className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
-                          >
-                            <Edit2 className="h-4 w-4" />
-                          </button>
-                          {!rider.active && (
+                            {!user.active && (
+                              <button
+                                onClick={() => handleApproveRider(user.id)}
+                                className="p-1.5 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 rounded transition-colors inline-flex items-center space-x-1 text-xs font-bold"
+                                title="Aprovar Usuário"
+                              >
+                                <Check className="h-3.5 w-3.5" />
+                                <span>Aprovar</span>
+                              </button>
+                            )}
+                            {user.active && (
+                              <button
+                                onClick={() => toggleUserStatus(user.id)}
+                                className={`p-1.5 rounded transition-colors inline-flex ${
+                                  user.active 
+                                    ? 'text-red-500 hover:bg-red-50' 
+                                    : 'text-emerald-500 hover:bg-emerald-50'
+                                }`}
+                                title={user.active ? 'Desativar' : 'Ativar'}
+                              >
+                                {user.active ? <X className="h-4 w-4" /> : <Check className="h-4 w-4" />}
+                              </button>
+                            )}
                             <button
-                              onClick={() => handleApproveRider(rider.id)}
-                              className="p-1.5 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 rounded transition-colors inline-flex items-center space-x-1 text-xs font-bold"
-                              title="Aprovar Motoboy"
+                              onClick={() => handleDeleteUser(user.id)}
+                              className="p-1.5 text-red-500 hover:bg-red-50 rounded transition-colors inline-flex"
+                              title="Excluir Usuário Definitivamente"
                             >
-                              <Check className="h-3.5 w-3.5" />
-                              <span>Aprovar</span>
+                              <Trash2 className="h-4 w-4" />
                             </button>
-                          )}
-                          {rider.active && (
-                            <button
-                              onClick={() => toggleRiderStatus(rider.id)}
-                              className={`p-1.5 rounded transition-colors ${
-                                rider.active 
-                                  ? 'text-red-500 hover:bg-red-50' 
-                                  : 'text-emerald-500 hover:bg-emerald-50'
-                              }`}
-                              title={rider.active ? 'Desativar' : 'Ativar'}
-                            >
-                              {rider.active ? <X className="h-4 w-4" /> : <Check className="h-4 w-4" />}
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -1092,13 +1310,16 @@ export default function AdminDashboard() {
                       <th className="py-3 px-4">Endereço</th>
                       <th className="py-3 px-4">Telefone</th>
                       <th className="py-3 px-4">E-mail de Acesso</th>
+                      <th className="py-3 px-4">Senha do Gerente</th>
                       <th className="py-3 px-4">Status</th>
                       <th className="py-3 px-4 text-right">Ações</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-sm">
                     {filteredEsts.map(est => {
-                      const estUser = db.getUsers().find(u => u.establishmentId === est.id);
+                      const estUser = users.find(u => u.establishmentId === est.id);
+                      const isPassVisible = estUser ? !!visiblePasswords[estUser.id] : false;
+
                       return (
                         <tr key={est.id} className="hover:bg-slate-50/50">
                           <td className="py-3 px-4 font-medium text-slate-800">{est.name}</td>
@@ -1108,13 +1329,31 @@ export default function AdminDashboard() {
                           <td className="py-3 px-4 text-slate-600">{est.phone}</td>
                           <td className="py-3 px-4 text-slate-600 font-medium">{estUser?.email || 'Sem conta'}</td>
                           <td className="py-3 px-4">
+                            {estUser ? (
+                              <div className="flex items-center space-x-2">
+                                <span className="font-mono text-sm bg-slate-100 px-2 py-1 rounded border border-slate-200">
+                                  {isPassVisible ? estUser.passwordHash : '••••••••'}
+                                </span>
+                                <button
+                                  onClick={() => togglePasswordVisibility(estUser.id)}
+                                  className="text-slate-400 hover:text-slate-600 p-1"
+                                  title={isPassVisible ? "Ocultar Senha" : "Ver Senha"}
+                                >
+                                  {isPassVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                </button>
+                              </div>
+                            ) : (
+                              <span className="text-slate-400 text-xs">—</span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4">
                             <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
                               est.active ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'
                             }`}>
                               {est.active ? 'Ativo' : 'Inativo'}
                             </span>
                           </td>
-                          <td className="py-3 px-4 text-right space-x-2">
+                          <td className="py-3 px-4 text-right space-x-2 whitespace-nowrap">
                             <button
                               onClick={() => {
                                 setEditingEst(est);
@@ -1133,13 +1372,13 @@ export default function AdminDashboard() {
                                 });
                                 setShowEstModal(true);
                               }}
-                              className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
+                              className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors inline-flex"
                             >
                               <Edit2 className="h-4 w-4" />
                             </button>
                             <button
                               onClick={() => toggleEstStatus(est.id)}
-                              className={`p-1.5 rounded transition-colors ${
+                              className={`p-1.5 rounded transition-colors inline-flex ${
                                 est.active 
                                   ? 'text-red-500 hover:bg-red-50' 
                                   : 'text-emerald-500 hover:bg-emerald-50'
@@ -1147,6 +1386,13 @@ export default function AdminDashboard() {
                               title={est.active ? 'Desativar' : 'Ativar'}
                             >
                               {est.active ? <X className="h-4 w-4" /> : <Check className="h-4 w-4" />}
+                            </button>
+                            <button
+                              onClick={() => handleDeleteEst(est.id)}
+                              className="p-1.5 text-red-500 hover:bg-red-50 rounded transition-colors inline-flex"
+                              title="Excluir Estabelecimento Definitivamente"
+                            >
+                              <Trash2 className="h-4 w-4" />
                             </button>
                           </td>
                         </tr>
@@ -1248,7 +1494,7 @@ export default function AdminDashboard() {
                             </button>
                             <button
                               onClick={() => handleToggleRequestStatus(req.id)}
-                              className={`p-1.5 rounded transition-colors ${
+                              className={`p-1.5 rounded transition-colors inline-flex ${
                                 req.status === 'pending' 
                                   ? 'text-emerald-600 hover:bg-emerald-50' 
                                   : 'text-amber-600 hover:bg-amber-50'
@@ -1259,7 +1505,7 @@ export default function AdminDashboard() {
                             </button>
                             <button
                               onClick={() => handleDeleteRequest(req.id)}
-                              className="p-1.5 text-red-500 hover:bg-red-50 rounded transition-colors"
+                              className="p-1.5 text-red-500 hover:bg-red-50 rounded transition-colors inline-flex"
                               title="Excluir"
                             >
                               <Trash2 className="h-4 w-4" />
@@ -1325,6 +1571,7 @@ export default function AdminDashboard() {
               {(() => {
                 const todayStr = new Date().toISOString().split('T')[0];
                 const q = scheduleSearch.toLowerCase();
+                const riders = users.filter(u => u.role === 'rider');
                 const filteredList = riders.filter(r =>
                   r.name.toLowerCase().includes(q) || r.cpf.includes(q) || r.phone.includes(q)
                 );
@@ -1483,7 +1730,7 @@ export default function AdminDashboard() {
                           </div>
                           <div className="space-y-2">
                             {daySchs.map(sch => {
-                              const rider = riders.find(r => r.id === sch.riderId);
+                              const rider = users.find(r => r.id === sch.riderId);
                               const est = establishments.find(e => e.id === sch.establishmentId);
                               return (
                                 <div key={sch.id} className="flex items-center justify-between gap-3 bg-white border border-slate-200 rounded-xl px-4 py-3 hover:border-indigo-200 transition-colors">
@@ -1528,7 +1775,7 @@ export default function AdminDashboard() {
 
                   <div className="divide-y divide-amber-100">
                     {pendingDeliveries.map(del => {
-                      const rider = riders.find(r => r.id === del.riderId);
+                      const rider = users.find(r => r.id === del.riderId);
                       const est = establishments.find(e => e.id === del.establishmentId);
                       return (
                         <div key={del.id} className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -1536,7 +1783,7 @@ export default function AdminDashboard() {
                             <div className="flex items-center space-x-2">
                               <p className="font-bold text-slate-800">{rider?.name || 'Motoboy'}</p>
                               {del.orderNumber && (
-                                <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded">
+                                <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-2.5 py-0.5 rounded">
                                   #{del.orderNumber}
                                 </span>
                               )}
@@ -1605,7 +1852,7 @@ export default function AdminDashboard() {
                       <div className="p-8 text-center text-slate-400">Nenhuma corrida registrada.</div>
                     ) : (
                       processedDeliveries.map(del => {
-                        const rider = riders.find(r => r.id === del.riderId);
+                        const rider = users.find(r => r.id === del.riderId);
                         const est = establishments.find(e => e.id === del.establishmentId);
                         const isToday = del.date === new Date().toISOString().split('T')[0];
 
@@ -1615,13 +1862,13 @@ export default function AdminDashboard() {
                               <div className="flex items-center space-x-2">
                                 <p className="font-bold text-slate-800">{rider?.name || 'Motoboy'}</p>
                                 {del.status === 'cancelled' && (
-                                  <span className="bg-red-100 text-red-800 text-[10px] font-bold px-2 py-0.5 rounded-full">Cancelada</span>
+                                  <span className="bg-red-100 text-red-800 text-[10px] font-bold px-2.5 py-0.5 rounded-full">Cancelada</span>
                                 )}
                                 {del.status === 'rejected' && (
-                                  <span className="bg-red-100 text-red-800 text-[10px] font-bold px-2 py-0.5 rounded-full">Rejeitada</span>
+                                  <span className="bg-red-100 text-red-800 text-[10px] font-bold px-2.5 py-0.5 rounded-full">Rejeitada</span>
                                 )}
                                 {del.orderNumber && (
-                                  <span className="bg-slate-100 text-slate-500 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                                  <span className="bg-slate-100 text-slate-500 text-[10px] font-bold px-2.5 py-0.5 rounded-full">
                                     #{del.orderNumber}
                                   </span>
                                 )}
@@ -1750,13 +1997,14 @@ export default function AdminDashboard() {
       </div>
 
       {/* Modais */}
-      <RiderModal
-        isOpen={showRiderModal}
-        onClose={() => setShowRiderModal(false)}
-        editingRider={editingRider}
-        riderForm={riderForm}
-        setRiderForm={setRiderForm}
-        onSave={handleSaveRider}
+      <UserModal
+        isOpen={showUserModal}
+        onClose={() => setShowUserModal(false)}
+        editingUser={editingUser}
+        userForm={userForm}
+        setUserForm={setUserForm}
+        establishments={establishments}
+        onSave={handleSaveUser}
       />
 
       <EstablishmentModal
@@ -1771,7 +2019,7 @@ export default function AdminDashboard() {
       <ScheduleModal
         isOpen={showScheduleModal}
         onClose={() => setShowScheduleModal(false)}
-        riders={riders}
+        riders={users.filter(u => u.role === 'rider')}
         establishments={establishments}
         scheduleForm={scheduleForm}
         setScheduleForm={setScheduleForm}
@@ -1783,7 +2031,7 @@ export default function AdminDashboard() {
       <WeeklyScheduleModal
         isOpen={showWeeklyModal}
         onClose={() => setShowWeeklyModal(false)}
-        riders={riders}
+        riders={users.filter(u => u.role === 'rider')}
         establishments={establishments}
         weeklyForm={weeklyForm}
         setWeeklyForm={setWeeklyForm}
@@ -1799,7 +2047,7 @@ export default function AdminDashboard() {
       <RiderSchedulesModal
         riderId={riderSchedulesModal}
         onClose={() => setRiderSchedulesModal(null)}
-        riders={riders}
+        riders={users.filter(u => u.role === 'rider')}
         schedules={schedules}
         establishments={establishments}
         modalHistoryEst={modalHistoryEst}
@@ -1829,7 +2077,7 @@ export default function AdminDashboard() {
         isOpen={showDeliveryModal}
         onClose={() => setShowDeliveryModal(false)}
         editingDelivery={editingDelivery}
-        riders={riders}
+        riders={users.filter(u => u.role === 'rider')}
         establishments={establishments}
         deliveryForm={deliveryForm}
         setDeliveryForm={setDeliveryForm}
