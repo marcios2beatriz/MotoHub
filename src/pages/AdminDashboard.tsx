@@ -347,16 +347,36 @@ export default function AdminDashboard() {
       } : es);
       db.setEstablishments(updated);
 
-      // Atualizar Usuário correspondente
-      const updatedUsers = allUsers.map(u => u.establishmentId === editingEst.id ? {
-        ...u,
-        name: 'Gerente ' + estForm.name,
-        email: estForm.email,
-        passwordHash: estForm.password || u.passwordHash,
-        phone: estForm.phone,
-        updatedAt: nowStr
-      } : u);
-      db.setUsers(updatedUsers);
+      // Verificar se já existe um usuário gerente para este estabelecimento
+      const hasManager = allUsers.some(u => u.establishmentId === editingEst.id);
+
+      if (hasManager) {
+        // Atualizar Usuário correspondente existente
+        const updatedUsers = allUsers.map(u => u.establishmentId === editingEst.id ? {
+          ...u,
+          name: 'Gerente ' + estForm.name,
+          email: estForm.email,
+          passwordHash: estForm.password || u.passwordHash,
+          phone: estForm.phone,
+          updatedAt: nowStr
+        } : u);
+        db.setUsers(updatedUsers);
+      } else if (estForm.email) {
+        // Criar um novo Usuário gerente caso não existisse antes
+        const newEstUser: User = {
+          id: 'u_' + Date.now(),
+          name: 'Gerente ' + estForm.name,
+          cpf: '000.000.000-00',
+          phone: estForm.phone,
+          email: estForm.email,
+          role: 'establishment',
+          active: true,
+          passwordHash: estForm.password || 'bella123',
+          establishmentId: editingEst.id,
+          updatedAt: nowStr
+        };
+        db.setUsers([...allUsers, newEstUser]);
+      }
     } else {
       // Criar Estabelecimento
       const newEst: Establishment = {
@@ -378,19 +398,21 @@ export default function AdminDashboard() {
       db.setEstablishments([...allEst, newEst]);
 
       // Criar Usuário correspondente
-      const newEstUser: User = {
-        id: 'u_' + Date.now(),
-        name: 'Gerente ' + estForm.name,
-        cpf: '000.000.000-00',
-        phone: estForm.phone,
-        email: estForm.email,
-        role: 'establishment',
-        active: true,
-        passwordHash: estForm.password || 'bella123',
-        establishmentId: estId,
-        updatedAt: nowStr
-      };
-      db.setUsers([...allUsers, newEstUser]);
+      if (estForm.email) {
+        const newEstUser: User = {
+          id: 'u_' + Date.now(),
+          name: 'Gerente ' + estForm.name,
+          cpf: '000.000.000-00',
+          phone: estForm.phone,
+          email: estForm.email,
+          role: 'establishment',
+          active: true,
+          passwordHash: estForm.password || 'bella123',
+          establishmentId: estId,
+          updatedAt: nowStr
+        };
+        db.setUsers([...allUsers, newEstUser]);
+      }
     }
 
     setShowEstModal(false);
