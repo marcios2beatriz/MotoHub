@@ -72,7 +72,8 @@ export default function AdminDashboard() {
     email: '',
     role: 'rider' as 'admin' | 'rider' | 'establishment',
     password: '',
-    establishmentId: ''
+    establishmentId: '',
+    establishmentName: ''
   });
 
   const [showEstModal, setShowEstModal] = useState(false);
@@ -162,11 +163,14 @@ export default function AdminDashboard() {
   const handleSaveUser = (e: React.FormEvent) => {
     e.preventDefault();
     const allUsers = db.getUsers();
+    const allEsts = db.getEstablishments();
 
-    const duplicateCpf = allUsers.find(u => u.cpf === userForm.cpf && (!editingUser || u.id !== editingUser.id));
+    const userCpf = userForm.role === 'establishment' ? '000.000.000-00' : userForm.cpf;
+
+    const duplicateCpf = allUsers.find(u => u.cpf === userCpf && (!editingUser || u.id !== editingUser.id));
     const duplicateEmail = allUsers.find(u => u.email.toLowerCase() === userForm.email.toLowerCase() && (!editingUser || u.id !== editingUser.id));
 
-    if (duplicateCpf && userForm.cpf !== '000.000.000-00') {
+    if (userForm.role !== 'establishment' && duplicateCpf && userCpf !== '000.000.000-00') {
       alert('Erro: CPF já cadastrado no sistema.');
       return;
     }
@@ -176,16 +180,44 @@ export default function AdminDashboard() {
     }
 
     const nowStr = new Date().toISOString();
+    let finalEstId = userForm.establishmentId;
+
+    // Se for gerente de estabelecimento, cria ou vincula o estabelecimento automaticamente
+    if (userForm.role === 'establishment' && userForm.establishmentName) {
+      const existingEst = allEsts.find(e => e.name.toLowerCase() === userForm.establishmentName.toLowerCase());
+      if (existingEst) {
+        finalEstId = existingEst.id;
+      } else {
+        const newEstId = 'e_' + Date.now();
+        const newEst: Establishment = {
+          id: newEstId,
+          name: userForm.establishmentName,
+          phone: userForm.phone || '',
+          active: true,
+          address: {
+            street: 'A definir',
+            number: 'S/N',
+            neighborhood: 'A definir',
+            city: 'A definir',
+            state: 'PB',
+            zipCode: '00000-000'
+          },
+          updatedAt: nowStr
+        };
+        db.setEstablishments([...allEsts, newEst]);
+        finalEstId = newEstId;
+      }
+    }
 
     if (editingUser) {
       const updated = allUsers.map(u => u.id === editingUser.id ? {
         ...u,
         name: userForm.name,
-        cpf: userForm.cpf,
+        cpf: userCpf,
         phone: userForm.phone,
         email: userForm.email,
         role: userForm.role,
-        establishmentId: userForm.role === 'establishment' ? userForm.establishmentId : undefined,
+        establishmentId: userForm.role === 'establishment' ? finalEstId : undefined,
         passwordHash: userForm.password || u.passwordHash,
         mustResetPassword: userForm.password ? true : u.mustResetPassword,
         updatedAt: nowStr
@@ -195,13 +227,13 @@ export default function AdminDashboard() {
       const newUser: User = {
         id: 'u_' + Date.now(),
         name: userForm.name,
-        cpf: userForm.cpf,
+        cpf: userCpf,
         phone: userForm.phone,
         email: userForm.email,
         role: userForm.role,
         active: true,
         passwordHash: userForm.password || 'moto123',
-        establishmentId: userForm.role === 'establishment' ? userForm.establishmentId : undefined,
+        establishmentId: userForm.role === 'establishment' ? finalEstId : undefined,
         updatedAt: nowStr
       };
       db.setUsers([...allUsers, newUser]);
@@ -209,7 +241,7 @@ export default function AdminDashboard() {
 
     setShowUserModal(false);
     setEditingUser(null);
-    setUserForm({ name: '', cpf: '', phone: '', email: '', role: 'rider', password: '', establishmentId: '' });
+    setUserForm({ name: '', cpf: '', phone: '', email: '', role: 'rider', password: '', establishmentId: '', establishmentName: '' });
     loadData();
   };
 
@@ -916,7 +948,7 @@ export default function AdminDashboard() {
               <span>Solicitações</span>
             </div>
             {pendingRequestsCount > 0 && (
-              <span className="bg-emerald-600 text-white text-xs font-bold px-2 py-0.5 rounded-full">
+              <span className="bg-emerald-600 text-white text-xs font-bold px-2.5 py-0.5 rounded-full">
                 {pendingRequestsCount}
               </span>
             )}
@@ -960,7 +992,7 @@ export default function AdminDashboard() {
                 <button
                   onClick={() => {
                     setEditingUser(null);
-                    setUserForm({ name: '', cpf: '', phone: '', email: '', role: 'rider', password: '', establishmentId: '' });
+                    setUserForm({ name: '', cpf: '', phone: '', email: '', role: 'rider', password: '', establishmentId: '', establishmentName: '' });
                     setShowUserModal(true);
                   }}
                   className="flex items-center justify-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
@@ -1035,7 +1067,7 @@ export default function AdminDashboard() {
                             </p>
                           </td>
                           <td className="py-3 px-4 text-slate-600">
-                            <p className="font-mono text-xs">{user.cpf}</p>
+                            <p className="font-mono text-xs">{user.role === 'establishment' ? '—' : user.cpf}</p>
                             <p className="text-xs text-slate-400">{user.email}</p>
                             <p className="text-xs text-slate-400">{user.phone}</p>
                           </td>
@@ -1085,6 +1117,7 @@ export default function AdminDashboard() {
                             <button
                               onClick={() => {
                                 setEditingUser(user);
+                                const est = user.establishmentId ? establishments.find(e => e.id === user.establishmentId) : null;
                                 setUserForm({
                                   name: user.name,
                                   cpf: user.cpf,
@@ -1092,7 +1125,8 @@ export default function AdminDashboard() {
                                   email: user.email,
                                   role: user.role,
                                   password: '',
-                                  establishmentId: user.establishmentId || ''
+                                  establishmentId: user.establishmentId || '',
+                                  establishmentName: est ? est.name : ''
                                 });
                                 setShowUserModal(true);
                               }}
@@ -1742,13 +1776,13 @@ export default function AdminDashboard() {
                               <div className="flex items-center space-x-2">
                                 <p className="font-bold text-slate-800">{rider?.name || 'Motoboy'}</p>
                                 {del.status === 'cancelled' && (
-                                  <span className="bg-red-100 text-red-800 text-[10px] font-bold px-2 py-0.5 rounded-full">Cancelada</span>
+                                  <span className="bg-red-100 text-red-800 text-[10px] font-bold px-2.5 py-0.5 rounded-full">Cancelada</span>
                                 )}
                                 {del.status === 'rejected' && (
-                                  <span className="bg-red-100 text-red-800 text-[10px] font-bold px-2 py-0.5 rounded-full">Rejeitada</span>
+                                  <span className="bg-red-100 text-red-800 text-[10px] font-bold px-2.5 py-0.5 rounded-full">Rejeitada</span>
                                 )}
                                 {del.orderNumber && (
-                                  <span className="bg-slate-100 text-slate-500 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                                  <span className="bg-slate-100 text-slate-500 text-[10px] font-bold px-2.5 py-0.5 rounded-full">
                                     #{del.orderNumber}
                                   </span>
                                 )}

@@ -16,6 +16,7 @@ interface UserModalProps {
     role: 'admin' | 'rider' | 'establishment';
     password: string;
     establishmentId?: string;
+    establishmentName?: string;
   };
   setUserForm: React.Dispatch<React.SetStateAction<{
     name: string;
@@ -25,6 +26,7 @@ interface UserModalProps {
     role: 'admin' | 'rider' | 'establishment';
     password: string;
     establishmentId?: string;
+    establishmentName?: string;
   }>>;
   establishments: Establishment[];
   onSave: (e: React.FormEvent) => void;
@@ -53,6 +55,8 @@ export default function UserModal({
     setShowPassword(true);
   };
 
+  const isEstablishment = userForm.role === 'establishment';
+
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
       <div className="bg-white rounded-xl max-w-md w-full p-6 space-y-4 shadow-xl max-h-[90vh] overflow-y-auto">
@@ -66,50 +70,6 @@ export default function UserModal({
         </div>
         <form onSubmit={onSave} className="space-y-3">
           <div>
-            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nome Completo</label>
-            <input
-              type="text"
-              required
-              value={userForm.name}
-              onChange={(e) => setUserForm({ ...userForm, name: e.target.value })}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">CPF</label>
-              <input
-                type="text"
-                required
-                placeholder="000.000.000-00"
-                value={userForm.cpf}
-                onChange={(e) => setUserForm({ ...userForm, cpf: e.target.value })}
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Telefone</label>
-              <input
-                type="text"
-                required
-                placeholder="(83) 99999-9999"
-                value={userForm.phone}
-                onChange={(e) => setUserForm({ ...userForm, phone: e.target.value })}
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
-              />
-            </div>
-          </div>
-          <div>
-            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">E-mail</label>
-            <input
-              type="email"
-              required
-              value={userForm.email}
-              onChange={(e) => setUserForm({ ...userForm, email: e.target.value })}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
-            />
-          </div>
-          <div>
             <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Perfil / Função</label>
             <select
               value={userForm.role}
@@ -122,22 +82,70 @@ export default function UserModal({
             </select>
           </div>
 
-          {userForm.role === 'establishment' && (
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
+              {isEstablishment ? 'Nome do Proprietário' : 'Nome Completo'}
+            </label>
+            <input
+              type="text"
+              required
+              value={userForm.name}
+              onChange={(e) => setUserForm({ ...userForm, name: e.target.value })}
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            />
+          </div>
+
+          {isEstablishment && (
             <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Vincular ao Estabelecimento</label>
-              <select
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nome do Estabelecimento</label>
+              <input
+                type="text"
                 required
-                value={userForm.establishmentId || ''}
-                onChange={(e) => setUserForm({ ...userForm, establishmentId: e.target.value })}
+                placeholder="Ex: Pizzaria Bella Italia"
+                value={userForm.establishmentName || ''}
+                onChange={(e) => setUserForm({ ...userForm, establishmentName: e.target.value })}
                 className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
-              >
-                <option value="">Selecione um Estabelecimento</option>
-                {establishments.map(est => (
-                  <option key={est.id} value={est.id}>{est.name}</option>
-                ))}
-              </select>
+              />
             </div>
           )}
+
+          <div className="grid grid-cols-2 gap-2">
+            {!isEstablishment && (
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">CPF</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="000.000.000-00"
+                  value={userForm.cpf}
+                  onChange={(e) => setUserForm({ ...userForm, cpf: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                />
+              </div>
+            )}
+            <div className={isEstablishment ? 'col-span-2' : ''}>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Telefone</label>
+              <input
+                type="text"
+                required
+                placeholder="(83) 99999-9999"
+                value={userForm.phone}
+                onChange={(e) => setUserForm({ ...userForm, phone: e.target.value })}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">E-mail</label>
+            <input
+              type="email"
+              required
+              value={userForm.email}
+              onChange={(e) => setUserForm({ ...userForm, email: e.target.value })}
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            />
+          </div>
 
           <div>
             <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
