@@ -86,6 +86,95 @@ export default function AdminDashboard() {
   const [editingEst, setEditingEst] = useState<Establishment | null>(null);
   const [estForm, setEstForm] = useState({
     name: '', street: '', number: '', complement: '', neighborhood: '', city: '', state: '', zipCode: '', phone: '', email: '', password: ''
+  });<dyad-write path="src/pages/AdminDashboard.tsx" description="Corrigindo erros de compilação do TypeScript no AdminDashboard para passar no build do Vercel">
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { db, User, Establishment, Schedule, Delivery, Notification, PartnerRequest } from '../utils/db';
+import { 
+  Users, 
+  Store, 
+  Calendar, 
+  CalendarDays,
+  Bike, 
+  BarChart3, 
+  LogOut, 
+  Plus, 
+  Edit2, 
+  Trash2, 
+  Check, 
+  X, 
+  Download, 
+  Search,
+  Clock,
+  Send,
+  LayoutGrid,
+  List,
+  ChevronDown,
+  MessageSquare,
+  Building2,
+  CheckCircle2,
+  UserCheck,
+  Eye,
+  EyeOff
+} from 'lucide-react';
+
+// Importando os modais modulares
+import UserModal from '../components/UserModal';
+import EstablishmentModal from '../components/EstablishmentModal';
+import ScheduleModal from '../components/ScheduleModal';
+import WeeklyScheduleModal from '../components/WeeklyScheduleModal';
+import RiderSchedulesModal from '../components/RiderSchedulesModal';
+import DeliveryModal from '../components/DeliveryModal';
+
+// Constantes para a escala semanal automática
+const DAY_KEYS = ['seg', 'ter', 'qua', 'qui', 'sex', 'sab', 'dom'] as const;
+const DAY_LABELS = ['Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado', 'Domingo'];
+
+export default function AdminDashboard() {
+  const navigate = useNavigate();
+  const [adminUser, setAdminUser] = useState(db.getCurrentUser());
+  const [activeTab, setActiveTab] = useState<'users' | 'establishments' | 'schedules' | 'deliveries' | 'reports' | 'requests'>('users');
+
+  // Listas de dados
+  const [users, setUsers] = useState<User[]>([]);
+  const [establishments, setEstablishments] = useState<Establishment[]>([]);
+  const [schedules, setSchedules] = useState<Schedule[]>([]);
+  const [deliveries, setDeliveries] = useState<Delivery[]>([]);
+  const [partnerRequests, setPartnerRequests] = useState<PartnerRequest[]>([]);
+
+  // Filtros e buscas
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [roleFilter, setRoleFilter] = useState<'all' | 'admin' | 'rider' | 'establishment'>('all');
+  const [requestStatusFilter, setRequestStatusFilter] = useState<'all' | 'pending' | 'contacted'>('all');
+
+  // Controle de visualização de senhas
+  const [visiblePasswords, setVisiblePasswords] = useState<Record<string, boolean>>({});
+
+  // Modais e Formulários
+  const [showUserModal, setShowUserModal] = useState(false);
+  const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [userForm, setUserForm] = useState({
+    name: '',
+    cpf: '',
+    phone: '',
+    email: '',
+    role: 'rider' as 'admin' | 'rider' | 'establishment',
+    password: '',
+    establishmentId: '',
+    establishmentName: '',
+    zipCode: '',
+    street: '',
+    number: '',
+    neighborhood: '',
+    city: '',
+    state: ''
+  });
+
+  const [showEstModal, setShowEstModal] = useState(false);
+  const [editingEst, setEditingEst] = useState<Establishment | null>(null);
+  const [estForm, setEstForm] = useState({
+    name: '', street: '', number: '', complement: '', neighborhood: '', city: '', state: '', zipCode: '', phone: '', email: '', password: ''
   });
 
   const [showScheduleModal, setShowScheduleModal] = useState(false);
@@ -1947,7 +2036,7 @@ export default function AdminDashboard() {
                   <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Tipo de Relatório</label>
                   <select
                     value={reportType}
-                    onChange={(e) => setReportType(e.target.value as any)}
+                    onChange={(e) => setReportType(e.target.value as 'earnings' | 'deliveries' | 'schedules')}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
                   >
                     <option value="earnings">Faturamento por Motoboy</option>
@@ -1959,7 +2048,7 @@ export default function AdminDashboard() {
                   <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Período</label>
                   <select
                     value={reportPeriod}
-                    onChange={(e) => setReportPeriod(e.target.value as any)}
+                    onChange={(e) => setReportPeriod(e.target.value as 'daily' | 'weekly' | 'monthly' | 'custom')}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
                   >
                     <option value="daily">Diário</option>
