@@ -395,7 +395,16 @@ export default function RiderDashboard() {
   };
 
   const filteredFutureSchedules = getFutureSchedules().filter(s => {
-    const matchesEst = scheduleEstFilter ? s.establishmentId === scheduleEstFilter : true;
+    let matchesEst = true;
+    if (scheduleEstFilter) {
+      const filterEst = establishments.find(e => e.id === scheduleEstFilter);
+      const schEst = resolveEst(s.establishmentId);
+      if (filterEst && schEst) {
+        matchesEst = filterEst.name.toLowerCase().trim() === schEst.name.toLowerCase().trim();
+      } else {
+        matchesEst = s.establishmentId === scheduleEstFilter;
+      }
+    }
     const matchesDate = scheduleDateFilter ? s.date === scheduleDateFilter : true;
     return matchesEst && matchesDate;
   });
