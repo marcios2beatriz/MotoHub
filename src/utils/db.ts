@@ -256,7 +256,7 @@ const getMissingColumn = (msg: string): string | null => {
   return null;
 };
 
-// Sincronização ativa com o Supabase
+// Sincronização activa com o Supabase
 const syncToSupabase = async (table: string, data: any[]) => {
   if (disabledTables.has(table)) {
     return;
@@ -401,18 +401,23 @@ export const db = {
   getUsers: () => {
     const deletedIds = getDeletedIds();
     let users = getStorageData<User[]>('dm_users', INITIAL_USERS).filter(u => !deletedIds.includes(u.id));
+    const ests = getStorageData<Establishment[]>('dm_establishments', INITIAL_ESTABLISHMENTS).filter(e => !deletedIds.includes(e.id));
     
-    // Auto-correção de segurança para garantir que o usuário do Burgrill tenha os dados corretos
+    // Auto-correção de segurança dinâmica para garantir que o usuário do Burgrill tenha os dados corretos
     let updated = false;
     users = users.map(u => {
       if (u.email.toLowerCase() === 'burgrill@delivery.com') {
-        if (u.passwordHash !== 'burgrill' || u.name !== 'Gerente Burgrill' || u.establishmentId !== 'e2') {
+        // Encontra dinamicamente o ID do estabelecimento Burgrill ativo
+        const burgrillEst = ests.find(e => e.name.toLowerCase().includes('burgrill'));
+        const targetEstId = burgrillEst ? burgrillEst.id : 'e2';
+
+        if (u.passwordHash !== 'burgrill' || u.name !== 'Gerente Burgrill' || u.establishmentId !== targetEstId) {
           updated = true;
           return { 
             ...u, 
             name: 'Gerente Burgrill',
             passwordHash: 'burgrill',
-            establishmentId: 'e2'
+            establishmentId: targetEstId
           };
         }
       }
@@ -437,22 +442,7 @@ export const db = {
   
   getEstablishments: () => {
     const deletedIds = getDeletedIds();
-    let ests = getStorageData<Establishment[]>('dm_establishments', INITIAL_ESTABLISHMENTS).filter(e => !deletedIds.includes(e.id));
-    
-    // Auto-correção para garantir que o estabelecimento e2 seja sempre "Burgrill" se houver conflito com Supabase
-    let updated = false;
-    ests = ests.map(e => {
-      if (e.id === 'e2' && e.name !== 'Burgrill') {
-        updated = true;
-        return { ...e, name: 'Burgrill' };
-      }
-      return e;
-    });
-
-    if (updated) {
-      setStorageData('dm_establishments', ests);
-    }
-    return ests;
+    return getStorageData<Establishment[]>('dm_establishments', INITIAL_ESTABLISHMENTS).filter(e => !deletedIds.includes(e.id));
   },
   setEstablishments: (est: Establishment[]) => {
     trackDeletions('dm_establishments', est, 'establishments');
