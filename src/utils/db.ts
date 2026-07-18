@@ -458,6 +458,21 @@ export const db = {
       return;
     }
     addDeletedId(id, 'users');
+
+    // Limpar escalas vinculadas ao motoboy/gerente para evitar violação de chave estrangeira no Supabase
+    const allSchedules = db.getSchedules();
+    const schedulesToDelete = allSchedules.filter(s => s.riderId === id);
+    schedulesToDelete.forEach(s => addDeletedId(s.id, 'schedules'));
+    const updatedSchedules = allSchedules.filter(s => s.riderId !== id);
+    setStorageData('dm_schedules', updatedSchedules);
+
+    // Limpar corridas vinculadas ao motoboy para evitar violação de chave estrangeira no Supabase
+    const allDeliveries = db.getDeliveries();
+    const deliveriesToDelete = allDeliveries.filter(d => d.riderId === id);
+    deliveriesToDelete.forEach(d => addDeletedId(d.id, 'deliveries'));
+    const updatedDeliveries = allDeliveries.filter(d => d.riderId !== id);
+    setStorageData('dm_deliveries', updatedDeliveries);
+
     const users = db.getUsers().filter(u => u.id !== id);
     setStorageData('dm_users', users);
   },
@@ -472,7 +487,30 @@ export const db = {
     syncToSupabase('establishments', est);
   },
   deleteEstablishment: (id: string) => {
+    // 1. Adicionar ID do estabelecimento aos deletados
     addDeletedId(id, 'establishments');
+    
+    // 2. Limpar referências em outras tabelas locais e disparar deletes no Supabase para evitar violação de chave estrangeira
+    // Usuários vinculados: remover o vínculo de estabelecimento
+    const allUsers = db.getUsers();
+    const updatedUsers = allUsers.map(u => u.establishmentId === id ? { ...u, establishmentId: undefined } : u);
+    db.setUsers(updatedUsers);
+
+    // Escalas vinculadas: deletar
+    const allSchedules = db.getSchedules();
+    const schedulesToDelete = allSchedules.filter(s => s.establishmentId === id);
+    schedulesToDelete.forEach(s => addDeletedId(s.id, 'schedules'));
+    const updatedSchedules = allSchedules.filter(s => s.establishmentId !== id);
+    setStorageData('dm_schedules', updatedSchedules);
+
+    // Corridas vinculadas: deletar
+    const allDeliveries = db.getDeliveries();
+    const deliveriesToDelete = allDeliveries.filter(d => d.establishmentId === id);
+    deliveriesToDelete.forEach(d => addDeletedId(d.id, 'deliveries'));
+    const updatedDeliveries = allDeliveries.filter(d => d.establishmentId !== id);
+    setStorageData('dm_deliveries', updatedDeliveries);
+
+    // Filtrar e salvar estabelecimentos
     const ests = db.getEstablishments().filter(e => e.id !== id);
     setStorageData('dm_establishments', ests);
   },
