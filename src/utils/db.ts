@@ -138,6 +138,18 @@ const INITIAL_USERS: User[] = [
     passwordHash: 'bella123',
     establishmentId: 'e1',
     updatedAt: new Date().toISOString()
+  },
+  {
+    id: 'u5',
+    name: 'Gerente Burgrill',
+    cpf: '444.444.444-44',
+    phone: '(83) 3111-2222',
+    email: 'burgrill@delivery.com',
+    role: 'establishment',
+    active: true,
+    passwordHash: 'burger123',
+    establishmentId: 'e2',
+    updatedAt: new Date().toISOString()
   }
 ];
 
@@ -159,7 +171,7 @@ const INITIAL_ESTABLISHMENTS: Establishment[] = [
   },
   {
     id: 'e2',
-    name: 'Burger House',
+    name: 'Burgrill',
     address: {
       street: 'Avenida Olinda',
       number: '200',
@@ -454,6 +466,20 @@ export const db = {
             city: 'Campina Grande',
             state: 'PB',
             zipCode: '58433-488'
+          }
+        };
+      }
+      if (e.id === 'e2') {
+        return {
+          ...e,
+          name: 'Burgrill',
+          address: {
+            street: 'Avenida Olinda',
+            number: '200',
+            neighborhood: 'Tambaú',
+            city: 'João Pessoa',
+            state: 'PB',
+            zipCode: '58039-120'
           }
         };
       }
