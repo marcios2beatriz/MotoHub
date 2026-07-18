@@ -34,43 +34,6 @@ import { sendDeviceNotification, playNotificationSound } from '../utils/notifica
 
 export default function RiderDashboard() {
   const navigate = useNavigate();
-<dyad-write path="src/pages/RiderDashboard.tsx" description="Reescrevendo o RiderDashboard por completo com filtros robustos baseados em e-mail para garantir que as escalas e corridas sejam sempre exibidas corretamente">
-"use client";
-
-import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { db, Schedule, Delivery, Notification, Establishment } from '../utils/db';
-import { 
-  DollarSign, 
-  Calendar, 
-  Navigation, 
-  Bell, 
-  LogOut, 
-  TrendingUp, 
-  CheckCircle, 
-  MapPin, 
-  Clock,
-  AlertCircle,
-  History,
-  Filter,
-  X,
-  Satellite,
-  WifiOff,
-  Radio,
-  Plus,
-  Hash,
-  Edit2,
-  Share2,
-  MessageSquare,
-  ShieldAlert
-} from 'lucide-react';
-import DeliveryNotesModal from '../components/DeliveryNotesModal';
-import CustomerChatModal from '../components/CustomerChatModal';
-import ScheduleChatModal from '../components/ScheduleChatModal';
-import { sendDeviceNotification, playNotificationSound } from '../utils/notifications';
-
-export default function RiderDashboard() {
-  const navigate = useNavigate();
   const [user, setUser] = useState(db.getCurrentUser());
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
