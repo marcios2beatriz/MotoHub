@@ -242,6 +242,20 @@ const trackDeletions = (key: string, newData: { id: string }[], supabaseTable: s
   });
 };
 
+// Helper inteligente para extrair o nome da coluna ausente de qualquer formato de erro do Supabase/PostgREST
+const getMissingColumn = (msg: string): string | null => {
+  let match = msg.match(/Could not find the '([^']+)' column/i);
+  if (match) return match[1];
+  
+  match = msg.match(/column "([^"]+)"/i);
+  if (match) return match[1];
+
+  match = msg.match(/column ([a-zA-Z0-9_]+) does not exist/i);
+  if (match) return match[1];
+  
+  return null;
+};
+
 // Sincronização ativa com o Supabase
 const syncToSupabase = async (table: string, data: any[]) => {
   if (disabledTables.has(table)) {
@@ -282,12 +296,6 @@ const syncToSupabase = async (table: string, data: any[]) => {
         };
       }
       if (table === 'schedules') {
-        const payload = {
-          createdBy: item.createdBy,
-          chat: item.chat || '',
-          updatedAt: item.updatedAt || item.createdAt || new Date().toISOString()
-        };
-
         return {
           id: item.id,
           rider_id: item.riderId,
@@ -296,19 +304,13 @@ const syncToSupabase = async (table: string, data: any[]) => {
           shift: item.shift,
           start_time: item.startTime,
           end_time: item.endTime,
-          created_by: JSON.stringify(payload),
+          created_by: item.createdBy || 'Admin',
+          chat: item.chat || null,
           created_at: item.createdAt,
           updated_at: item.updatedAt || item.createdAt || new Date().toISOString()
         };
       }
       if (table === 'deliveries') {
-        const payload = {
-          orderNumber: item.orderNumber || '',
-          notes: item.notes || '',
-          customerChat: item.customerChat || '',
-          updatedAt: item.updatedAt || new Date().toISOString()
-        };
-
         return {
           id: item.id,
           rider_id: item.riderId,
@@ -318,7 +320,9 @@ const syncToSupabase = async (table: string, data: any[]) => {
           value: item.value,
           status: item.status,
           schedule_id: item.scheduleId || null,
-          order_number: JSON.stringify(payload),
+          order_number: item.orderNumber || null, // Apenas o número do pedido curto!
+          notes: item.notes || null, // Coluna separada
+          customer_chat: item.customerChat || null, // Coluna separada
           updated_at: item.updatedAt || new Date().toISOString()
         };
       }
@@ -351,21 +355,18 @@ const syncToSupabase = async (table: string, data: any[]) => {
     if (error) {
       let currentData = [...formattedData];
       let attempts = 0;
-      while (error && error.message.includes("Could not find the '") && attempts < 10) {
+      let missingCol = getMissingColumn(error.message);
+      
+      while (error && missingCol && attempts < 10) {
         attempts++;
-        const match = error.message.match(/Could not find the '([^']+)' column/);
-        if (match && match[1]) {
-          const missingCol = match[1];
-          console.warn(`⚠️ Coluna '${missingCol}' não encontrada na tabela '${table}' do Supabase. Removendo do envio...`);
-          currentData = currentData.map(item => {
-            const { [missingCol]: _, ...rest } = item;
-            return rest;
-          });
-          const retry = await supabase.from(table).upsert(currentData);
-          error = retry.error;
-        } else {
-          break;
-        }
+        console.warn(`⚠️ Coluna '${missingCol}' não encontrada na tabela '${table}' do Supabase. Removendo do envio...`);
+        currentData = currentData.map(item => {
+          const { [missingCol!]: _, ...rest } = item;
+          return rest;
+        });
+        const retry = await supabase.from(table).upsert(currentData);
+        error = retry.error;
+        missingCol = error ? getMissingColumn(error.message) : null;
       }
     }
 
@@ -605,7 +606,7 @@ export const db = {
           .filter(s => !deletedIds.includes(s.id))
           .map(s => {
             let createdBy = s.created_by || 'Admin';
-            let chat = undefined;
+            let chat = s.chat || undefined;
             let updatedAt = s.updated_at || undefined;
 
             if (s.created_by && s.created_by.startsWith('{')) {
@@ -629,7 +630,7 @@ export const db = {
               endTime: s.end_time,
               createdBy,
               createdAt: s.created_at,
-              chat,
+              chat: chat || s.chat || undefined,
               updatedAt
             };
           });
@@ -672,9 +673,9 @@ export const db = {
               value: Number(d.value),
               status: d.status as any,
               scheduleId: d.schedule_id || undefined,
-              orderNumber,
-              notes,
-              customerChat,
+              orderNumber: orderNumber || undefined,
+              notes: notes || d.notes || undefined,
+              customerChat: customerChat || d.customer_chat || undefined,
               updatedAt
             };
           });
