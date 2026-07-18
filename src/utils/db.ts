@@ -412,6 +412,16 @@ export const db = {
     let users = getStorageData<User[]>('dm_users', INITIAL_USERS).filter(u => !deletedIds.includes(u.id));
     const ests = getStorageData<Establishment[]>('dm_establishments', INITIAL_ESTABLISHMENTS).filter(e => !deletedIds.includes(e.id));
     
+    // AUTO-RECUPERAÇÃO FÍSICA: Se o usuário Burgrill (u5) sumiu fisicamente do array do LocalStorage, reinserimos ele
+    const hasBurgrillUser = users.some(u => u.id === 'u5' || u.email.toLowerCase() === 'burgrill@delivery.com');
+    if (!hasBurgrillUser) {
+      const defaultBurgrillUser = INITIAL_USERS.find(u => u.id === 'u5');
+      if (defaultBurgrillUser) {
+        users.push(defaultBurgrillUser);
+        setStorageData('dm_users', users);
+      }
+    }
+
     // Auto-correção de segurança dinâmica para garantir que o usuário do Burgrill tenha os dados corretos
     let updated = false;
     users = users.map(u => {
@@ -493,7 +503,19 @@ export const db = {
       setStorageData('dm_deleted_ids', deletedIds);
     }
 
-    return getStorageData<Establishment[]>('dm_establishments', INITIAL_ESTABLISHMENTS).filter(e => !deletedIds.includes(e.id));
+    let ests = getStorageData<Establishment[]>('dm_establishments', INITIAL_ESTABLISHMENTS).filter(e => !deletedIds.includes(e.id));
+
+    // AUTO-RECUPERAÇÃO FÍSICA: Se o estabelecimento Burgrill (e2) sumiu fisicamente do array do LocalStorage, reinserimos ele
+    const hasBurgrillEst = ests.some(e => e.id === 'e2' || e.name.toLowerCase().includes('burgrill'));
+    if (!hasBurgrillEst) {
+      const defaultBurgrillEst = INITIAL_ESTABLISHMENTS.find(e => e.id === 'e2');
+      if (defaultBurgrillEst) {
+        ests.push(defaultBurgrillEst);
+        setStorageData('dm_establishments', ests);
+      }
+    }
+
+    return ests;
   },
   setEstablishments: (est: Establishment[]) => {
     trackDeletions('dm_establishments', est, 'establishments');
