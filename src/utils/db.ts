@@ -401,53 +401,12 @@ export const db = {
   },
 
   getUsers: () => {
-    let deletedIds = getDeletedIds();
-    
-    // GARANTIA DE SEGURANÇA: Se o usuário Burgrill (u5) foi deletado por engano, vamos restaurá-lo limpando-o da lista de deletados
-    if (deletedIds.includes('u5')) {
-      deletedIds = deletedIds.filter(id => id !== 'u5');
-      setStorageData('dm_deleted_ids', deletedIds);
-    }
-
+    const deletedIds = getDeletedIds();
     let users = getStorageData<User[]>('dm_users', INITIAL_USERS).filter(u => !deletedIds.includes(u.id));
-    const ests = getStorageData<Establishment[]>('dm_establishments', INITIAL_ESTABLISHMENTS).filter(e => !deletedIds.includes(e.id));
     
-    // AUTO-RECUPERAÇÃO FÍSICA: Se o usuário Burgrill (u5) sumiu fisicamente do array do LocalStorage, reinserimos ele
-    const hasBurgrillUser = users.some(u => u.id === 'u5' || u.email.toLowerCase() === 'burgrill@delivery.com');
-    if (!hasBurgrillUser) {
-      const defaultBurgrillUser = INITIAL_USERS.find(u => u.id === 'u5');
-      if (defaultBurgrillUser) {
-        users.push(defaultBurgrillUser);
-        setStorageData('dm_users', users);
-      }
-    }
-
-    // Auto-correção de segurança dinâmica para garantir que o usuário do Burgrill tenha os dados corretos
-    let updated = false;
-    users = users.map(u => {
-      if (u.email.toLowerCase() === 'burgrill@delivery.com') {
-        // Encontra dinamicamente o ID do estabelecimento Burgrill ativo
-        const burgrillEst = ests.find(e => e.name.toLowerCase().includes('burgrill'));
-        const targetEstId = burgrillEst ? burgrillEst.id : 'e2';
-
-        if (u.passwordHash !== 'burgrill' || u.name !== 'Gerente Burgrill' || u.establishmentId !== targetEstId || u.role !== 'establishment') {
-          updated = true;
-          return { 
-            ...u, 
-            name: 'Gerente Burgrill',
-            passwordHash: 'burgrill',
-            role: 'establishment' as const,
-            establishmentId: targetEstId
-          };
-        }
-      }
-      return u;
-    });
-
     // GARANTIA SUPREMA: O administrador padrão (ID 'u1') NUNCA pode ser alterado, deletado ou desativado
     const adminUser = users.find(u => u.id === 'u1');
     if (!adminUser || adminUser.email !== 'admin@delivery.com' || adminUser.role !== 'admin' || !adminUser.active || adminUser.name !== 'Administrador Geral') {
-      updated = true;
       const defaultAdmin = INITIAL_USERS[0];
       
       // Remove o ID do admin da lista de deletados se estiver lá
@@ -457,11 +416,9 @@ export const db = {
       // Adiciona ou reativa o admin
       users = users.filter(u => u.id !== 'u1');
       users.unshift(defaultAdmin);
-    }
-
-    if (updated) {
       setStorageData('dm_users', users);
     }
+
     return users;
   },
   setUsers: (users: User[]) => {
@@ -495,27 +452,8 @@ export const db = {
   },
   
   getEstablishments: () => {
-    let deletedIds = getDeletedIds();
-
-    // GARANTIA DE SEGURANÇA: Se o estabelecimento Burgrill (e2) foi deletado por engano, vamos restaurá-lo limpando-o da lista de deletados
-    if (deletedIds.includes('e2')) {
-      deletedIds = deletedIds.filter(id => id !== 'e2');
-      setStorageData('dm_deleted_ids', deletedIds);
-    }
-
-    let ests = getStorageData<Establishment[]>('dm_establishments', INITIAL_ESTABLISHMENTS).filter(e => !deletedIds.includes(e.id));
-
-    // AUTO-RECUPERAÇÃO FÍSICA: Se o estabelecimento Burgrill (e2) sumiu fisicamente do array do LocalStorage, reinserimos ele
-    const hasBurgrillEst = ests.some(e => e.id === 'e2' || e.name.toLowerCase().includes('burgrill'));
-    if (!hasBurgrillEst) {
-      const defaultBurgrillEst = INITIAL_ESTABLISHMENTS.find(e => e.id === 'e2');
-      if (defaultBurgrillEst) {
-        ests.push(defaultBurgrillEst);
-        setStorageData('dm_establishments', ests);
-      }
-    }
-
-    return ests;
+    const deletedIds = getDeletedIds();
+    return getStorageData<Establishment[]>('dm_establishments', INITIAL_ESTABLISHMENTS).filter(e => !deletedIds.includes(e.id));
   },
   setEstablishments: (est: Establishment[]) => {
     trackDeletions('dm_establishments', est, 'establishments');
