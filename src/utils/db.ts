@@ -481,17 +481,17 @@ export const db = {
     const schedulesToDelete = allSchedules.filter(s => s.riderId === id);
     schedulesToDelete.forEach(s => addDeletedId(s.id, 'schedules'));
     const updatedSchedules = allSchedules.filter(s => s.riderId !== id);
-    setStorageData('dm_schedules', updatedSchedules);
+    db.setSchedules(updatedSchedules); // Sincroniza a remoção das escalas no Supabase
 
     // Limpar corridas vinculadas ao motoboy para evitar violação de chave estrangeira no Supabase
     const allDeliveries = db.getDeliveries();
     const deliveriesToDelete = allDeliveries.filter(d => d.riderId === id);
     deliveriesToDelete.forEach(d => addDeletedId(d.id, 'deliveries'));
     const updatedDeliveries = allDeliveries.filter(d => d.riderId !== id);
-    setStorageData('dm_deliveries', updatedDeliveries);
+    db.setDeliveries(updatedDeliveries); // Sincroniza a remoção das corridas no Supabase
 
     const users = db.getUsers().filter(u => u.id !== id);
-    setStorageData('dm_users', users);
+    db.setUsers(users); // Sincroniza a remoção do usuário no Supabase
   },
   
   getEstablishments: () => {
@@ -530,25 +530,25 @@ export const db = {
     // Usuários vinculados: remover o vínculo de estabelecimento
     const allUsers = db.getUsers();
     const updatedUsers = allUsers.map(u => u.establishmentId === id ? { ...u, establishmentId: undefined } : u);
-    db.setUsers(updatedUsers);
+    db.setUsers(updatedUsers); // Sincroniza no Supabase
 
     // Escalas vinculadas: deletar
     const allSchedules = db.getSchedules();
     const schedulesToDelete = allSchedules.filter(s => s.establishmentId === id);
     schedulesToDelete.forEach(s => addDeletedId(s.id, 'schedules'));
     const updatedSchedules = allSchedules.filter(s => s.establishmentId !== id);
-    setStorageData('dm_schedules', updatedSchedules);
+    db.setSchedules(updatedSchedules); // Sincroniza no Supabase
 
     // Corridas vinculadas: deletar
     const allDeliveries = db.getDeliveries();
     const deliveriesToDelete = allDeliveries.filter(d => d.establishmentId === id);
     deliveriesToDelete.forEach(d => addDeletedId(d.id, 'deliveries'));
     const updatedDeliveries = allDeliveries.filter(d => d.establishmentId !== id);
-    setStorageData('dm_deliveries', updatedDeliveries);
+    db.setDeliveries(updatedDeliveries); // Sincroniza no Supabase
 
     // Filtrar e salvar estabelecimentos
     const ests = db.getEstablishments().filter(e => e.id !== id);
-    setStorageData('dm_establishments', ests);
+    db.setEstablishments(ests); // Sincroniza no Supabase
   },
   
   getSchedules: () => {
