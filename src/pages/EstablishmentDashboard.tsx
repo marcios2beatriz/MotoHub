@@ -43,7 +43,7 @@ export default function EstablishmentDashboard() {
   const [user, setUser] = useState(() => {
     const cur = db.getCurrentUser();
     if (cur) {
-      const full = db.getUsers().find(u => u.id === cur.id);
+      const full = db.getUsers().find(u => u.email.toLowerCase() === cur.email.toLowerCase());
       if (full) {
         db.setCurrentUser(full);
         return full;
@@ -100,13 +100,40 @@ export default function EstablishmentDashboard() {
     const currentUser = db.getCurrentUser();
     if (!currentUser) return;
 
-    // Buscar dados sempre atualizados do usuário para garantir o establishmentId
-    const freshUser = db.getUsers().find(u => u.id === currentUser.id) || currentUser;
-    const estId = freshUser.establishmentId;
-    if (!estId) return;
+    // Buscar dados sempre atualizados do usuário pelo e-mail (muito mais seguro contra divergência de IDs)
+    const freshUser = db.getUsers().find(u => u.email.toLowerCase() === currentUser.email.toLowerCase()) || currentUser;
+    let estId = freshUser.establishmentId;
 
     const allEsts = db.getEstablishments();
-    const currentEst = allEsts.find(e => e.id === estId);
+    let currentEst = allEsts.find(e => e.id === estId);
+
+    // MECANISMO DE AUTO-CURA: Se não achar o estabelecimento pelo ID, tenta buscar por aproximação de nome ou prefixo de e-mail
+    if (!currentEst) {
+      const emailPrefix = freshUser.email.split('@')[0].toLowerCase();
+      currentEst = allEsts.find(e => 
+        e.name.toLowerCase().includes(emailPrefix) || 
+        emailPrefix.includes(e.name.toLowerCase().replace(/\s+/g, ''))
+      );
+
+      if (!currentEst && freshUser.name) {
+        const cleanName = freshUser.name.replace('Gerente ', '').toLowerCase().trim();
+        currentEst = allEsts.find(e => 
+          e.name.toLowerCase().trim() === cleanName || 
+          cleanName.includes(e.name.toLowerCase().trim()) ||
+          e.name.toLowerCase().trim().includes(cleanName)
+        );
+      }
+
+      if (currentEst) {
+        // Cura o ID mismatch localmente para as próximas consultas
+        estId = currentEst.id;
+        freshUser.establishmentId = estId;
+        db.setCurrentUser(freshUser);
+      }
+    }
+
+    if (!estId) return;
+
     if (currentEst) setEstablishment(currentEst);
 
     const todayStr = db.getLocalDateString();
@@ -138,7 +165,7 @@ export default function EstablishmentDashboard() {
     }
 
     // Garantir que temos os dados mais recentes do usuário com o ID do estabelecimento
-    const freshUser = db.getUsers().find(u => u.id === user.id);
+    const freshUser = db.getUsers().find(u => u.email.toLowerCase() === user.email.toLowerCase());
     if (freshUser && freshUser.establishmentId !== user.establishmentId) {
       setUser(freshUser);
     }
