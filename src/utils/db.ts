@@ -704,7 +704,7 @@ export const db = {
         }
       }
 
-      // 3. Sincronizar Escalas (Schedules)
+      // 3. Sincronizar Escalas (Schedules) com De-duplicação e Auto-Cura Ativa
       if (!disabledTables.has('schedules')) {
         const { data: schs, error: schsError } = await supabase.from('schedules').select('*');
         if (schsError) {
@@ -745,8 +745,32 @@ export const db = {
               };
             });
           
+          // MECANISMO DE AUTO-CURA: De-duplicar escalas (mesmo riderId, date e shift)
+          // Isso limpa escalas fantasmas que ficaram presas no banco de dados do Supabase
+          const uniqueSchs: Schedule[] = [];
+          const seenKeys = new Set<string>();
+          const duplicateIdsToDelete: string[] = [];
+
+          mappedSchs.forEach(s => {
+            const key = `${s.riderId}_${s.date}_${s.shift}`;
+            if (seenKeys.has(key)) {
+              duplicateIdsToDelete.push(s.id);
+            } else {
+              seenKeys.add(key);
+              uniqueSchs.push(s);
+            }
+          });
+
+          // Se houver duplicatas no Supabase, tenta excluí-las em segundo plano para limpar o banco definitivamente
+          if (duplicateIdsToDelete.length > 0) {
+            console.log(`[Auto-Cura] Detectadas ${duplicateIdsToDelete.length} escalas duplicadas no Supabase. Removendo...`);
+            duplicateIdsToDelete.forEach(id => {
+              supabase.from('schedules').delete().eq('id', id).catch(() => {});
+            });
+          }
+
           // Sobrescrita direta para propagar exclusões remotas e evitar duplicidade
-          setStorageData('dm_schedules', mappedSchs);
+          setStorageData('dm_schedules', uniqueSchs);
         }
       }
 
