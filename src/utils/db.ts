@@ -641,16 +641,19 @@ export const db = {
     try {
       const deletedIds = getDeletedIds();
 
+      // 1. Sincronizar Estabelecimentos
       const { data: ests, error: estsError } = await supabase.from('establishments').select('*');
       let localEsts = getStorageData<Establishment[]>('dm_establishments', INITIAL_ESTABLISHMENTS);
       const estIdMap = new Map<string, string>();
 
       if (!estsError && ests) {
-        // Preenche o estIdMap comparando pelo nome do estabelecimento para mapear IDs locais para UUIDs do Supabase
         ests.forEach(e => {
           const localMatch = localEsts.find(le => le.name.toLowerCase().trim() === e.name.toLowerCase().trim());
-          if (localMatch && localMatch.id !== e.id) {
-            estIdMap.set(localMatch.id, e.id);
+          if (localMatch) {
+            if (localMatch.id !== e.id) {
+              estIdMap.set(localMatch.id, e.id);
+              localMatch.id = e.id; // Atualiza o ID local para o UUID do Supabase
+            }
           }
         });
 
@@ -673,22 +676,23 @@ export const db = {
             updatedAt: e.updated_at || undefined
           }));
 
-        const merged = mergeById(localEsts, mappedEsts);
-        localEsts = merged;
+        localEsts = mergeById(localEsts, mappedEsts);
         setStorageData('dm_establishments', localEsts);
-        await syncToSupabase('establishments', localEsts);
       }
 
+      // 2. Sincronizar Usuários (Motoboys, Admins, Gerentes)
       const { data: users, error: usersError } = await supabase.from('users').select('*');
       let localUsers = getStorageData<User[]>('dm_users', INITIAL_USERS);
       const userIdMap = new Map<string, string>();
 
       if (!usersError && users) {
-        // Preenche o userIdMap comparando pelo e-mail do usuário para mapear IDs locais para UUIDs do Supabase
         users.forEach(u => {
           const localMatch = localUsers.find(lu => lu.email.toLowerCase().trim() === u.email.toLowerCase().trim());
-          if (localMatch && localMatch.id !== u.id) {
-            userIdMap.set(localMatch.id, u.id);
+          if (localMatch) {
+            if (localMatch.id !== u.id) {
+              userIdMap.set(localMatch.id, u.id);
+              localMatch.id = u.id; // Atualiza o ID local para o UUID do Supabase
+            }
           }
         });
 
@@ -708,9 +712,9 @@ export const db = {
             updatedAt: u.updated_at || undefined
           }));
 
-        const merged = mergeById(localUsers, mappedUsers);
-        localUsers = merged;
+        localUsers = mergeById(localUsers, mappedUsers);
 
+        // Atualiza referências de estabelecimentos nos usuários locais
         if (estIdMap.size > 0) {
           localUsers = localUsers.map(u => {
             if (u.establishmentId && estIdMap.has(u.establishmentId)) {
@@ -722,6 +726,7 @@ export const db = {
 
         setStorageData('dm_users', localUsers);
 
+        // Atualiza a sessão do usuário logado se o ID dele mudou para UUID
         const currentUser = db.getCurrentUser();
         if (currentUser) {
           const updatedCurrent = localUsers.find(u => u.email.toLowerCase() === currentUser.email.toLowerCase());
@@ -729,21 +734,18 @@ export const db = {
             db.setCurrentUser(updatedCurrent);
           }
         }
-
-        await syncToSupabase('users', localUsers);
       }
 
+      // 3. Sincronizar Escalas (Schedules)
       const { data: schs, error: schsError } = await supabase.from('schedules').select('*');
       let localSchs = getStorageData<Schedule[]>('dm_schedules', []);
 
-      // Migra os IDs locais de escalas para os novos UUIDs do Supabase
-      if (userIdMap.size > 0 || estIdMap.size > 0) {
-        localSchs = localSchs.map(s => ({
-          ...s,
-          riderId: userIdMap.get(s.riderId) || s.riderId,
-          establishmentId: estIdMap.get(s.establishmentId) || s.establishmentId
-        }));
-      }
+      // Atualiza referências de IDs locais para UUIDs nas escalas locais
+      localSchs = localSchs.map(s => ({
+        ...s,
+        riderId: userIdMap.get(s.riderId) || s.riderId,
+        establishmentId: estIdMap.get(s.establishmentId) || s.establishmentId
+      }));
 
       if (!schsError && schs) {
         const mappedSchs: Schedule[] = schs
@@ -766,8 +768,8 @@ export const db = {
 
             return {
               id: s.id,
-              riderId: s.rider_id,
-              establishmentId: s.establishment_id,
+              riderId: userIdMap.get(s.rider_id) || s.rider_id,
+              establishmentId: estIdMap.get(s.establishment_id) || s.establishment_id,
               date: s.date,
               shift: s.shift as any,
               startTime: s.start_time,
@@ -779,25 +781,20 @@ export const db = {
             };
           });
 
-        const merged = mergeById(localSchs, mappedSchs);
-        localSchs = merged;
-        setStorageData('dm_schedules', localSchs);
-        await syncToSupabase('schedules', localSchs);
-      } else {
+        localSchs = mergeById(localSchs, mappedSchs);
         setStorageData('dm_schedules', localSchs);
       }
 
+      // 4. Sincronizar Corridas (Deliveries)
       const { data: dels, error: delsError } = await supabase.from('deliveries').select('*');
       let localDels = getStorageData<Delivery[]>('dm_deliveries', []);
 
-      // Migra os IDs locais de corridas para os novos UUIDs do Supabase
-      if (userIdMap.size > 0 || estIdMap.size > 0) {
-        localDels = localDels.map(d => ({
-          ...d,
-          riderId: userIdMap.get(d.riderId) || d.riderId,
-          establishmentId: estIdMap.get(d.establishmentId) || d.establishmentId
-        }));
-      }
+      // Atualiza referências de IDs locais para UUIDs nas corridas locais
+      localDels = localDels.map(d => ({
+        ...d,
+        riderId: userIdMap.get(d.riderId) || d.riderId,
+        establishmentId: estIdMap.get(d.establishmentId) || d.establishmentId
+      }));
 
       if (!delsError && dels) {
         const mappedDels: Delivery[] = dels
@@ -826,8 +823,8 @@ export const db = {
 
             return {
               id: d.id,
-              riderId: d.rider_id,
-              establishmentId: d.establishment_id,
+              riderId: userIdMap.get(d.rider_id) || d.rider_id,
+              establishmentId: estIdMap.get(d.establishment_id) || d.establishment_id,
               date: d.date,
               time: d.time,
               value: Number(d.value),
@@ -840,44 +837,36 @@ export const db = {
             };
           });
 
-        const merged = mergeById(localDels, mappedDels);
-        localDels = merged;
-        setStorageData('dm_deliveries', localDels);
-        await syncToSupabase('deliveries', localDels);
-      } else {
+        localDels = mergeById(localDels, mappedDels);
         setStorageData('dm_deliveries', localDels);
       }
 
+      // 5. Sincronizar Notificações
       const { data: notifs, error: notifsError } = await supabase.from('notifications').select('*');
       let localNotifs = getStorageData<Notification[]>('dm_notifications', []);
 
-      if (userIdMap.size > 0) {
-        localNotifs = localNotifs.map(n => ({
-          ...n,
-          riderId: userIdMap.get(n.riderId) || n.riderId
-        }));
-      }
+      localNotifs = localNotifs.map(n => ({
+        ...n,
+        riderId: userIdMap.get(n.riderId) || n.riderId
+      }));
 
       if (!notifsError && notifs) {
         const mappedNotifs: Notification[] = notifs
           .filter(n => !deletedIds.includes(n.id))
           .map(n => ({
             id: n.id,
-            riderId: n.rider_id,
+            riderId: userIdMap.get(n.rider_id) || n.rider_id,
             title: n.title,
             message: n.message,
             date: n.date,
             read: n.read
           }));
 
-        const merged = mergeById(localNotifs, mappedNotifs);
-        localNotifs = merged;
-        setStorageData('dm_notifications', localNotifs);
-        await syncToSupabase('notifications', localNotifs);
-      } else {
+        localNotifs = mergeById(localNotifs, mappedNotifs);
         setStorageData('dm_notifications', localNotifs);
       }
 
+      // 6. Sincronizar Solicitações de Parceria
       const { data: reqs, error: reqsError } = await supabase.from('partner_requests').select('*');
       if (!reqsError && reqs) {
         const mappedReqs: PartnerRequest[] = reqs
@@ -894,12 +883,9 @@ export const db = {
         const localReqs = getStorageData<PartnerRequest[]>('dm_partner_requests', []);
         const merged = mergeById(localReqs, mappedReqs);
         setStorageData('dm_partner_requests', merged);
-        await syncToSupabase('partner_requests', merged);
-      } else if (reqsError && (reqsError.message.includes("404") || reqsError.message.includes("not found") || reqsError.message.includes("relation"))) {
-        console.warn("⚠️ Tabela partner_requests não encontrada no Supabase. Usando apenas LocalStorage.");
-        disabledTables.add('partner_requests');
       }
 
+      // 7. Sincronizar Localizações de GPS
       const { data: locs, error: locsError } = await supabase.from('rider_locations').select('*');
       if (!locsError && locs) {
         const mappedLocs: RiderLocation[] = locs.map(l => ({
