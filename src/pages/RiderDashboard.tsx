@@ -34,6 +34,43 @@ import { sendDeviceNotification, playNotificationSound } from '../utils/notifica
 
 export default function RiderDashboard() {
   const navigate = useNavigate();
+<dyad-write path="src/pages/RiderDashboard.tsx" description="Reescrevendo o RiderDashboard por completo com filtros robustos baseados em e-mail para garantir que as escalas e corridas sejam sempre exibidas corretamente">
+"use client";
+
+import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { db, Schedule, Delivery, Notification, Establishment } from '../utils/db';
+import { 
+  DollarSign, 
+  Calendar, 
+  Navigation, 
+  Bell, 
+  LogOut, 
+  TrendingUp, 
+  CheckCircle, 
+  MapPin, 
+  Clock,
+  AlertCircle,
+  History,
+  Filter,
+  X,
+  Satellite,
+  WifiOff,
+  Radio,
+  Plus,
+  Hash,
+  Edit2,
+  Share2,
+  MessageSquare,
+  ShieldAlert
+} from 'lucide-react';
+import DeliveryNotesModal from '../components/DeliveryNotesModal';
+import CustomerChatModal from '../components/CustomerChatModal';
+import ScheduleChatModal from '../components/ScheduleChatModal';
+import { sendDeviceNotification, playNotificationSound } from '../utils/notifications';
+
+export default function RiderDashboard() {
+  const navigate = useNavigate();
   const [user, setUser] = useState(db.getCurrentUser());
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
@@ -79,10 +116,30 @@ export default function RiderDashboard() {
 
   const loadData = () => {
     if (!user) return;
-    const allSchedules = db.getSchedules().filter(s => s.riderId === user.id);
-    const allDeliveries = db.getDeliveries().filter(d => d.riderId === user.id);
-    const allNotifications = db.getNotifications().filter(n => n.riderId === user.id);
+    const allUsers = db.getUsers();
+    const freshUser = allUsers.find(u => u.email.toLowerCase() === user.email.toLowerCase()) || user;
+    
+    // Filtro ultra-robusto por ID ou e-mail do motoboy para evitar sumiço por divergência de IDs
+    const allSchedules = db.getSchedules().filter(s => {
+      if (s.riderId === freshUser.id) return true;
+      const riderOfSch = allUsers.find(u => u.id === s.riderId);
+      return riderOfSch && riderOfSch.email.toLowerCase() === freshUser.email.toLowerCase();
+    });
+
+    const allDeliveries = db.getDeliveries().filter(d => {
+      if (d.riderId === freshUser.id) return true;
+      const riderOfDel = allUsers.find(u => u.id === d.riderId);
+      return riderOfDel && riderOfDel.email.toLowerCase() === freshUser.email.toLowerCase();
+    });
+
+    const allNotifications = db.getNotifications().filter(n => {
+      if (n.riderId === freshUser.id) return true;
+      const riderOfNotif = allUsers.find(u => u.id === n.riderId);
+      return riderOfNotif && riderOfNotif.email.toLowerCase() === freshUser.email.toLowerCase();
+    });
+
     const allEsts = db.getEstablishments().filter(e => e.active);
+    
     setSchedules(allSchedules);
     setDeliveries(allDeliveries);
     setNotifications(allNotifications);

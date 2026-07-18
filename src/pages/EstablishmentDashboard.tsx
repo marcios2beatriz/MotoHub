@@ -126,14 +126,49 @@ export default function EstablishmentDashboard() {
       }
     }
     
-    // 4. Se ainda não achar, e o motoboy tiver apenas UMA escala ativa hoje,
-    // assume que a corrida pertence a esse estabelecimento da escala!
+    // 4. Se ainda não achar, buscar QUALQUER escala do motoboy hoje e comparar o nome do estabelecimento por texto!
+    const allUsers = db.getUsers();
+    const riderOfDel = allUsers.find(u => u.id === d.riderId);
+    const riderEmail = riderOfDel ? riderOfDel.email.toLowerCase() : '';
+
     if (!destEst) {
-      const todayStr = db.getLocalDateString();
-      const riderSchedulesToday = db.getSchedules().filter(s => s.riderId === d.riderId && s.date === d.date);
-      if (riderSchedulesToday.length === 1) {
-        destEst = allEsts.find(e => e.id === riderSchedulesToday[0].establishmentId);
+      const riderSchedulesToday = db.getSchedules().filter(s => {
+        if (s.date !== d.date) return false;
+        if (s.riderId === d.riderId) return true;
+        const riderOfSch = allUsers.find(u => u.id === s.riderId);
+        return riderOfSch && riderOfSch.email.toLowerCase() === riderEmail;
+      });
+
+      const matchingSchedule = riderSchedulesToday.find(s => {
+        const estOfSch = allEsts.find(e => e.id === s.establishmentId);
+        if (estOfSch) {
+          const name = estOfSch.name.toLowerCase().trim();
+          return name === currentEstName || name.includes(currentEstName) || currentEstName.includes(name);
+        }
+        return false;
+      });
+      if (matchingSchedule) return true;
+    }
+
+    // 5. Fallback supremo: Se o motoboy que lançou a corrida está escalado HOJE neste estabelecimento (por nome),
+    // e a corrida foi lançada hoje, assume que a corrida é deste estabelecimento!
+    const riderSchedulesToday = db.getSchedules().filter(s => {
+      if (s.date !== d.date) return false;
+      if (s.riderId === d.riderId) return true;
+      const riderOfSch = allUsers.find(u => u.id === s.riderId);
+      return riderOfSch && riderOfSch.email.toLowerCase() === riderEmail;
+    });
+
+    const isRiderScheduledHereToday = riderSchedulesToday.some(s => {
+      const estOfSch = allEsts.find(e => e.id === s.establishmentId);
+      if (estOfSch) {
+        const name = estOfSch.name.toLowerCase().trim();
+        return name === currentEstName || name.includes(currentEstName) || currentEstName.includes(name);
       }
+      return false;
+    });
+    if (isRiderScheduledHereToday && d.date === db.getLocalDateString()) {
+      return true;
     }
 
     if (destEst) {
@@ -204,10 +239,15 @@ export default function EstablishmentDashboard() {
     setTodaySchedules(estSchedules);
 
     const allUsers = db.getUsers();
-    const scheduledIds = estSchedules.map(s => s.riderId);
     
-    // Mostra os motoboys que possuem escala ativa hoje para este estabelecimento
-    const riders = allUsers.filter(u => scheduledIds.includes(u.id));
+    // Mostra os motoboys que possuem escala ativa hoje para este estabelecimento (com fallback por e-mail)
+    const riders = allUsers.filter(u => 
+      estSchedules.some(s => {
+        if (s.riderId === u.id) return true;
+        const riderOfSch = allUsers.find(ru => ru.id === s.riderId);
+        return riderOfSch && riderOfSch.email.toLowerCase() === u.email.toLowerCase();
+      })
+    );
     setScheduledRiders(riders);
 
     const allDeliveries = db.getDeliveries();
