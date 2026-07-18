@@ -131,11 +131,6 @@ const addDeletedId = (id: string, supabaseTable: string) => {
     const updated = [...deleted, id];
     setStorageData('dm_deleted_ids', updated);
   }
-  
-  // Deleta imediatamente do Supabase
-  supabase.from(supabaseTable).delete().eq('id', id).then(({ error }) => {
-    if (error) console.warn(`[Supabase] Erro ao excluir ID ${id} da tabela ${supabaseTable}:`, error.message);
-  });
 };
 
 const trackDeletions = (key: string, newData: { id: string }[], supabaseTable: string) => {
@@ -333,26 +328,39 @@ export const db = {
     setStorageData('dm_users', users);
     syncToSupabase('users', users);
   },
-  deleteUser: (id: string) => {
+  deleteUser: async (id: string) => {
     if (id === 'u1') {
       console.warn('Tentativa de deletar o administrador padrão bloqueada.');
       return;
     }
 
-    // 1. Filtrar e deletar escalas vinculadas
+    addDeletedId(id, 'users');
+
+    // 1. Deletar escalas vinculadas no Supabase e localmente
     const allSchedules = db.getSchedules();
+    const schedulesToDelete = allSchedules.filter(s => s.riderId === id);
+    for (const s of schedulesToDelete) {
+      addDeletedId(s.id, 'schedules');
+      await supabase.from('schedules').delete().eq('id', s.id);
+    }
     const updatedSchedules = allSchedules.filter(s => s.riderId !== id);
-    db.setSchedules(updatedSchedules);
+    setStorageData('dm_schedules', updatedSchedules);
 
-    // 2. Filtrar e deletar corridas vinculadas
+    // 2. Deletar corridas vinculadas no Supabase e localmente
     const allDeliveries = db.getDeliveries();
+    const deliveriesToDelete = allDeliveries.filter(d => d.riderId === id);
+    for (const d of deliveriesToDelete) {
+      addDeletedId(d.id, 'deliveries');
+      await supabase.from('deliveries').delete().eq('id', d.id);
+    }
     const updatedDeliveries = allDeliveries.filter(d => d.riderId !== id);
-    db.setDeliveries(updatedDeliveries);
+    setStorageData('dm_deliveries', updatedDeliveries);
 
-    // 3. Filtrar e deletar o usuário
+    // 3. Deletar o usuário no Supabase e localmente
+    await supabase.from('users').delete().eq('id', id);
     const allUsers = db.getUsers();
     const updatedUsers = allUsers.filter(u => u.id !== id);
-    db.setUsers(updatedUsers);
+    setStorageData('dm_users', updatedUsers);
   },
   
   getEstablishments: () => {
@@ -364,46 +372,64 @@ export const db = {
     setStorageData('dm_establishments', est);
     syncToSupabase('establishments', est);
   },
-  deleteEstablishment: (id: string) => {
+  deleteEstablishment: async (id: string) => {
     const est = db.resolveEstablishment(id);
     const estName = est ? est.name : '';
 
-    // 1. Deletar usuários gerentes associados
-    const allUsers = db.getUsers();
-    const updatedUsers = allUsers.filter(u => 
-      u.establishmentId !== id && 
-      !(u.role === 'establishment' && estName && u.name.toLowerCase().includes(estName.toLowerCase()))
-    );
-    db.setUsers(updatedUsers);
+    addDeletedId(id, 'establishments');
 
-    // 2. Deletar escalas vinculadas
-    const allSchedules = db.getSchedules();
-    const updatedSchedules = allSchedules.filter(s => 
-      s.establishmentId !== id && 
-      !(estName && (
-        s.establishmentId.toLowerCase().trim() === estName.toLowerCase().trim() ||
-        s.establishmentId.toLowerCase().trim().includes(estName.toLowerCase().trim()) ||
-        estName.toLowerCase().trim().includes(s.establishmentId.toLowerCase().trim())
-      ))
-    );
-    db.setSchedules(updatedSchedules);
-
-    // 3. Deletar corridas vinculadas
+    // 1. Deletar corridas vinculadas no Supabase e localmente (Tabela filha mais profunda)
     const allDeliveries = db.getDeliveries();
-    const updatedDeliveries = allDeliveries.filter(d => 
-      d.establishmentId !== id && 
-      !(estName && (
+    const deliveriesToDelete = allDeliveries.filter(d => 
+      d.establishmentId === id || 
+      (estName && (
         d.establishmentId.toLowerCase().trim() === estName.toLowerCase().trim() ||
         d.establishmentId.toLowerCase().trim().includes(estName.toLowerCase().trim()) ||
         estName.toLowerCase().trim().includes(d.establishmentId.toLowerCase().trim())
       ))
     );
-    db.setDeliveries(updatedDeliveries);
+    for (const d of deliveriesToDelete) {
+      addDeletedId(d.id, 'deliveries');
+      await supabase.from('deliveries').delete().eq('id', d.id);
+    }
+    const updatedDeliveries = allDeliveries.filter(d => !deliveriesToDelete.some(dt => dt.id === d.id));
+    setStorageData('dm_deliveries', updatedDeliveries);
 
-    // 4. Deletar o estabelecimento
+    // 2. Deletar escalas vinculadas no Supabase e localmente
+    const allSchedules = db.getSchedules();
+    const schedulesToDelete = allSchedules.filter(s => 
+      s.establishmentId === id || 
+      (estName && (
+        s.establishmentId.toLowerCase().trim() === estName.toLowerCase().trim() ||
+        s.establishmentId.toLowerCase().trim().includes(estName.toLowerCase().trim()) ||
+        estName.toLowerCase().trim().includes(s.establishmentId.toLowerCase().trim())
+      ))
+    );
+    for (const s of schedulesToDelete) {
+      addDeletedId(s.id, 'schedules');
+      await supabase.from('schedules').delete().eq('id', s.id);
+    }
+    const updatedSchedules = allSchedules.filter(s => !schedulesToDelete.some(st => st.id === s.id));
+    setStorageData('dm_schedules', updatedSchedules);
+
+    // 3. Deletar usuários gerentes associados no Supabase e localmente
+    const allUsers = db.getUsers();
+    const usersToDelete = allUsers.filter(u => 
+      u.establishmentId === id || 
+      (u.role === 'establishment' && estName && u.name.toLowerCase().includes(estName.toLowerCase()))
+    );
+    for (const u of usersToDelete) {
+      addDeletedId(u.id, 'users');
+      await supabase.from('users').delete().eq('id', u.id);
+    }
+    const updatedUsers = allUsers.filter(u => !usersToDelete.some(ut => ut.id === u.id));
+    setStorageData('dm_users', updatedUsers);
+
+    // 4. Deletar o estabelecimento no Supabase e localmente (Tabela pai)
+    await supabase.from('establishments').delete().eq('id', id);
     const allEsts = db.getEstablishments();
     const updatedEsts = allEsts.filter(e => e.id !== id);
-    db.setEstablishments(updatedEsts);
+    setStorageData('dm_establishments', updatedEsts);
   },
   
   getSchedules: () => {
