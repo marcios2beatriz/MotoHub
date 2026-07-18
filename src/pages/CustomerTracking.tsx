@@ -162,8 +162,8 @@ export default function CustomerTracking() {
       let finalLng = defaultLng;
       let geocoded = false;
 
-      // Regra de Ouro: Se for a Hamburgueria Burgrill, força as coordenadas exatas de Bodocongó
-      if (establishment.name.toLowerCase().includes('burgrill')) {
+      // Regra de Ouro: Se for a Hamburgueria Burgrill e o endereço for o padrão, força as coordenadas exatas de Bodocongó
+      if (establishment.name.toLowerCase().includes('burgrill') && establishment.address.street === 'Rua Aprígio Veloso') {
         finalLat = -7.2150;
         finalLng = -35.9130;
         geocoded = true;
