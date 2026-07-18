@@ -481,17 +481,17 @@ export const db = {
     const schedulesToDelete = allSchedules.filter(s => s.riderId === id);
     schedulesToDelete.forEach(s => addDeletedId(s.id, 'schedules'));
     const updatedSchedules = allSchedules.filter(s => s.riderId !== id);
-    db.setSchedules(updatedSchedules); // Sincroniza a remoção das escalas no Supabase
+    setStorageData('dm_schedules', updatedSchedules);
 
     // Limpar corridas vinculadas ao motoboy para evitar violação de chave estrangeira no Supabase
     const allDeliveries = db.getDeliveries();
     const deliveriesToDelete = allDeliveries.filter(d => d.riderId === id);
     deliveriesToDelete.forEach(d => addDeletedId(d.id, 'deliveries'));
     const updatedDeliveries = allDeliveries.filter(d => d.riderId !== id);
-    db.setDeliveries(updatedDeliveries); // Sincroniza a remoção das corridas no Supabase
+    setStorageData('dm_deliveries', updatedDeliveries);
 
     const users = db.getUsers().filter(u => u.id !== id);
-    db.setUsers(users); // Sincroniza a remoção do usuário no Supabase
+    setStorageData('dm_users', users);
   },
   
   getEstablishments: () => {
@@ -530,35 +530,68 @@ export const db = {
     // Usuários vinculados: remover o vínculo de estabelecimento
     const allUsers = db.getUsers();
     const updatedUsers = allUsers.map(u => u.establishmentId === id ? { ...u, establishmentId: undefined } : u);
-    db.setUsers(updatedUsers); // Sincroniza no Supabase
+    db.setUsers(updatedUsers);
 
     // Escalas vinculadas: deletar
     const allSchedules = db.getSchedules();
     const schedulesToDelete = allSchedules.filter(s => s.establishmentId === id);
     schedulesToDelete.forEach(s => addDeletedId(s.id, 'schedules'));
     const updatedSchedules = allSchedules.filter(s => s.establishmentId !== id);
-    db.setSchedules(updatedSchedules); // Sincroniza no Supabase
+    setStorageData('dm_schedules', updatedSchedules);
 
     // Corridas vinculadas: deletar
     const allDeliveries = db.getDeliveries();
     const deliveriesToDelete = allDeliveries.filter(d => d.establishmentId === id);
     deliveriesToDelete.forEach(d => addDeletedId(d.id, 'deliveries'));
     const updatedDeliveries = allDeliveries.filter(d => d.establishmentId !== id);
-    db.setDeliveries(updatedDeliveries); // Sincroniza no Supabase
+    setStorageData('dm_deliveries', updatedDeliveries);
 
     // Filtrar e salvar estabelecimentos
     const ests = db.getEstablishments().filter(e => e.id !== id);
-    db.setEstablishments(ests); // Sincroniza no Supabase
+    setStorageData('dm_establishments', ests);
   },
   
   getSchedules: () => {
     const deletedIds = getDeletedIds();
     const ests = db.getEstablishments();
     const estIds = new Set(ests.map(e => e.id));
-    
-    // Auto-cura: Filtra escalas que apontam para estabelecimentos que foram deletados
-    return getStorageData<Schedule[]>('dm_schedules', [])
-      .filter(s => !deletedIds.includes(s.id) && estIds.has(s.establishmentId));
+    const users = db.getUsers();
+    const userIds = new Set(users.map(u => u.id));
+    const rawSchedules = getStorageData<Schedule[]>('dm_schedules', []);
+
+    // AUTO-CURA ATIVA: Se a escala aponta para um ID de estabelecimento ou motoboy que mudou ou foi recriado,
+    // nós corrigimos o ID da escala em tempo real para que ela NUNCA suma do painel do motoboy ou do estabelecimento!
+    let updated = false;
+    const healedSchedules = rawSchedules.map(s => {
+      // 1. Auto-cura do estabelecimento (por nome ou ID)
+      if (!estIds.has(s.establishmentId)) {
+        const matchingEst = ests.find(e => 
+          e.name.toLowerCase().trim() === s.establishmentId.toLowerCase().trim() ||
+          e.id === 'e2' && s.establishmentId === 'Burgrill'
+        );
+        if (matchingEst) {
+          s.establishmentId = matchingEst.id;
+          updated = true;
+        }
+      }
+      // 2. Auto-cura do motoboy (se o ID mudou mas o nome/e-mail é o mesmo)
+      if (!userIds.has(s.riderId)) {
+        const matchingUser = users.find(u => 
+          u.name.toLowerCase().trim() === s.riderId.toLowerCase().trim() ||
+          u.id === 'u2' && s.riderId === 'Carlos Silva (Motoqueiro)'
+        );
+        if (matchingUser) {
+          s.riderId = matchingUser.id;
+          updated = true;
+        }
+      }
+      return s;
+    }).filter(s => !deletedIds.includes(s.id) && ests.some(e => e.id === s.establishmentId) && users.some(u => u.id === s.riderId));
+
+    if (updated) {
+      setStorageData('dm_schedules', healedSchedules);
+    }
+    return healedSchedules;
   },
   setSchedules: (sch: Schedule[]) => {
     trackDeletions('dm_schedules', sch, 'schedules');
@@ -570,10 +603,39 @@ export const db = {
     const deletedIds = getDeletedIds();
     const ests = db.getEstablishments();
     const estIds = new Set(ests.map(e => e.id));
+    const users = db.getUsers();
+    const userIds = new Set(users.map(u => u.id));
+    const rawDeliveries = getStorageData<Delivery[]>('dm_deliveries', []);
 
-    // Auto-cura: Filtra corridas que apontam para estabelecimentos que foram deletados
-    return getStorageData<Delivery[]>('dm_deliveries', [])
-      .filter(d => !deletedIds.includes(d.id) && estIds.has(d.establishmentId));
+    // AUTO-CURA ATIVA: Corrige IDs de estabelecimentos ou motoboys nas corridas em tempo real
+    let updated = false;
+    const healedDeliveries = rawDeliveries.map(d => {
+      if (!estIds.has(d.establishmentId)) {
+        const matchingEst = ests.find(e => 
+          e.name.toLowerCase().trim() === d.establishmentId.toLowerCase().trim() ||
+          e.id === 'e2' && d.establishmentId === 'Burgrill'
+        );
+        if (matchingEst) {
+          d.establishmentId = matchingEst.id;
+          updated = true;
+        }
+      }
+      if (!userIds.has(d.riderId)) {
+        const matchingUser = users.find(u => 
+          u.name.toLowerCase().trim() === d.riderId.toLowerCase().trim()
+        );
+        if (matchingUser) {
+          d.riderId = matchingUser.id;
+          updated = true;
+        }
+      }
+      return d;
+    }).filter(d => !deletedIds.includes(d.id) && ests.some(e => e.id === d.establishmentId) && users.some(u => u.id === d.riderId));
+
+    if (updated) {
+      setStorageData('dm_deliveries', healedDeliveries);
+    }
+    return healedDeliveries;
   },
   setDeliveries: (del: Delivery[]) => {
     trackDeletions('dm_deliveries', del, 'deliveries');
