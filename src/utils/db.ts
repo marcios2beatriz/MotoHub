@@ -461,30 +461,54 @@ export const db = {
     syncToSupabase('establishments', est);
   },
   deleteEstablishment: (id: string) => {
+    const est = db.resolveEstablishment(id);
+    const estName = est ? est.name : '';
+
     // 1. Adicionar ID do estabelecimento aos deletados
     addDeletedId(id, 'establishments');
     
-    // 2. Limpar referências em outras tabelas locais e disparar deletes no Supabase para evitar violação de chave estrangeira
-    // Usuários vinculados: remover o vínculo de estabelecimento
+    // 2. Deletar usuários gerentes associados (por ID ou por nome do estabelecimento)
     const allUsers = db.getUsers();
-    const updatedUsers = allUsers.map(u => u.establishmentId === id ? { ...u, establishmentId: undefined } : u);
-    db.setUsers(updatedUsers);
+    const usersToDelete = allUsers.filter(u => 
+      u.establishmentId === id || 
+      (u.role === 'establishment' && estName && u.name.toLowerCase().includes(estName.toLowerCase()))
+    );
+    usersToDelete.forEach(u => addDeletedId(u.id, 'users'));
+    const updatedUsers = allUsers.filter(u => !usersToDelete.some(ut => ut.id === u.id));
+    setStorageData('dm_users', updatedUsers);
+    syncToSupabase('users', updatedUsers);
 
-    // Escalas vinculadas: deletar
+    // 3. Deletar escalas vinculadas (por ID ou por nome do estabelecimento)
     const allSchedules = db.getSchedules();
-    const schedulesToDelete = allSchedules.filter(s => s.establishmentId === id);
+    const schedulesToDelete = allSchedules.filter(s => 
+      s.establishmentId === id || 
+      (estName && (
+        s.establishmentId.toLowerCase().trim() === estName.toLowerCase().trim() ||
+        s.establishmentId.toLowerCase().trim().includes(estName.toLowerCase().trim()) ||
+        estName.toLowerCase().trim().includes(s.establishmentId.toLowerCase().trim())
+      ))
+    );
     schedulesToDelete.forEach(s => addDeletedId(s.id, 'schedules'));
-    const updatedSchedules = allSchedules.filter(s => s.establishmentId !== id);
+    const updatedSchedules = allSchedules.filter(s => !schedulesToDelete.some(st => st.id === s.id));
     setStorageData('dm_schedules', updatedSchedules);
+    syncToSupabase('schedules', updatedSchedules);
 
-    // Corridas vinculadas: deletar
+    // 4. Deletar corridas vinculadas (por ID ou por nome do estabelecimento)
     const allDeliveries = db.getDeliveries();
-    const deliveriesToDelete = allDeliveries.filter(d => d.establishmentId === id);
+    const deliveriesToDelete = allDeliveries.filter(d => 
+      d.establishmentId === id || 
+      (estName && (
+        d.establishmentId.toLowerCase().trim() === estName.toLowerCase().trim() ||
+        d.establishmentId.toLowerCase().trim().includes(estName.toLowerCase().trim()) ||
+        estName.toLowerCase().trim().includes(d.establishmentId.toLowerCase().trim())
+      ))
+    );
     deliveriesToDelete.forEach(d => addDeletedId(d.id, 'deliveries'));
-    const updatedDeliveries = allDeliveries.filter(d => d.establishmentId !== id);
+    const updatedDeliveries = allDeliveries.filter(d => !deliveriesToDelete.some(dt => dt.id === d.id));
     setStorageData('dm_deliveries', updatedDeliveries);
+    syncToSupabase('deliveries', updatedDeliveries);
 
-    // Filtrar e salvar estabelecimentos
+    // 5. Filtrar e salvar estabelecimentos
     const ests = db.getEstablishments().filter(e => e.id !== id);
     setStorageData('dm_establishments', ests);
   },
@@ -677,7 +701,7 @@ export const db = {
           if (estsError.message.includes("404") || estsError.message.includes("not found") || estsError.message.includes("relation")) {
             disabledTables.add('establishments');
           }
-        } else if (ests && ests.length > 0) {
+        } else if (ests) {
           // Auto-cura: Deletar do Supabase itens que já foram excluídos localmente
           const toDeleteRemotely = ests.filter(e => deletedIds.includes(e.id));
           toDeleteRemotely.forEach(e => {
@@ -717,7 +741,7 @@ export const db = {
           if (usersError.message.includes("404") || usersError.message.includes("not found") || usersError.message.includes("relation")) {
             disabledTables.add('users');
           }
-        } else if (users && users.length > 0) {
+        } else if (users) {
           // Auto-cura: Deletar do Supabase itens que já foram excluídos localmente
           const toDeleteRemotely = users.filter(u => deletedIds.includes(u.id));
           toDeleteRemotely.forEach(u => {
