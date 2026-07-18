@@ -177,6 +177,59 @@ const INITIAL_LOCATIONS: RiderLocation[] = [
   }
 ];
 
+// Executa migração automática no localStorage para substituir Pizzaria Bella Italia por Hamburgueria Burgrill
+if (typeof window !== 'undefined') {
+  try {
+    const usersStr = localStorage.getItem('dm_users');
+    if (usersStr && (usersStr.includes('Pizzaria Bella Italia') || usersStr.includes('Bella Italia') || usersStr.includes('bella@delivery.com'))) {
+      const updated = usersStr
+        .replace(/Pizzaria Bella Italia/g, 'Hamburgueria Burgrill')
+        .replace(/Bella Italia/g, 'Hamburgueria Burgrill')
+        .replace(/Gerente Bella Italia/g, 'Gerente Burgrill')
+        .replace(/bella@delivery\.com/g, 'burgrill@delivery.com')
+        .replace(/bella123/g, 'burgrill123');
+      localStorage.setItem('dm_users', updated);
+    }
+
+    const estsStr = localStorage.getItem('dm_establishments');
+    if (estsStr && (estsStr.includes('Pizzaria Bella Italia') || estsStr.includes('Bella Italia'))) {
+      const updated = estsStr
+        .replace(/Pizzaria Bella Italia/g, 'Hamburgueria Burgrill')
+        .replace(/Bella Italia/g, 'Hamburgueria Burgrill');
+      localStorage.setItem('dm_establishments', updated);
+    }
+
+    const curUserStr = localStorage.getItem('dm_current_user');
+    if (curUserStr && (curUserStr.includes('Bella Italia') || curUserStr.includes('bella@delivery.com'))) {
+      const updated = curUserStr
+        .replace(/Pizzaria Bella Italia/g, 'Hamburgueria Burgrill')
+        .replace(/Bella Italia/g, 'Hamburgueria Burgrill')
+        .replace(/Gerente Bella Italia/g, 'Gerente Burgrill')
+        .replace(/bella@delivery\.com/g, 'burgrill@delivery.com')
+        .replace(/bella123/g, 'burgrill123');
+      localStorage.setItem('dm_current_user', updated);
+    }
+
+    const schedulesStr = localStorage.getItem('dm_schedules');
+    if (schedulesStr && (schedulesStr.includes('Pizzaria Bella Italia') || schedulesStr.includes('Bella Italia'))) {
+      const updated = schedulesStr
+        .replace(/Pizzaria Bella Italia/g, 'Hamburgueria Burgrill')
+        .replace(/Bella Italia/g, 'Hamburgueria Burgrill');
+      localStorage.setItem('dm_schedules', updated);
+    }
+
+    const deliveriesStr = localStorage.getItem('dm_deliveries');
+    if (deliveriesStr && (deliveriesStr.includes('Pizzaria Bella Italia') || deliveriesStr.includes('Bella Italia'))) {
+      const updated = deliveriesStr
+        .replace(/Pizzaria Bella Italia/g, 'Hamburgueria Burgrill')
+        .replace(/Bella Italia/g, 'Hamburgueria Burgrill');
+      localStorage.setItem('dm_deliveries', updated);
+    }
+  } catch (e) {
+    console.warn('Erro ao executar migração automática de dados:', e);
+  }
+}
+
 export const getStorageData = <T>(key: string, initialData: T): T => {
   const data = localStorage.getItem(key);
   if (!data) {
@@ -502,7 +555,7 @@ export const db = {
       if (!estIds.has(s.establishmentId)) {
         const matchingEst = ests.find(e => 
           e.name.toLowerCase().trim() === s.establishmentId.toLowerCase().trim() ||
-          e.id === 'e1' && s.establishmentId === 'Pizzaria Bella Italia'
+          e.id === 'e1' && s.establishmentId === 'Hamburgueria Burgrill'
         );
         if (matchingEst) {
           s.establishmentId = matchingEst.id;
@@ -548,7 +601,7 @@ export const db = {
       if (!estIds.has(d.establishmentId)) {
         const matchingEst = ests.find(e => 
           e.name.toLowerCase().trim() === d.establishmentId.toLowerCase().trim() ||
-          e.id === 'e1' && d.establishmentId === 'Pizzaria Bella Italia'
+          e.id === 'e1' && d.establishmentId === 'Hamburgueria Burgrill'
         );
         if (matchingEst) {
           d.establishmentId = matchingEst.id;
