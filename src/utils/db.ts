@@ -92,7 +92,7 @@ export interface RiderLocation {
 // Tables that don't exist or fail in Supabase will be disabled dynamically to use only LocalStorage
 const disabledTables = new Set<string>();
 
-// Seed Data com endereços reais de Campina Grande - PB
+// Seed Data inicial (apenas como fallback se o localStorage estiver vazio)
 const INITIAL_USERS: User[] = [
   {
     id: 'u1',
@@ -104,131 +104,11 @@ const INITIAL_USERS: User[] = [
     active: true,
     passwordHash: 'admin123',
     updatedAt: new Date().toISOString()
-  },
-  {
-    id: 'u2',
-    name: 'Carlos Silva (Motoqueiro)',
-    cpf: '111.111.111-11',
-    phone: '(83) 98888-8888',
-    email: 'carlos@delivery.com',
-    role: 'rider',
-    active: true,
-    passwordHash: 'moto123',
-    updatedAt: new Date().toISOString()
-  },
-  {
-    id: 'u3',
-    name: 'Lucas Souza (Motoqueiro)',
-    cpf: '222.222.222-22',
-    phone: '(83) 97777-7777',
-    email: 'lucas@delivery.com',
-    role: 'rider',
-    active: true,
-    passwordHash: 'moto123',
-    updatedAt: new Date().toISOString()
-  },
-  {
-    id: 'u4',
-    name: 'Gerente Burgrill',
-    cpf: '333.333.333-33',
-    phone: '(83) 3111-2222',
-    email: 'burgrill@delivery.com',
-    role: 'establishment',
-    active: true,
-    passwordHash: 'burgrill123',
-    establishmentId: 'e1',
-    updatedAt: new Date().toISOString()
   }
 ];
 
-const INITIAL_ESTABLISHMENTS: Establishment[] = [
-  {
-    id: 'e1',
-    name: 'Hamburgueria Burgrill',
-    address: {
-      street: 'Rua Aprígio Veloso',
-      number: '882',
-      neighborhood: 'Bodocongó',
-      city: 'Campina Grande',
-      state: 'PB',
-      zipCode: '58429-900'
-    },
-    phone: '(83) 3111-2222',
-    active: true,
-    updatedAt: new Date().toISOString()
-  }
-];
-
-// Coordenadas iniciais de teste em Campina Grande - PB
-const INITIAL_LOCATIONS: RiderLocation[] = [
-  {
-    riderId: 'u2',
-    riderName: 'Carlos Silva (Motoqueiro)',
-    lat: -7.2315,
-    lng: -35.9240,
-    updatedAt: new Date().toISOString()
-  },
-  {
-    riderId: 'u3',
-    riderName: 'Lucas Souza (Motoqueiro)',
-    lat: -7.2308,
-    lng: -35.9250,
-    updatedAt: new Date().toISOString()
-  }
-];
-
-// Executa migração automática no localStorage para substituir Pizzaria Bella Italia por Hamburgueria Burgrill
-if (typeof window !== 'undefined') {
-  try {
-    const usersStr = localStorage.getItem('dm_users');
-    if (usersStr && (usersStr.includes('Pizzaria Bella Italia') || usersStr.includes('Bella Italia') || usersStr.includes('bella@delivery.com'))) {
-      const updated = usersStr
-        .replace(/Pizzaria Bella Italia/g, 'Hamburgueria Burgrill')
-        .replace(/Bella Italia/g, 'Hamburgueria Burgrill')
-        .replace(/Gerente Bella Italia/g, 'Gerente Burgrill')
-        .replace(/bella@delivery\.com/g, 'burgrill@delivery.com')
-        .replace(/bella123/g, 'burgrill123');
-      localStorage.setItem('dm_users', updated);
-    }
-
-    const estsStr = localStorage.getItem('dm_establishments');
-    if (estsStr && (estsStr.includes('Pizzaria Bella Italia') || estsStr.includes('Bella Italia'))) {
-      const updated = estsStr
-        .replace(/Pizzaria Bella Italia/g, 'Hamburgueria Burgrill')
-        .replace(/Bella Italia/g, 'Hamburgueria Burgrill');
-      localStorage.setItem('dm_establishments', updated);
-    }
-
-    const curUserStr = localStorage.getItem('dm_current_user');
-    if (curUserStr && (curUserStr.includes('Bella Italia') || curUserStr.includes('bella@delivery.com'))) {
-      const updated = curUserStr
-        .replace(/Pizzaria Bella Italia/g, 'Hamburgueria Burgrill')
-        .replace(/Bella Italia/g, 'Hamburgueria Burgrill')
-        .replace(/Gerente Bella Italia/g, 'Gerente Burgrill')
-        .replace(/bella@delivery\.com/g, 'burgrill@delivery.com')
-        .replace(/bella123/g, 'burgrill123');
-      localStorage.setItem('dm_current_user', updated);
-    }
-
-    const schedulesStr = localStorage.getItem('dm_schedules');
-    if (schedulesStr && (schedulesStr.includes('Pizzaria Bella Italia') || schedulesStr.includes('Bella Italia'))) {
-      const updated = schedulesStr
-        .replace(/Pizzaria Bella Italia/g, 'Hamburgueria Burgrill')
-        .replace(/Bella Italia/g, 'Hamburgueria Burgrill');
-      localStorage.setItem('dm_schedules', updated);
-    }
-
-    const deliveriesStr = localStorage.getItem('dm_deliveries');
-    if (deliveriesStr && (deliveriesStr.includes('Pizzaria Bella Italia') || deliveriesStr.includes('Bella Italia'))) {
-      const updated = deliveriesStr
-        .replace(/Pizzaria Bella Italia/g, 'Hamburgueria Burgrill')
-        .replace(/Bella Italia/g, 'Hamburgueria Burgrill');
-      localStorage.setItem('dm_deliveries', updated);
-    }
-  } catch (e) {
-    console.warn('Erro ao executar migração automática de dados:', e);
-  }
-}
+const INITIAL_ESTABLISHMENTS: Establishment[] = [];
+const INITIAL_LOCATIONS: RiderLocation[] = [];
 
 export const getStorageData = <T>(key: string, initialData: T): T => {
   const data = localStorage.getItem(key);
@@ -250,11 +130,12 @@ const addDeletedId = (id: string, supabaseTable: string) => {
   if (!deleted.includes(id)) {
     const updated = [...deleted, id];
     setStorageData('dm_deleted_ids', updated);
-    
-    supabase.from(supabaseTable).delete().eq('id', id).then(({ error }) => {
-      if (error) console.warn(`[Supabase] Erro ao excluir ID ${id} da tabela ${supabaseTable}:`, error.message);
-    });
   }
+  
+  // Deleta imediatamente do Supabase
+  supabase.from(supabaseTable).delete().eq('id', id).then(({ error }) => {
+    if (error) console.warn(`[Supabase] Erro ao excluir ID ${id} da tabela ${supabaseTable}:`, error.message);
+  });
 };
 
 const trackDeletions = (key: string, newData: { id: string }[], supabaseTable: string) => {
@@ -346,9 +227,9 @@ const syncToSupabase = async (table: string, data: any[]) => {
           value: item.value,
           status: item.status,
           schedule_id: item.scheduleId || null,
-          order_number: item.orderNumber || null, // Apenas o número do pedido curto!
-          notes: item.notes || null, // Coluna separada
-          customer_chat: item.customerChat || null, // Coluna separada
+          order_number: item.orderNumber || null,
+          notes: item.notes || null,
+          customer_chat: item.customerChat || null,
           updated_at: item.updatedAt || new Date().toISOString()
         };
       }
@@ -502,7 +383,6 @@ export const db = {
     usersToDelete.forEach(u => addDeletedId(u.id, 'users'));
     const updatedUsers = allUsers.filter(u => !usersToDelete.some(ut => ut.id === u.id));
     setStorageData('dm_users', updatedUsers);
-    syncToSupabase('users', updatedUsers);
 
     // 3. Deletar escalas vinculadas (por ID ou por nome do estabelecimento)
     const allSchedules = db.getSchedules();
@@ -517,7 +397,6 @@ export const db = {
     schedulesToDelete.forEach(s => addDeletedId(s.id, 'schedules'));
     const updatedSchedules = allSchedules.filter(s => !schedulesToDelete.some(st => st.id === s.id));
     setStorageData('dm_schedules', updatedSchedules);
-    syncToSupabase('schedules', updatedSchedules);
 
     // 4. Deletar corridas vinculadas (por ID ou por nome do estabelecimento)
     const allDeliveries = db.getDeliveries();
@@ -532,7 +411,6 @@ export const db = {
     deliveriesToDelete.forEach(d => addDeletedId(d.id, 'deliveries'));
     const updatedDeliveries = allDeliveries.filter(d => !deliveriesToDelete.some(dt => dt.id === d.id));
     setStorageData('dm_deliveries', updatedDeliveries);
-    syncToSupabase('deliveries', updatedDeliveries);
 
     // 5. Filtrar e salvar estabelecimentos
     const ests = db.getEstablishments().filter(e => e.id !== id);
@@ -554,8 +432,7 @@ export const db = {
       // 1. Auto-cura do estabelecimento (por nome ou ID)
       if (!estIds.has(s.establishmentId)) {
         const matchingEst = ests.find(e => 
-          e.name.toLowerCase().trim() === s.establishmentId.toLowerCase().trim() ||
-          e.id === 'e1' && s.establishmentId === 'Hamburgueria Burgrill'
+          e.name.toLowerCase().trim() === s.establishmentId.toLowerCase().trim()
         );
         if (matchingEst) {
           s.establishmentId = matchingEst.id;
@@ -565,8 +442,7 @@ export const db = {
       // 2. Auto-cura do motoboy (se o ID mudou mas o nome/e-mail é o mesmo)
       if (!userIds.has(s.riderId)) {
         const matchingUser = users.find(u => 
-          u.name.toLowerCase().trim() === s.riderId.toLowerCase().trim() ||
-          u.id === 'u2' && s.riderId === 'Carlos Silva (Motoqueiro)'
+          u.name.toLowerCase().trim() === s.riderId.toLowerCase().trim()
         );
         if (matchingUser) {
           s.riderId = matchingUser.id;
@@ -600,8 +476,7 @@ export const db = {
     const healedDeliveries = rawDeliveries.map(d => {
       if (!estIds.has(d.establishmentId)) {
         const matchingEst = ests.find(e => 
-          e.name.toLowerCase().trim() === d.establishmentId.toLowerCase().trim() ||
-          e.id === 'e1' && d.establishmentId === 'Hamburgueria Burgrill'
+          e.name.toLowerCase().trim() === d.establishmentId.toLowerCase().trim()
         );
         if (matchingEst) {
           d.establishmentId = matchingEst.id;
@@ -739,38 +614,6 @@ export const db = {
           const mappedEsts: Establishment[] = ests
             .filter(e => !deletedIds.includes(e.id))
             .map(e => {
-              const isOldBella = e.name === 'Pizzaria Bella Italia';
-              if (isOldBella) {
-                // Se ainda for Bella Italia no Supabase, atualiza localmente para Burgrill e dispara update pro Supabase
-                supabase.from('establishments').update({
-                  name: 'Hamburgueria Burgrill',
-                  street: 'Rua Aprígio Veloso',
-                  number: '882',
-                  neighborhood: 'Bodocongó',
-                  city: 'Campina Grande',
-                  state: 'PB',
-                  zip_code: '58429-900',
-                  phone: '(83) 3111-2222'
-                }).eq('id', e.id).then(() => {});
-                
-                return {
-                  id: e.id,
-                  name: 'Hamburgueria Burgrill',
-                  address: {
-                    street: 'Rua Aprígio Veloso',
-                    number: '882',
-                    complement: '',
-                    neighborhood: 'Bodocongó',
-                    city: 'Campina Grande',
-                    state: 'PB',
-                    zipCode: '58429-900'
-                  },
-                  phone: '(83) 3111-2222',
-                  active: e.active,
-                  updatedAt: e.updated_at || undefined
-                };
-              }
-
               return {
                 id: e.id,
                 name: e.name,
@@ -813,29 +656,6 @@ export const db = {
           const mappedUsers: User[] = users
             .filter(u => !deletedIds.includes(u.id))
             .map(u => {
-              const isOldBellaUser = u.email === 'bella@delivery.com' || u.name === 'Gerente Bella Italia';
-              if (isOldBellaUser) {
-                supabase.from('users').update({
-                  name: 'Gerente Burgrill',
-                  email: 'burgrill@delivery.com',
-                  password_hash: 'burgrill123'
-                }).eq('id', u.id).then(() => {});
-
-                return {
-                  id: u.id,
-                  name: 'Gerente Burgrill',
-                  cpf: u.cpf,
-                  phone: u.phone || '',
-                  email: 'burgrill@delivery.com',
-                  role: u.role as any,
-                  active: u.active,
-                  passwordHash: 'burgrill123',
-                  mustResetPassword: u.must_reset_password,
-                  establishmentId: u.establishment_id || undefined,
-                  updatedAt: u.updated_at || undefined
-                };
-              }
-
               return {
                 id: u.id,
                 name: u.name,
@@ -915,7 +735,6 @@ export const db = {
             });
           
           // MECANISMO DE AUTO-CURA: De-duplicar escalas (mesmo riderId, date e shift)
-          // Isso limpa escalas fantasmas que ficaram presas no banco de dados do Supabase
           const uniqueSchs: Schedule[] = [];
           const seenKeys = new Set<string>();
           const duplicateIdsToDelete: string[] = [];
@@ -930,7 +749,6 @@ export const db = {
             }
           });
 
-          // Se houver duplicatas no Supabase, tenta excluí-las em segundo plano para limpar o banco definitivamente
           if (duplicateIdsToDelete.length > 0) {
             console.log(`[Auto-Cura] Detectadas ${duplicateIdsToDelete.length} escalas duplicadas no Supabase. Removendo...`);
             duplicateIdsToDelete.forEach(id => {
