@@ -423,6 +423,42 @@ export const db = {
     return localDate.toISOString().split('T')[0];
   },
 
+  // Resolvedores inteligentes para auto-cura de IDs desalinhados
+  resolveUser: (id: string): User | undefined => {
+    const allUsers = db.getUsers();
+    const found = allUsers.find(u => u.id === id);
+    if (found) return found;
+    
+    // Fallback para IDs legados conhecidos
+    let emailFallback = '';
+    if (id === 'u1') emailFallback = 'admin@delivery.com';
+    else if (id === 'u2') emailFallback = 'carlos@delivery.com';
+    else if (id === 'u3') emailFallback = 'lucas@delivery.com';
+    else if (id === 'u4') emailFallback = 'bella@delivery.com';
+    else if (id === 'u5') emailFallback = 'burgrill@delivery.com';
+    
+    if (emailFallback) {
+      return allUsers.find(u => u.email.toLowerCase() === emailFallback);
+    }
+    return undefined;
+  },
+
+  resolveEstablishment: (id: string): Establishment | undefined => {
+    const allEsts = db.getEstablishments();
+    const found = allEsts.find(e => e.id === id);
+    if (found) return found;
+    
+    // Fallback para IDs legados conhecidos
+    let nameFallback = '';
+    if (id === 'e1') nameFallback = 'Pizzaria Bella Italia';
+    else if (id === 'e2') nameFallback = 'Burgrill';
+    
+    if (nameFallback) {
+      return allEsts.find(e => e.name.toLowerCase().trim() === nameFallback.toLowerCase().trim());
+    }
+    return undefined;
+  },
+
   getUsers: () => {
     const deletedIds = getDeletedIds();
     const users = getStorageData<User[]>('dm_users', INITIAL_USERS).filter(u => !deletedIds.includes(u.id));

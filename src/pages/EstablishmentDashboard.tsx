@@ -99,7 +99,7 @@ export default function EstablishmentDashboard() {
   // Helper robusto para verificar se uma escala pertence ao estabelecimento atual por nome ou ID
   const isScheduleForCurrentEst = (s: Schedule, currentEstName: string, matchingEstIds: string[], allEsts: Establishment[]) => {
     if (matchingEstIds.includes(s.establishmentId)) return true;
-    const destEst = allEsts.find(e => e.id === s.establishmentId);
+    const destEst = db.resolveEstablishment(s.establishmentId);
     if (destEst) {
       const destName = destEst.name.toLowerCase().trim();
       return destName === currentEstName || 
@@ -115,32 +115,31 @@ export default function EstablishmentDashboard() {
     // 1. Tentar por ID direto
     if (matchingEstIds.includes(d.establishmentId)) return true;
     
-    // 2. Tentar resolver o estabelecimento pelo ID gravado na corrida
-    let destEst = allEsts.find(e => e.id === d.establishmentId);
+    // 2. Tentar resolver o estabelecimento pelo ID gravado na corrida (com auto-cura)
+    let destEst = db.resolveEstablishment(d.establishmentId);
     
     // 3. Se não achar, tentar resolver pelo scheduleId da corrida
     if (!destEst && d.scheduleId) {
       const sch = db.getSchedules().find(s => s.id === d.scheduleId);
       if (sch) {
-        destEst = allEsts.find(e => e.id === sch.establishmentId);
+        destEst = db.resolveEstablishment(sch.establishmentId);
       }
     }
     
     // 4. Se ainda não achar, buscar QUALQUER escala do motoboy hoje e comparar o nome do estabelecimento por texto!
-    const allUsers = db.getUsers();
-    const riderOfDel = allUsers.find(u => u.id === d.riderId);
+    const riderOfDel = db.resolveUser(d.riderId);
     const riderEmail = riderOfDel ? riderOfDel.email.toLowerCase() : '';
 
     if (!destEst) {
       const riderSchedulesToday = db.getSchedules().filter(s => {
         if (s.date !== d.date) return false;
         if (s.riderId === d.riderId) return true;
-        const riderOfSch = allUsers.find(u => u.id === s.riderId);
+        const riderOfSch = db.resolveUser(s.riderId);
         return riderOfSch && riderOfSch.email.toLowerCase() === riderEmail;
       });
 
       const matchingSchedule = riderSchedulesToday.find(s => {
-        const estOfSch = allEsts.find(e => e.id === s.establishmentId);
+        const estOfSch = db.resolveEstablishment(s.establishmentId);
         if (estOfSch) {
           const name = estOfSch.name.toLowerCase().trim();
           return name === currentEstName || name.includes(currentEstName) || currentEstName.includes(name);
@@ -155,12 +154,12 @@ export default function EstablishmentDashboard() {
     const riderSchedulesToday = db.getSchedules().filter(s => {
       if (s.date !== d.date) return false;
       if (s.riderId === d.riderId) return true;
-      const riderOfSch = allUsers.find(u => u.id === s.riderId);
+      const riderOfSch = db.resolveUser(s.riderId);
       return riderOfSch && riderOfSch.email.toLowerCase() === riderEmail;
     });
 
     const isRiderScheduledHereToday = riderSchedulesToday.some(s => {
-      const estOfSch = allEsts.find(e => e.id === s.establishmentId);
+      const estOfSch = db.resolveEstablishment(s.establishmentId);
       if (estOfSch) {
         const name = estOfSch.name.toLowerCase().trim();
         return name === currentEstName || name.includes(currentEstName) || currentEstName.includes(name);
@@ -244,7 +243,7 @@ export default function EstablishmentDashboard() {
     const riders = allUsers.filter(u => 
       estSchedules.some(s => {
         if (s.riderId === u.id) return true;
-        const riderOfSch = allUsers.find(ru => ru.id === s.riderId);
+        const riderOfSch = db.resolveUser(s.riderId);
         return riderOfSch && riderOfSch.email.toLowerCase() === u.email.toLowerCase();
       })
     );
@@ -304,7 +303,7 @@ export default function EstablishmentDashboard() {
             // Verifica se a mensagem foi enviada por outra pessoa (não pelo Estabelecimento)
             const isMe = line.includes('- Estabelecimento') || line.includes(`(${user?.name})`);
             if (!isMe) {
-              const rider = db.getUsers().find(u => u.id === d.riderId);
+              const rider = db.resolveUser(d.riderId);
               const sender = line.includes('- Motoboy') ? 'Motoboy' : 'Cliente';
               const messageText = line.substring(line.indexOf(']: ') + 3);
               
@@ -354,7 +353,7 @@ export default function EstablishmentDashboard() {
           newLines.forEach(line => {
             const isMe = line.includes('- Estabelecimento') || line.includes(`(${user?.name})`);
             if (!isMe) {
-              const rider = db.getUsers().find(u => u.id === s.riderId);
+              const rider = db.resolveUser(s.riderId);
               const messageText = line.substring(line.indexOf(']: ') + 3);
               
               // 1. Notificação Nativa
@@ -970,7 +969,7 @@ export default function EstablishmentDashboard() {
 
               <div className="divide-y divide-amber-100">
                 {pendingDeliveries.map(del => {
-                  const rider = db.getUsers().find(u => u.id === del.riderId);
+                  const rider = db.resolveUser(del.riderId);
                   return (
                     <div key={del.id} className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                       <div className="min-w-0 flex-1 pr-4">
@@ -1167,7 +1166,7 @@ export default function EstablishmentDashboard() {
                     </tr>
                   ) : (
                     processedDeliveries.map(del => {
-                      const rider = db.getUsers().find(u => u.id === del.riderId);
+                      const rider = db.resolveUser(del.riderId);
                       return (
                         <tr key={del.id} className="hover:bg-slate-50/50">
                           <td className="py-3 px-4">
