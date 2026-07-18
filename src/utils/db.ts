@@ -371,13 +371,16 @@ const syncToSupabase = async (table: string, data: any[]) => {
     }
 
     if (error) {
-      console.warn(`⚠️ Erro ao sincronizar tabela "${table}" com Supabase.`, error.message);
+      console.error(`❌ Erro crítico ao salvar na tabela "${table}" do Supabase:`, error.message);
+      alert(`Aviso Online: Não foi possível salvar os dados na tabela "${table}" do Supabase.\n\nMotivo: ${error.message}\n\nVerifique se as políticas de segurança (RLS) do seu banco de dados permitem inserções públicas.`);
       if (error.message.includes("404") || error.message.includes("not found") || error.message.includes("relation")) {
         disabledTables.add(table);
       }
+    } else {
+      console.log(`🚀 Dados sincronizados com sucesso no Supabase para a tabela "${table}".`);
     }
   } catch (err: any) {
-    console.warn('Erro ao sincronizar com o Supabase:', err?.message || err);
+    console.error('Erro de conexão ao sincronizar com o Supabase:', err?.message || err);
   }
 };
 
