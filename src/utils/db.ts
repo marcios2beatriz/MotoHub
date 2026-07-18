@@ -401,7 +401,14 @@ export const db = {
   },
 
   getUsers: () => {
-    const deletedIds = getDeletedIds();
+    let deletedIds = getDeletedIds();
+    
+    // GARANTIA DE SEGURANÇA: Se o usuário Burgrill (u5) foi deletado por engano, vamos restaurá-lo limpando-o da lista de deletados
+    if (deletedIds.includes('u5')) {
+      deletedIds = deletedIds.filter(id => id !== 'u5');
+      setStorageData('dm_deleted_ids', deletedIds);
+    }
+
     let users = getStorageData<User[]>('dm_users', INITIAL_USERS).filter(u => !deletedIds.includes(u.id));
     const ests = getStorageData<Establishment[]>('dm_establishments', INITIAL_ESTABLISHMENTS).filter(e => !deletedIds.includes(e.id));
     
@@ -478,7 +485,14 @@ export const db = {
   },
   
   getEstablishments: () => {
-    const deletedIds = getDeletedIds();
+    let deletedIds = getDeletedIds();
+
+    // GARANTIA DE SEGURANÇA: Se o estabelecimento Burgrill (e2) foi deletado por engano, vamos restaurá-lo limpando-o da lista de deletados
+    if (deletedIds.includes('e2')) {
+      deletedIds = deletedIds.filter(id => id !== 'e2');
+      setStorageData('dm_deleted_ids', deletedIds);
+    }
+
     return getStorageData<Establishment[]>('dm_establishments', INITIAL_ESTABLISHMENTS).filter(e => !deletedIds.includes(e.id));
   },
   setEstablishments: (est: Establishment[]) => {
