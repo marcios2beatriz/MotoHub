@@ -225,6 +225,28 @@ if (typeof window !== 'undefined') {
         .replace(/Bella Italia/g, 'Hamburgueria Burgrill');
       localStorage.setItem('dm_deliveries', updated);
     }
+
+    // Forçar atualização direta no Supabase para corrigir o banco de dados na nuvem em tempo real
+    supabase.from('establishments').update({
+      name: 'Hamburgueria Burgrill',
+      street: 'Rua Aprígio Veloso',
+      number: '882',
+      neighborhood: 'Bodocongó',
+      city: 'Campina Grande',
+      state: 'PB',
+      zip_code: '58429-900',
+      phone: '(83) 3111-2222'
+    }).eq('id', 'e1').then(({ error }) => {
+      if (error) console.warn('Erro ao atualizar e1 no Supabase:', error.message);
+    });
+
+    supabase.from('users').update({
+      name: 'Gerente Burgrill',
+      email: 'burgrill@delivery.com',
+      password_hash: 'burgrill123'
+    }).eq('id', 'u4').then(({ error }) => {
+      if (error) console.warn('Erro ao atualizar u4 no Supabase:', error.message);
+    });
   } catch (e) {
     console.warn('Erro ao executar migração automática de dados:', e);
   }
@@ -738,22 +760,25 @@ export const db = {
 
           const mappedEsts: Establishment[] = ests
             .filter(e => !deletedIds.includes(e.id))
-            .map(e => ({
-              id: e.id,
-              name: e.name,
-              address: {
-                street: e.street,
-                number: e.number,
-                complement: e.complement || '',
-                neighborhood: e.neighborhood,
-                city: e.city,
-                state: e.state,
-                zipCode: e.zip_code
-              },
-              phone: e.phone || '',
-              active: e.active,
-              updatedAt: e.updated_at || undefined
-            }));
+            .map(e => {
+              const isOldBella = e.id === 'e1' || e.name === 'Pizzaria Bella Italia';
+              return {
+                id: e.id,
+                name: isOldBella ? 'Hamburgueria Burgrill' : e.name,
+                address: {
+                  street: isOldBella ? 'Rua Aprígio Veloso' : e.street,
+                  number: isOldBella ? '882' : e.number,
+                  complement: e.complement || '',
+                  neighborhood: isOldBella ? 'Bodocongó' : e.neighborhood,
+                  city: isOldBella ? 'Campina Grande' : e.city,
+                  state: isOldBella ? 'PB' : e.state,
+                  zipCode: isOldBella ? '58429-900' : e.zip_code
+                },
+                phone: isOldBella ? '(83) 3111-2222' : (e.phone || ''),
+                active: e.active,
+                updatedAt: e.updated_at || undefined
+              };
+            });
           
           // Sobrescrita direta para propagar exclusões remotas
           setStorageData('dm_establishments', mappedEsts);
@@ -778,19 +803,22 @@ export const db = {
 
           const mappedUsers: User[] = users
             .filter(u => !deletedIds.includes(u.id))
-            .map(u => ({
-              id: u.id,
-              name: u.name,
-              cpf: u.cpf,
-              phone: u.phone || '',
-              email: u.email,
-              role: u.role as any,
-              active: u.active,
-              passwordHash: u.password_hash,
-              mustResetPassword: u.must_reset_password,
-              establishmentId: u.establishment_id || undefined,
-              updatedAt: u.updated_at || undefined
-            }));
+            .map(u => {
+              const isOldBellaUser = u.id === 'u4' || u.email === 'bella@delivery.com' || u.name === 'Gerente Bella Italia';
+              return {
+                id: u.id,
+                name: isOldBellaUser ? 'Gerente Burgrill' : u.name,
+                cpf: u.cpf,
+                phone: u.phone || '',
+                email: isOldBellaUser ? 'burgrill@delivery.com' : u.email,
+                role: u.role as any,
+                active: u.active,
+                passwordHash: isOldBellaUser ? 'burgrill123' : u.password_hash,
+                mustResetPassword: u.must_reset_password,
+                establishmentId: u.establishment_id || undefined,
+                updatedAt: u.updated_at || undefined
+              };
+            });
           
           // Sobrescrita direta para propagar exclusões remotas
           setStorageData('dm_users', mappedUsers);
