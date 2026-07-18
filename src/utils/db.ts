@@ -338,24 +338,21 @@ export const db = {
       console.warn('Tentativa de deletar o administrador padrão bloqueada.');
       return;
     }
-    addDeletedId(id, 'users');
 
-    // Limpar escalas vinculadas ao motoboy/gerente para evitar violação de chave estrangeira no Supabase
+    // 1. Filtrar e deletar escalas vinculadas
     const allSchedules = db.getSchedules();
-    const schedulesToDelete = allSchedules.filter(s => s.riderId === id);
-    schedulesToDelete.forEach(s => addDeletedId(s.id, 'schedules'));
     const updatedSchedules = allSchedules.filter(s => s.riderId !== id);
-    setStorageData('dm_schedules', updatedSchedules);
+    db.setSchedules(updatedSchedules);
 
-    // Limpar corridas vinculadas ao motoboy para evitar violação de chave estrangeira no Supabase
+    // 2. Filtrar e deletar corridas vinculadas
     const allDeliveries = db.getDeliveries();
-    const deliveriesToDelete = allDeliveries.filter(d => d.riderId === id);
-    deliveriesToDelete.forEach(d => addDeletedId(d.id, 'deliveries'));
     const updatedDeliveries = allDeliveries.filter(d => d.riderId !== id);
-    setStorageData('dm_deliveries', updatedDeliveries);
+    db.setDeliveries(updatedDeliveries);
 
-    const users = db.getUsers().filter(u => u.id !== id);
-    setStorageData('dm_users', users);
+    // 3. Filtrar e deletar o usuário
+    const allUsers = db.getUsers();
+    const updatedUsers = allUsers.filter(u => u.id !== id);
+    db.setUsers(updatedUsers);
   },
   
   getEstablishments: () => {
@@ -371,50 +368,42 @@ export const db = {
     const est = db.resolveEstablishment(id);
     const estName = est ? est.name : '';
 
-    // 1. Adicionar ID do estabelecimento aos deletados
-    addDeletedId(id, 'establishments');
-    
-    // 2. Deletar usuários gerentes associados (por ID ou por nome do estabelecimento)
+    // 1. Deletar usuários gerentes associados
     const allUsers = db.getUsers();
-    const usersToDelete = allUsers.filter(u => 
-      u.establishmentId === id || 
-      (u.role === 'establishment' && estName && u.name.toLowerCase().includes(estName.toLowerCase()))
+    const updatedUsers = allUsers.filter(u => 
+      u.establishmentId !== id && 
+      !(u.role === 'establishment' && estName && u.name.toLowerCase().includes(estName.toLowerCase()))
     );
-    usersToDelete.forEach(u => addDeletedId(u.id, 'users'));
-    const updatedUsers = allUsers.filter(u => !usersToDelete.some(ut => ut.id === u.id));
-    setStorageData('dm_users', updatedUsers);
+    db.setUsers(updatedUsers);
 
-    // 3. Deletar escalas vinculadas (por ID ou por nome do estabelecimento)
+    // 2. Deletar escalas vinculadas
     const allSchedules = db.getSchedules();
-    const schedulesToDelete = allSchedules.filter(s => 
-      s.establishmentId === id || 
-      (estName && (
+    const updatedSchedules = allSchedules.filter(s => 
+      s.establishmentId !== id && 
+      !(estName && (
         s.establishmentId.toLowerCase().trim() === estName.toLowerCase().trim() ||
         s.establishmentId.toLowerCase().trim().includes(estName.toLowerCase().trim()) ||
         estName.toLowerCase().trim().includes(s.establishmentId.toLowerCase().trim())
       ))
     );
-    schedulesToDelete.forEach(s => addDeletedId(s.id, 'schedules'));
-    const updatedSchedules = allSchedules.filter(s => !schedulesToDelete.some(st => st.id === s.id));
-    setStorageData('dm_schedules', updatedSchedules);
+    db.setSchedules(updatedSchedules);
 
-    // 4. Deletar corridas vinculadas (por ID ou por nome do estabelecimento)
+    // 3. Deletar corridas vinculadas
     const allDeliveries = db.getDeliveries();
-    const deliveriesToDelete = allDeliveries.filter(d => 
-      d.establishmentId === id || 
-      (estName && (
+    const updatedDeliveries = allDeliveries.filter(d => 
+      d.establishmentId !== id && 
+      !(estName && (
         d.establishmentId.toLowerCase().trim() === estName.toLowerCase().trim() ||
         d.establishmentId.toLowerCase().trim().includes(estName.toLowerCase().trim()) ||
         estName.toLowerCase().trim().includes(d.establishmentId.toLowerCase().trim())
       ))
     );
-    deliveriesToDelete.forEach(d => addDeletedId(d.id, 'deliveries'));
-    const updatedDeliveries = allDeliveries.filter(d => !deliveriesToDelete.some(dt => dt.id === d.id));
-    setStorageData('dm_deliveries', updatedDeliveries);
+    db.setDeliveries(updatedDeliveries);
 
-    // 5. Filtrar e salvar estabelecimentos
-    const ests = db.getEstablishments().filter(e => e.id !== id);
-    setStorageData('dm_establishments', ests);
+    // 4. Deletar o estabelecimento
+    const allEsts = db.getEstablishments();
+    const updatedEsts = allEsts.filter(e => e.id !== id);
+    db.setEstablishments(updatedEsts);
   },
   
   getSchedules: () => {
