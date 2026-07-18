@@ -292,6 +292,11 @@ export const db = {
     return localDate.toISOString().split('T')[0];
   },
 
+  generateUniqueDummyCpf: () => {
+    const num = Math.floor(10000000000 + Math.random() * 90000000000).toString();
+    return `${num.substring(0, 3)}.${num.substring(3, 6)}.${num.substring(6, 9)}-${num.substring(9, 11)}`;
+  },
+
   resolveUser: (id: string): User | undefined => {
     const allUsers = db.getUsers();
     return allUsers.find(u => u.id === id);
