@@ -92,7 +92,7 @@ export interface RiderLocation {
 // Tables that don't exist or fail in Supabase will be disabled dynamically to use only LocalStorage
 const disabledTables = new Set<string>();
 
-// Seed Data com endereços reais de Campina Grande e João Pessoa - PB
+// Seed Data com endereços reais de Campina Grande - PB
 const INITIAL_USERS: User[] = [
   {
     id: 'u1',
@@ -173,12 +173,12 @@ const INITIAL_ESTABLISHMENTS: Establishment[] = [
     id: 'e2',
     name: 'Burgrill',
     address: {
-      street: 'Avenida Olinda',
-      number: '200',
-      neighborhood: 'Tambaú',
-      city: 'João Pessoa',
+      street: 'Rua Aprígio Veloso',
+      number: '882',
+      neighborhood: 'Bodocongó',
+      city: 'Campina Grande',
       state: 'PB',
-      zipCode: '58039-120'
+      zipCode: '58429-900'
     },
     phone: '(83) 3111-2222',
     active: true,
@@ -186,7 +186,7 @@ const INITIAL_ESTABLISHMENTS: Establishment[] = [
   }
 ];
 
-// Coordenadas iniciais de teste em Campina Grande - PB (Malvinas, próximas ao CEP 58433-488)
+// Coordenadas iniciais de teste em Campina Grande - PB
 const INITIAL_LOCATIONS: RiderLocation[] = [
   {
     riderId: 'u2',
@@ -217,7 +217,6 @@ export const setStorageData = <T>(key: string, data: T): void => {
   localStorage.setItem(key, JSON.stringify(data));
 };
 
-// Tombstone Helpers para rastrear exclusões
 const getDeletedIds = (): string[] => getStorageData<string[]>('dm_deleted_ids', []);
 
 const addDeletedId = (id: string, supabaseTable: string) => {
@@ -226,14 +225,12 @@ const addDeletedId = (id: string, supabaseTable: string) => {
     const updated = [...deleted, id];
     setStorageData('dm_deleted_ids', updated);
     
-    // Tenta excluir do Supabase imediatamente
     supabase.from(supabaseTable).delete().eq('id', id).then(({ error }) => {
       if (error) console.warn(`[Supabase] Erro ao excluir ID ${id} da tabela ${supabaseTable}:`, error.message);
     });
   }
 };
 
-// Compara a lista antiga com a nova para detectar exclusões automáticas (ex: filtros de array)
 const trackDeletions = (key: string, newData: { id: string }[], supabaseTable: string) => {
   const oldData = getStorageData<{ id: string }[]>(key, []);
   const newIds = new Set(newData.map(item => item.id));
@@ -245,40 +242,7 @@ const trackDeletions = (key: string, newData: { id: string }[], supabaseTable: s
   });
 };
 
-// Helper to merge local and remote data by ID with timestamp check
-const mergeById = <T extends { id: string; updatedAt?: string }>(local: T[], remote: T[]): T[] => {
-  const deletedIds = getDeletedIds();
-  const map = new Map<string, T>();
-  
-  // Popula o mapa com os itens locais ativos
-  local.filter(item => !deletedIds.includes(item.id)).forEach(item => map.set(item.id, item));
-  
-  // Mescla com os itens remotos ativos
-  remote.filter(item => !deletedIds.includes(item.id)).forEach(item => {
-    const existing = map.get(item.id);
-    if (existing) {
-      const localTime = existing.updatedAt ? new Date(existing.updatedAt).getTime() : 0;
-      const remoteTime = item.updatedAt ? new Date(item.updatedAt).getTime() : 0;
-      
-      // Só sobrescreve se o remoto for estritamente mais recente ou se ambos não tiverem timestamp
-      if (remoteTime > localTime || (remoteTime === 0 && localTime === 0)) {
-        const merged = { ...existing };
-        (Object.keys(item) as (keyof T)[]).forEach(key => {
-          const value = item[key];
-          if (value !== undefined) {
-            merged[key] = value;
-          }
-        });
-        map.set(item.id, merged);
-      }
-    } else {
-      map.set(item.id, item);
-    }
-  });
-  return Array.from(map.values());
-};
-
-// Async background sync with Supabase
+// Sincronização ativa com o Supabase
 const syncToSupabase = async (table: string, data: any[]) => {
   if (disabledTables.has(table)) {
     return;
@@ -423,40 +387,14 @@ export const db = {
     return localDate.toISOString().split('T')[0];
   },
 
-  // Resolvedores inteligentes para auto-cura de IDs desalinhados
   resolveUser: (id: string): User | undefined => {
     const allUsers = db.getUsers();
-    const found = allUsers.find(u => u.id === id);
-    if (found) return found;
-    
-    // Fallback para IDs legados conhecidos
-    let emailFallback = '';
-    if (id === 'u1') emailFallback = 'admin@delivery.com';
-    else if (id === 'u2') emailFallback = 'carlos@delivery.com';
-    else if (id === 'u3') emailFallback = 'lucas@delivery.com';
-    else if (id === 'u4') emailFallback = 'bella@delivery.com';
-    else if (id === 'u5') emailFallback = 'burgrill@delivery.com';
-    
-    if (emailFallback) {
-      return allUsers.find(u => u.email.toLowerCase() === emailFallback);
-    }
-    return undefined;
+    return allUsers.find(u => u.id === id);
   },
 
   resolveEstablishment: (id: string): Establishment | undefined => {
     const allEsts = db.getEstablishments();
-    const found = allEsts.find(e => e.id === id);
-    if (found) return found;
-    
-    // Fallback para IDs legados conhecidos
-    let nameFallback = '';
-    if (id === 'e1') nameFallback = 'Pizzaria Bella Italia';
-    else if (id === 'e2') nameFallback = 'Burgrill';
-    
-    if (nameFallback) {
-      return allEsts.find(e => e.name.toLowerCase().trim() === nameFallback.toLowerCase().trim());
-    }
-    return undefined;
+    return allEsts.find(e => e.id === id);
   },
 
   getUsers: () => {
@@ -473,17 +411,10 @@ export const db = {
       return u;
     });
 
-    const merged = [...users];
-    INITIAL_USERS.forEach(initUser => {
-      if (!deletedIds.includes(initUser.id) && !merged.some(u => u.email.toLowerCase() === initUser.email.toLowerCase())) {
-        merged.push(initUser);
-        updated = true;
-      }
-    });
     if (updated) {
-      setStorageData('dm_users', merged);
+      setStorageData('dm_users', users);
     }
-    return merged;
+    return users;
   },
   setUsers: (users: User[]) => {
     trackDeletions('dm_users', users, 'users');
@@ -498,45 +429,7 @@ export const db = {
   
   getEstablishments: () => {
     const deletedIds = getDeletedIds();
-    const ests = getStorageData<Establishment[]>('dm_establishments', INITIAL_ESTABLISHMENTS).filter(e => !deletedIds.includes(e.id));
-    
-    const updatedEsts = ests.map(e => {
-      if (e.id === 'e1') {
-        return {
-          ...e,
-          name: 'Pizzaria Bella Italia',
-          address: {
-            street: 'Rua Martinho Lutero',
-            number: '32',
-            neighborhood: 'Malvinas',
-            city: 'Campina Grande',
-            state: 'PB',
-            zipCode: '58433-488'
-          }
-        };
-      }
-      if (e.id === 'e2') {
-        return {
-          ...e,
-          name: 'Burgrill',
-          address: {
-            street: 'Avenida Olinda',
-            number: '200',
-            neighborhood: 'Tambaú',
-            city: 'João Pessoa',
-            state: 'PB',
-            zipCode: '58039-120'
-          }
-        };
-      }
-      return e;
-    });
-
-    if (JSON.stringify(ests) !== JSON.stringify(updatedEsts)) {
-      setStorageData('dm_establishments', updatedEsts);
-      return updatedEsts;
-    }
-    return ests;
+    return getStorageData<Establishment[]>('dm_establishments', INITIAL_ESTABLISHMENTS).filter(e => !deletedIds.includes(e.id));
   },
   setEstablishments: (est: Establishment[]) => {
     trackDeletions('dm_establishments', est, 'establishments');
@@ -651,19 +544,9 @@ export const db = {
     try {
       const deletedIds = getDeletedIds();
 
+      // 1. Sincronizar Estabelecimentos (Sobrescreve local com Supabase se houver dados)
       const { data: ests, error: estsError } = await supabase.from('establishments').select('*');
-      let localEsts = getStorageData<Establishment[]>('dm_establishments', INITIAL_ESTABLISHMENTS);
-      const estIdMap = new Map<string, string>();
-
-      if (!estsError && ests) {
-        // Preenche o estIdMap comparando pelo nome do estabelecimento para mapear IDs locais para UUIDs do Supabase
-        ests.forEach(e => {
-          const localMatch = localEsts.find(le => le.name.toLowerCase().trim() === e.name.toLowerCase().trim());
-          if (localMatch && localMatch.id !== e.id) {
-            estIdMap.set(localMatch.id, e.id);
-          }
-        });
-
+      if (!estsError && ests && ests.length > 0) {
         const mappedEsts: Establishment[] = ests
           .filter(e => !deletedIds.includes(e.id))
           .map(e => ({
@@ -682,26 +565,12 @@ export const db = {
             active: e.active,
             updatedAt: e.updated_at || undefined
           }));
-
-        const merged = mergeById(localEsts, mappedEsts);
-        localEsts = merged;
-        setStorageData('dm_establishments', localEsts);
-        await syncToSupabase('establishments', localEsts);
+        setStorageData('dm_establishments', mappedEsts);
       }
 
+      // 2. Sincronizar Usuários (Sobrescreve local com Supabase se houver dados)
       const { data: users, error: usersError } = await supabase.from('users').select('*');
-      let localUsers = getStorageData<User[]>('dm_users', INITIAL_USERS);
-      const userIdMap = new Map<string, string>();
-
-      if (!usersError && users) {
-        // Preenche o userIdMap comparando pelo e-mail do usuário para mapear IDs locais para UUIDs do Supabase
-        users.forEach(u => {
-          const localMatch = localUsers.find(lu => lu.email.toLowerCase().trim() === u.email.toLowerCase().trim());
-          if (localMatch && localMatch.id !== u.id) {
-            userIdMap.set(localMatch.id, u.id);
-          }
-        });
-
+      if (!usersError && users && users.length > 0) {
         const mappedUsers: User[] = users
           .filter(u => !deletedIds.includes(u.id))
           .map(u => ({
@@ -717,44 +586,20 @@ export const db = {
             establishmentId: u.establishment_id || undefined,
             updatedAt: u.updated_at || undefined
           }));
+        setStorageData('dm_users', mappedUsers);
 
-        const merged = mergeById(localUsers, mappedUsers);
-        localUsers = merged;
-
-        if (estIdMap.size > 0) {
-          localUsers = localUsers.map(u => {
-            if (u.establishmentId && estIdMap.has(u.establishmentId)) {
-              return { ...u, establishmentId: estIdMap.get(u.establishmentId) };
-            }
-            return u;
-          });
-        }
-
-        setStorageData('dm_users', localUsers);
-
+        // Atualiza a sessão do usuário logado
         const currentUser = db.getCurrentUser();
         if (currentUser) {
-          const updatedCurrent = localUsers.find(u => u.email.toLowerCase() === currentUser.email.toLowerCase());
+          const updatedCurrent = mappedUsers.find(u => u.email.toLowerCase() === currentUser.email.toLowerCase());
           if (updatedCurrent) {
             db.setCurrentUser(updatedCurrent);
           }
         }
-
-        await syncToSupabase('users', localUsers);
       }
 
+      // 3. Sincronizar Escalas (Schedules)
       const { data: schs, error: schsError } = await supabase.from('schedules').select('*');
-      let localSchs = getStorageData<Schedule[]>('dm_schedules', []);
-
-      // Migra os IDs locais de escalas para os novos UUIDs do Supabase
-      if (userIdMap.size > 0 || estIdMap.size > 0) {
-        localSchs = localSchs.map(s => ({
-          ...s,
-          riderId: userIdMap.get(s.riderId) || s.riderId,
-          establishmentId: estIdMap.get(s.establishmentId) || s.establishmentId
-        }));
-      }
-
       if (!schsError && schs) {
         const mappedSchs: Schedule[] = schs
           .filter(s => !deletedIds.includes(s.id))
@@ -788,27 +633,11 @@ export const db = {
               updatedAt
             };
           });
-
-        const merged = mergeById(localSchs, mappedSchs);
-        localSchs = merged;
-        setStorageData('dm_schedules', localSchs);
-        await syncToSupabase('schedules', localSchs);
-      } else {
-        setStorageData('dm_schedules', localSchs);
+        setStorageData('dm_schedules', mappedSchs);
       }
 
+      // 4. Sincronizar Corridas (Deliveries)
       const { data: dels, error: delsError } = await supabase.from('deliveries').select('*');
-      let localDels = getStorageData<Delivery[]>('dm_deliveries', []);
-
-      // Migra os IDs locais de corridas para os novos UUIDs do Supabase
-      if (userIdMap.size > 0 || estIdMap.size > 0) {
-        localDels = localDels.map(d => ({
-          ...d,
-          riderId: userIdMap.get(d.riderId) || d.riderId,
-          establishmentId: estIdMap.get(d.establishmentId) || d.establishmentId
-        }));
-      }
-
       if (!delsError && dels) {
         const mappedDels: Delivery[] = dels
           .filter(d => !deletedIds.includes(d.id))
@@ -849,25 +678,11 @@ export const db = {
               updatedAt
             };
           });
-
-        const merged = mergeById(localDels, mappedDels);
-        localDels = merged;
-        setStorageData('dm_deliveries', localDels);
-        await syncToSupabase('deliveries', localDels);
-      } else {
-        setStorageData('dm_deliveries', localDels);
+        setStorageData('dm_deliveries', mappedDels);
       }
 
+      // 5. Sincronizar Notificações
       const { data: notifs, error: notifsError } = await supabase.from('notifications').select('*');
-      let localNotifs = getStorageData<Notification[]>('dm_notifications', []);
-
-      if (userIdMap.size > 0) {
-        localNotifs = localNotifs.map(n => ({
-          ...n,
-          riderId: userIdMap.get(n.riderId) || n.riderId
-        }));
-      }
-
       if (!notifsError && notifs) {
         const mappedNotifs: Notification[] = notifs
           .filter(n => !deletedIds.includes(n.id))
@@ -879,15 +694,10 @@ export const db = {
             date: n.date,
             read: n.read
           }));
-
-        const merged = mergeById(localNotifs, mappedNotifs);
-        localNotifs = merged;
-        setStorageData('dm_notifications', localNotifs);
-        await syncToSupabase('notifications', localNotifs);
-      } else {
-        setStorageData('dm_notifications', localNotifs);
+        setStorageData('dm_notifications', mappedNotifs);
       }
 
+      // 6. Sincronizar Solicitações de Parceria
       const { data: reqs, error: reqsError } = await supabase.from('partner_requests').select('*');
       if (!reqsError && reqs) {
         const mappedReqs: PartnerRequest[] = reqs
@@ -901,15 +711,10 @@ export const db = {
             status: r.status as any,
             createdAt: r.created_at
           }));
-        const localReqs = getStorageData<PartnerRequest[]>('dm_partner_requests', []);
-        const merged = mergeById(localReqs, mappedReqs);
-        setStorageData('dm_partner_requests', merged);
-        await syncToSupabase('partner_requests', merged);
-      } else if (reqsError && (reqsError.message.includes("404") || reqsError.message.includes("not found") || reqsError.message.includes("relation"))) {
-        console.warn("⚠️ Tabela partner_requests não encontrada no Supabase. Usando apenas LocalStorage.");
-        disabledTables.add('partner_requests');
+        setStorageData('dm_partner_requests', mappedReqs);
       }
 
+      // 7. Sincronizar Localizações de GPS
       const { data: locs, error: locsError } = await supabase.from('rider_locations').select('*');
       if (!locsError && locs) {
         const mappedLocs: RiderLocation[] = locs.map(l => ({
