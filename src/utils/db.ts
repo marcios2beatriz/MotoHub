@@ -517,7 +517,12 @@ export const db = {
   
   getSchedules: () => {
     const deletedIds = getDeletedIds();
-    return getStorageData<Schedule[]>('dm_schedules', []).filter(s => !deletedIds.includes(s.id));
+    const ests = db.getEstablishments();
+    const estIds = new Set(ests.map(e => e.id));
+    
+    // Auto-cura: Filtra escalas que apontam para estabelecimentos que foram deletados
+    return getStorageData<Schedule[]>('dm_schedules', [])
+      .filter(s => !deletedIds.includes(s.id) && estIds.has(s.establishmentId));
   },
   setSchedules: (sch: Schedule[]) => {
     trackDeletions('dm_schedules', sch, 'schedules');
@@ -527,7 +532,12 @@ export const db = {
   
   getDeliveries: () => {
     const deletedIds = getDeletedIds();
-    return getStorageData<Delivery[]>('dm_deliveries', []).filter(d => !deletedIds.includes(d.id));
+    const ests = db.getEstablishments();
+    const estIds = new Set(ests.map(e => e.id));
+
+    // Auto-cura: Filtra corridas que apontam para estabelecimentos que foram deletados
+    return getStorageData<Delivery[]>('dm_deliveries', [])
+      .filter(d => !deletedIds.includes(d.id) && estIds.has(d.establishmentId));
   },
   setDeliveries: (del: Delivery[]) => {
     trackDeletions('dm_deliveries', del, 'deliveries');
