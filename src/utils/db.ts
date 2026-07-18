@@ -765,7 +765,9 @@ export const db = {
           if (duplicateIdsToDelete.length > 0) {
             console.log(`[Auto-Cura] Detectadas ${duplicateIdsToDelete.length} escalas duplicadas no Supabase. Removendo...`);
             duplicateIdsToDelete.forEach(id => {
-              supabase.from('schedules').delete().eq('id', id).catch(() => {});
+              supabase.from('schedules').delete().eq('id', id).then(({ error }) => {
+                if (error) console.warn('Erro ao remover escala duplicada:', error.message);
+              });
             });
           }
 
