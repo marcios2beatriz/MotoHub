@@ -97,6 +97,106 @@ export default function AdminDashboard() {
     startTime: '08:00',
     endTime: '12:00'
   });
+  const [scheduleConflict<dyad-write path="src/pages/AdminDashboard.tsx" description="Garantindo a criação automática e atômica do usuário gerente ao cadastrar um novo estabelecimento">
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { db, User, Establishment, Schedule, Delivery, Notification, PartnerRequest } from '../utils/db';
+import { 
+  Users, 
+  Store, 
+  Calendar, 
+  CalendarDays,
+  Bike, 
+  BarChart3, 
+  LogOut, 
+  Plus, 
+  Edit2, 
+  Trash2, 
+  Check, 
+  X, 
+  Download, 
+  Search,
+  Clock,
+  Send,
+  LayoutGrid,
+  List,
+  ChevronDown,
+  MessageSquare,
+  Building2,
+  CheckCircle2,
+  UserCheck,
+  Eye,
+  EyeOff
+} from 'lucide-react';
+
+// Importando os modais modulares
+import UserModal from '../components/UserModal';
+import EstablishmentModal from '../components/EstablishmentModal';
+import ScheduleModal from '../components/ScheduleModal';
+import WeeklyScheduleModal from '../components/WeeklyScheduleModal';
+import RiderSchedulesModal from '../components/RiderSchedulesModal';
+import DeliveryModal from '../components/DeliveryModal';
+
+// Constantes para a escala semanal automática
+const DAY_KEYS = ['seg', 'ter', 'qua', 'qui', 'sex', 'sab', 'dom'] as const;
+const DAY_LABELS = ['Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado', 'Domingo'];
+
+export default function AdminDashboard() {
+  const navigate = useNavigate();
+  const [adminUser, setAdminUser] = useState(db.getCurrentUser());
+  const [activeTab, setActiveTab] = useState<'users' | 'establishments' | 'schedules' | 'deliveries' | 'reports' | 'requests'>('users');
+
+  // Listas de dados
+  const [users, setUsers] = useState<User[]>([]);
+  const [establishments, setEstablishments] = useState<Establishment[]>([]);
+  const [schedules, setSchedules] = useState<Schedule[]>([]);
+  const [deliveries, setDeliveries] = useState<Delivery[]>([]);
+  const [partnerRequests, setPartnerRequests] = useState<PartnerRequest[]>([]);
+
+  // Filtros e buscas
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [roleFilter, setRoleFilter] = useState<'all' | 'admin' | 'rider' | 'establishment'>('all');
+  const [requestStatusFilter, setRequestStatusFilter] = useState<'all' | 'pending' | 'contacted'>('all');
+
+  // Controle de visualização de senhas
+  const [visiblePasswords, setVisiblePasswords] = useState<Record<string, boolean>>({});
+
+  // Modais e Formulários
+  const [showUserModal, setShowUserModal] = useState(false);
+  const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [userForm, setUserForm] = useState({
+    name: '',
+    cpf: '',
+    phone: '',
+    email: '',
+    role: 'rider' as 'admin' | 'rider' | 'establishment',
+    password: '',
+    establishmentId: '',
+    establishmentName: '',
+    zipCode: '',
+    street: '',
+    number: '',
+    neighborhood: '',
+    city: '',
+    state: ''
+  });
+
+  const [showEstModal, setShowEstModal] = useState(false);
+  const [editingEst, setEditingEst] = useState<Establishment | null>(null);
+  const [estForm, setEstForm] = useState({
+    name: '', street: '', number: '', complement: '', neighborhood: '', city: '', state: '', zipCode: '', phone: '', email: '', password: ''
+  });
+
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [scheduleForm, setScheduleForm] = useState({ 
+    riderId: '', 
+    establishmentId: '', 
+    date: '', 
+    shift: 'morning' as 'morning' | 'afternoon' | 'night',
+    startTime: '08:00',
+    endTime: '12:00'
+  });
   const [scheduleConflictWarning, setScheduleConflictWarning] = useState('');
 
   // Modal de Escala Semanal Automática
@@ -409,22 +509,20 @@ export default function AdminDashboard() {
       };
       db.setEstablishments([...allEst, newEst]);
 
-      // Criar Usuário correspondente
-      if (estForm.email) {
-        const newEstUser: User = {
-          id: 'u_' + Date.now(),
-          name: 'Gerente ' + estForm.name,
-          cpf: '000.000.000-00',
-          phone: estForm.phone,
-          email: estForm.email,
-          role: 'establishment',
-          active: true,
-          passwordHash: estForm.password || 'bella123',
-          establishmentId: estId,
-          updatedAt: nowStr
-        };
-        db.setUsers([...allUsers, newEstUser]);
-      }
+      // Criar Usuário correspondente (Obrigatório!)
+      const newEstUser: User = {
+        id: 'u_' + Date.now(),
+        name: 'Gerente ' + estForm.name,
+        cpf: '000.000.000-00',
+        phone: estForm.phone,
+        email: estForm.email || `${estForm.name.toLowerCase().replace(/\s+/g, '')}@delivery.com`,
+        role: 'establishment',
+        active: true,
+        passwordHash: estForm.password || 'bella123',
+        establishmentId: estId,
+        updatedAt: nowStr
+      };
+      db.setUsers([...allUsers, newEstUser]);
     }
 
     setShowEstModal(false);
