@@ -372,7 +372,6 @@ const syncToSupabase = async (table: string, data: any[]) => {
 
     if (error) {
       console.error(`❌ Erro crítico ao salvar na tabela "${table}" do Supabase:`, error.message);
-      alert(`Aviso Online: Não foi possível salvar os dados na tabela "${table}" do Supabase.\n\nMotivo: ${error.message}\n\nVerifique se as políticas de segurança (RLS) do seu banco de dados permitem inserções públicas.`);
       if (error.message.includes("404") || error.message.includes("not found") || error.message.includes("relation")) {
         disabledTables.add(table);
       }
@@ -427,6 +426,25 @@ export const db = {
       return u;
     });
 
+    // GARANTIA SUPREMA: O administrador padrão (admin@delivery.com) NUNCA pode ser deletado ou desativado
+    const hasActiveAdmin = users.some(u => u.role === 'admin' && u.active && u.email.toLowerCase() === 'admin@delivery.com');
+    if (!hasActiveAdmin) {
+      updated = true;
+      const defaultAdmin = INITIAL_USERS[0];
+      
+      // Remove o ID do admin da lista de deletados se estiver lá
+      const deleted = getDeletedIds().filter(id => id !== defaultAdmin.id);
+      setStorageData('dm_deleted_ids', deleted);
+
+      // Adiciona ou reativa o admin
+      const adminIdx = users.findIndex(u => u.email.toLowerCase() === 'admin@delivery.com');
+      if (adminIdx >= 0) {
+        users[adminIdx] = { ...users[adminIdx], active: true, passwordHash: 'admin123', role: 'admin' };
+      } else {
+        users.push(defaultAdmin);
+      }
+    }
+
     if (updated) {
       setStorageData('dm_users', users);
     }
@@ -438,6 +456,11 @@ export const db = {
     syncToSupabase('users', users);
   },
   deleteUser: (id: string) => {
+    const userToDelete = db.resolveUser(id);
+    if (userToDelete && userToDelete.email.toLowerCase() === 'admin@delivery.com') {
+      console.warn('Tentativa de deletar o administrador padrão bloqueada.');
+      return;
+    }
     addDeletedId(id, 'users');
     const users = db.getUsers().filter(u => u.id !== id);
     setStorageData('dm_users', users);
