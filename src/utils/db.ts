@@ -426,8 +426,8 @@ export const db = {
       return u;
     });
 
-    // GARANTIA SUPREMA: O administrador padrão (admin@delivery.com) NUNCA pode ser deletado ou desativado
-    const hasActiveAdmin = users.some(u => u.role === 'admin' && u.active && u.email.toLowerCase() === 'admin@delivery.com');
+    // GARANTIA SUPREMA: O administrador padrão (ID 'u1') NUNCA pode ser deletado ou desativado
+    const hasActiveAdmin = users.some(u => u.role === 'admin' && u.active && u.id === 'u1');
     if (!hasActiveAdmin) {
       updated = true;
       const defaultAdmin = INITIAL_USERS[0];
@@ -437,7 +437,7 @@ export const db = {
       setStorageData('dm_deleted_ids', deleted);
 
       // Adiciona ou reativa o admin
-      const adminIdx = users.findIndex(u => u.email.toLowerCase() === 'admin@delivery.com');
+      const adminIdx = users.findIndex(u => u.id === 'u1');
       if (adminIdx >= 0) {
         users[adminIdx] = { ...users[adminIdx], active: true, passwordHash: 'admin123', role: 'admin' };
       } else {
@@ -456,8 +456,7 @@ export const db = {
     syncToSupabase('users', users);
   },
   deleteUser: (id: string) => {
-    const userToDelete = db.resolveUser(id);
-    if (userToDelete && userToDelete.email.toLowerCase() === 'admin@delivery.com') {
+    if (id === 'u1') {
       console.warn('Tentativa de deletar o administrador padrão bloqueada.');
       return;
     }
