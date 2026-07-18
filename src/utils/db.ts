@@ -129,26 +129,14 @@ const INITIAL_USERS: User[] = [
   },
   {
     id: 'u4',
-    name: 'Gerente Bella Italia',
-    cpf: '333.333.333-33',
-    phone: '(83) 3222-1111',
-    email: 'bella@delivery.com',
-    role: 'establishment',
-    active: true,
-    passwordHash: 'bella123',
-    establishmentId: 'e1',
-    updatedAt: new Date().toISOString()
-  },
-  {
-    id: 'u5',
     name: 'Gerente Burgrill',
-    cpf: '444.444.444-44',
+    cpf: '333.333.333-33',
     phone: '(83) 3111-2222',
     email: 'burgrill@delivery.com',
     role: 'establishment',
     active: true,
-    passwordHash: 'burgrill',
-    establishmentId: 'e2',
+    passwordHash: 'burgrill123',
+    establishmentId: 'e1',
     updatedAt: new Date().toISOString()
   }
 ];
@@ -156,22 +144,7 @@ const INITIAL_USERS: User[] = [
 const INITIAL_ESTABLISHMENTS: Establishment[] = [
   {
     id: 'e1',
-    name: 'Pizzaria Bella Italia',
-    address: {
-      street: 'Rua Martinho Lutero',
-      number: '32',
-      neighborhood: 'Malvinas',
-      city: 'Campina Grande',
-      state: 'PB',
-      zipCode: '58433-488'
-    },
-    phone: '(83) 3222-1111',
-    active: true,
-    updatedAt: new Date().toISOString()
-  },
-  {
-    id: 'e2',
-    name: 'Burgrill',
+    name: 'Hamburgueria Burgrill',
     address: {
       street: 'Rua Aprígio Veloso',
       number: '882',
@@ -529,7 +502,7 @@ export const db = {
       if (!estIds.has(s.establishmentId)) {
         const matchingEst = ests.find(e => 
           e.name.toLowerCase().trim() === s.establishmentId.toLowerCase().trim() ||
-          e.id === 'e2' && s.establishmentId === 'Burgrill'
+          e.id === 'e1' && s.establishmentId === 'Pizzaria Bella Italia'
         );
         if (matchingEst) {
           s.establishmentId = matchingEst.id;
@@ -575,7 +548,7 @@ export const db = {
       if (!estIds.has(d.establishmentId)) {
         const matchingEst = ests.find(e => 
           e.name.toLowerCase().trim() === d.establishmentId.toLowerCase().trim() ||
-          e.id === 'e2' && d.establishmentId === 'Burgrill'
+          e.id === 'e1' && d.establishmentId === 'Pizzaria Bella Italia'
         );
         if (matchingEst) {
           d.establishmentId = matchingEst.id;

@@ -35,7 +35,148 @@ import { sendDeviceNotification, playNotificationSound } from '../utils/notifica
 // Dicionário de CEPs conhecidos para precisão absoluta e instantânea
 const KNOWN_CEPS: { [key: string]: { lat: number; lng: number } } = {
   '58433488': { lat: -7.2311, lng: -35.9245 }, // Rua Martinho Lutero, 32, Malvinas, Campina Grande - PB
-  '58039120': { lat: -7.1150, lng: -34.8230 }, // Tambaú, João Pessoa - PB
+  '58429900': { lat: -7.2150, lng: -35.9130 }, // Bodocongó, Campina Grande - PB
+};
+
+export default function EstablishmentDashboard() {
+  const navigate = useNavigate();
+  const [user, setUser] = useState(() => {
+    const cur = db.getCurrentUser();
+    if (cur) {
+      const full = db.getUsers().find(u => u.email.toLowerCase() === cur.email.toLowerCase());
+      if (full) {
+        db.setCurrentUser(full);
+        return full;
+      }
+    }
+    return cur;
+  });
+  const [establishment, setEstablishment] = useState<Establishment | null>(null);
+  
+  // Data states
+  const [scheduledRiders, setScheduledRiders] = useState<User[]>([]);
+  const [todaySchedules, setTodaySchedules] = useState<Schedule[]>([]);
+  const [todayDeliveries, setTodayDeliveries] = useState<Delivery[]>([]);
+  const [riderLocations, setRiderLocations] = useState<RiderLocation[]>([]);
+  const [estCoords, setEstCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  // Map expansion state
+  const [isMapExpanded, setIsMapExpanded] = useState(false);
+
+  // Ref para armazenar o estado anterior das notas e chats para evitar notificações duplicadas
+  const prevNotesRef = useRef<Record<string, string>>({});
+  const prevScheduleChatRef = useRef<Record<string, string>>({});
+
+  // Form state
+  const [showDeliveryModal, setShowDeliveryModal] = useState(false);
+  const [editingDelivery, setEditingDelivery] = useState<Delivery | null>(null);
+  const [deliveryForm, setDeliveryForm] = useState({
+    riderId: '',
+    value: '',
+    orderNumber: '',
+    notes: ''
+  });
+
+  // IDs dos Modais Ativos para Sincronização em Tempo Real
+  const [notesDeliveryId, setNotesDeliveryId] = useState<string | null>(null);
+  const [activeScheduleChatId, setActiveScheduleChatId] = useState<string | null>(null);
+
+  // Map reference
+  const mapContainerRef = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<L.Map | null>(null);
+  const markersRef = useRef<{ [key: string]: L.Marker }>({});
+  
+  // Ref para controlar se já fizemos o enquadramento inicial do mapa
+  const hasSetInitialBoundsRef = useRef(false);
+  const hasCenteredEstRef = useRef(false);
+
+  const handleLogout = () => {
+    db.setCurrentUser(null);
+    navigate('/login');
+  };
+
+  // Helper robusto para verificar se uma escala pertence ao estabelecimento atual por nome ou ID
+  const isScheduleForCurrentEst = (s: Schedule, currentEstName: string, matchingEstIds: string[], allEsts: Establishment[]) => {
+    if (matchingEstIds.includes(s.establishmentId)) return true;
+    const destEst = db.resolveEstablishment(s.establishmentId);
+    if (destEst) {
+      const destName = destEst.name.toLowerCase().trim();
+      return destName === currentEstName || 
+             destName.includes(currentEstName) || 
+             currentEstName.includes(destName) ||
+             destName.replace(/\s+/g, '') === currentEstName.replace(/\s+/g, '');
+    }
+    return false;
+  };
+
+  // Helper ultra-robusto para verificar se uma corrida pertence ao estabelecimento atual por nome, ID ou escala ativa do motoboy
+  const isDeliveryForCurrentEst = (d: Delivery, currentEstName: string, matchingEstIds: string[], allEsts: Establishment[]) => {
+    // 1. Tentar por ID direto
+    if (matchingEstIds.includes(d.establishmentId)) return true;
+    
+    // 2. Tentar resolver o estabelecimento pelo ID gravado na corrida (com auto-cura)
+    let destEst = db.resolveEstablishment(d.establishmentId);
+    
+    // 3. Se não achar, tentar resolver pelo scheduleId da corrida
+    if (!destEst && d.scheduleId) {
+      const sch = db.getSchedules().find(s => s.id === d.scheduleId);
+      if (sch) {
+        destEst = db.resolveEstablishment(sch.establishmentId);
+      }
+    }
+    
+    // 4. Se ainda não achar, buscar QUALQUER escala do motoboy hoje e comparar o nome do estabelecimento por texto!
+    const riderOfDel = db.resolveUser(d.riderId);
+    const riderEmail = riderOfDel ? riderOfDel.email.toLowerCase() : '';
+
+    if (!destEst) {
+      const riderSchedulesToday = db.getSchedules().filter(s => {
+        if (s.date !== d.date) return false;
+        if (s.riderId === d.riderId) return true;
+        const riderOfSch = db.resolveUser(s.riderId);
+        return riderOfSch && riderOfSch.email.toLowerCase() === riderEmail;
+      });
+
+      const matchingSchedule = riderSchedulesToday<dyad-write path="src/pages/EstablishmentDashboard.tsx" description="Substituindo as regras de geocodificação e senhas padrão de Pizzaria Bella Italia para Hamburgueria Burgrill">
+"use client";
+
+import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { db, User, Establishment, Schedule, Delivery, RiderLocation, Notification } from '../utils/db';
+import { 
+  Bike, 
+  LogOut, 
+  Plus, 
+  Trash2, 
+  Clock, 
+  DollarSign, 
+  MapPin, 
+  Users, 
+  TrendingUp, 
+  Map as MapIcon,
+  RefreshCw,
+  Hash,
+  Check,
+  X,
+  Edit2,
+  Maximize2,
+  Minimize2,
+  Share2,
+  Navigation,
+  MessageSquare
+} from 'lucide-react';
+
+// Leaflet imports
+import L from 'leaflet';
+import DeliveryNotesModal from '../components/DeliveryNotesModal';
+import ScheduleChatModal from '../components/ScheduleChatModal';
+import { sendDeviceNotification, playNotificationSound } from '../utils/notifications';
+
+// Dicionário de CEPs conhecidos para precisão absoluta e instantânea
+const KNOWN_CEPS: { [key: string]: { lat: number; lng: number } } = {
+  '58433488': { lat: -7.2311, lng: -35.9245 }, // Rua Martinho Lutero, 32, Malvinas, Campina Grande - PB
+  '58429900': { lat: -7.2150, lng: -35.9130 }, // Bodocongó, Campina Grande - PB
 };
 
 export default function EstablishmentDashboard() {
@@ -438,10 +579,10 @@ export default function EstablishmentDashboard() {
       let finalLng = defaultLng;
       let geocoded = false;
 
-      // Regra de Ouro: Se for a Pizzaria Bella Italia, força as coordenadas exatas da Rua Martinho Lutero, 32, Malvinas
-      if (establishment.name.toLowerCase().includes('bella') || establishment.name.toLowerCase().includes('italia')) {
-        finalLat = -7.2311;
-        finalLng = -35.9245;
+      // Regra de Ouro: Se for a Hamburgueria Burgrill, força as coordenadas exatas de Bodocongó
+      if (establishment.name.toLowerCase().includes('burgrill')) {
+        finalLat = -7.2150;
+        finalLng = -35.9130;
         geocoded = true;
       }
 

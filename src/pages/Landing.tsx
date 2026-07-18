@@ -209,7 +209,7 @@ export default function Landing() {
               🚀 Gestão Inteligente de Delivery
             </span>
             <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold text-slate-900 tracking-tight leading-none">
-              Conectando <span className="text-indigo-600">Entregadores</span> e <span className="text-indigo-600">Estabelecimentos</span>
+              Conectando <span className="text-indigo-600">Entregadores</span> and <span className="text-indigo-600">Estabelecimentos</span>
             </h1>
             <p className="text-lg text-slate-600 max-w-2xl mx-auto lg:mx-0">
               O MotoHub é a plataforma definitiva para gerenciar escalas de motoqueiros, acompanhar faturamentos em tempo real e otimizar as entregas do seu negócio.
@@ -318,7 +318,7 @@ export default function Landing() {
         <div className="max-w-5xl mx-auto px-4 text-center space-y-6">
           <h2 className="text-2xl sm:text-3xl font-extrabold">Quer fechar negócio agora mesmo?</h2>
           <p className="text-emerald-100 max-w-xl mx-auto text-sm sm:text-base">
-            Fale diretamente com o nosso administrador no WhatsApp para tirar dúvidas, fechar parcerias and começar a usar o MotoHub hoje mesmo!
+            Fale diretamente com o nosso administrador no WhatsApp para tirar dúvidas, fechar parcerias e começar a usar o MotoHub hoje mesmo!
           </p>
           <button
             onClick={handleWhatsAppContact}
@@ -343,7 +343,7 @@ export default function Landing() {
           {/* Informações do Desenvolvedor */}
           <div className="text-center md:text-right space-y-1">
             <p className="text-xs text-slate-300 font-medium">
-              Desenvolvido por <span className="text-indigo-400 font-semibold">Juveniciu's Tech Soluções Automatizada</span>
+              Desenvolvido por <span className="text-indigo-400 font-semibold">Juveniciu\'s Tech Soluções Automatizada</span>
             </p>
           </div>
 
@@ -513,7 +513,7 @@ export default function Landing() {
                   <input
                     type="text"
                     required
-                    placeholder="Ex: Pizzaria Bella Italia"
+                    placeholder="Ex: Hamburgueria Burgrill"
                     value={estForm.establishmentName}
                     onChange={(e) => setEstForm({ ...estForm, establishmentName: e.target.value })}
                     className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
