@@ -642,6 +642,14 @@ export const db = {
             disabledTables.add('establishments');
           }
         } else if (ests && ests.length > 0) {
+          // Auto-cura: Deletar do Supabase itens que já foram excluídos localmente
+          const toDeleteRemotely = ests.filter(e => deletedIds.includes(e.id));
+          toDeleteRemotely.forEach(e => {
+            supabase.from('establishments').delete().eq('id', e.id).then(({ error }) => {
+              if (error) console.warn('Erro ao deletar estabelecimento órfão:', error.message);
+            });
+          });
+
           const mappedEsts: Establishment[] = ests
             .filter(e => !deletedIds.includes(e.id))
             .map(e => ({
@@ -674,6 +682,14 @@ export const db = {
             disabledTables.add('users');
           }
         } else if (users && users.length > 0) {
+          // Auto-cura: Deletar do Supabase itens que já foram excluídos localmente
+          const toDeleteRemotely = users.filter(u => deletedIds.includes(u.id));
+          toDeleteRemotely.forEach(u => {
+            supabase.from('users').delete().eq('id', u.id).then(({ error }) => {
+              if (error) console.warn('Erro ao deletar usuário órfão:', error.message);
+            });
+          });
+
           const mappedUsers: User[] = users
             .filter(u => !deletedIds.includes(u.id))
             .map(u => ({
@@ -712,6 +728,14 @@ export const db = {
             disabledTables.add('schedules');
           }
         } else if (schs) {
+          // Auto-cura: Deletar do Supabase itens que já foram excluídos localmente
+          const toDeleteRemotely = schs.filter(s => deletedIds.includes(s.id));
+          toDeleteRemotely.forEach(s => {
+            supabase.from('schedules').delete().eq('id', s.id).then(({ error }) => {
+              if (error) console.warn('Erro ao deletar escala órfã:', error.message);
+            });
+          });
+
           const mappedSchs: Schedule[] = schs
             .filter(s => !deletedIds.includes(s.id))
             .map(s => {
@@ -784,6 +808,14 @@ export const db = {
             disabledTables.add('deliveries');
           }
         } else if (dels) {
+          // Auto-cura: Deletar do Supabase itens que já foram excluídos localmente
+          const toDeleteRemotely = dels.filter(d => deletedIds.includes(d.id));
+          toDeleteRemotely.forEach(d => {
+            supabase.from('deliveries').delete().eq('id', d.id).then(({ error }) => {
+              if (error) console.warn('Erro ao deletar corrida órfã:', error.message);
+            });
+          });
+
           const mappedDels: Delivery[] = dels
             .filter(d => !deletedIds.includes(d.id))
             .map(d => {
@@ -837,6 +869,14 @@ export const db = {
             disabledTables.add('notifications');
           }
         } else if (notifs) {
+          // Auto-cura: Deletar do Supabase itens que já foram excluídos localmente
+          const toDeleteRemotely = notifs.filter(n => deletedIds.includes(n.id));
+          toDeleteRemotely.forEach(n => {
+            supabase.from('notifications').delete().eq('id', n.id).then(({ error }) => {
+              if (error) console.warn('Erro ao deletar notificação órfã:', error.message);
+            });
+          });
+
           const mappedNotifs: Notification[] = notifs
             .filter(n => !deletedIds.includes(n.id))
             .map(n => ({
@@ -861,6 +901,14 @@ export const db = {
             disabledTables.add('partner_requests');
           }
         } else if (reqs) {
+          // Auto-cura: Deletar do Supabase itens que já foram excluídos localmente
+          const toDeleteRemotely = reqs.filter(r => deletedIds.includes(r.id));
+          toDeleteRemotely.forEach(r => {
+            supabase.from('partner_requests').delete().eq('id', r.id).then(({ error }) => {
+              if (error) console.warn('Erro ao deletar solicitação órfã:', error.message);
+            });
+          });
+
           const mappedReqs: PartnerRequest[] = reqs
             .filter(r => !deletedIds.includes(r.id))
             .map(r => ({
