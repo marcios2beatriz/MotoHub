@@ -413,12 +413,13 @@ export const db = {
         const burgrillEst = ests.find(e => e.name.toLowerCase().includes('burgrill'));
         const targetEstId = burgrillEst ? burgrillEst.id : 'e2';
 
-        if (u.passwordHash !== 'burgrill' || u.name !== 'Gerente Burgrill' || u.establishmentId !== targetEstId) {
+        if (u.passwordHash !== 'burgrill' || u.name !== 'Gerente Burgrill' || u.establishmentId !== targetEstId || u.role !== 'establishment') {
           updated = true;
           return { 
             ...u, 
             name: 'Gerente Burgrill',
             passwordHash: 'burgrill',
+            role: 'establishment' as const,
             establishmentId: targetEstId
           };
         }
@@ -426,9 +427,9 @@ export const db = {
       return u;
     });
 
-    // GARANTIA SUPREMA: O administrador padrão (ID 'u1') NUNCA pode ser deletado ou desativado
-    const hasActiveAdmin = users.some(u => u.role === 'admin' && u.active && u.id === 'u1');
-    if (!hasActiveAdmin) {
+    // GARANTIA SUPREMA: O administrador padrão (ID 'u1') NUNCA pode ser alterado, deletado ou desativado
+    const adminUser = users.find(u => u.id === 'u1');
+    if (!adminUser || adminUser.email !== 'admin@delivery.com' || adminUser.role !== 'admin' || !adminUser.active || adminUser.name !== 'Administrador Geral') {
       updated = true;
       const defaultAdmin = INITIAL_USERS[0];
       
@@ -437,12 +438,8 @@ export const db = {
       setStorageData('dm_deleted_ids', deleted);
 
       // Adiciona ou reativa o admin
-      const adminIdx = users.findIndex(u => u.id === 'u1');
-      if (adminIdx >= 0) {
-        users[adminIdx] = { ...users[adminIdx], active: true, passwordHash: 'admin123', role: 'admin' };
-      } else {
-        users.push(defaultAdmin);
-      }
+      users = users.filter(u => u.id !== 'u1');
+      users.unshift(defaultAdmin);
     }
 
     if (updated) {
