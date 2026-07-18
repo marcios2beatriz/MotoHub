@@ -96,6 +96,34 @@ export default function EstablishmentDashboard() {
     navigate('/login');
   };
 
+  // Helper robusto para verificar se uma escala pertence ao estabelecimento atual por nome ou ID
+  const isScheduleForCurrentEst = (s: Schedule, currentEstName: string, matchingEstIds: string[], allEsts: Establishment[]) => {
+    if (matchingEstIds.includes(s.establishmentId)) return true;
+    const destEst = allEsts.find(e => e.id === s.establishmentId);
+    if (destEst) {
+      const destName = destEst.name.toLowerCase().trim();
+      return destName === currentEstName || 
+             destName.includes(currentEstName) || 
+             currentEstName.includes(destName) ||
+             destName.replace(/\s+/g, '') === currentEstName.replace(/\s+/g, '');
+    }
+    return false;
+  };
+
+  // Helper robusto para verificar se uma corrida pertence ao estabelecimento atual por nome ou ID
+  const isDeliveryForCurrentEst = (d: Delivery, currentEstName: string, matchingEstIds: string[], allEsts: Establishment[]) => {
+    if (matchingEstIds.includes(d.establishmentId)) return true;
+    const destEst = allEsts.find(e => e.id === d.establishmentId);
+    if (destEst) {
+      const destName = destEst.name.toLowerCase().trim();
+      return destName === currentEstName || 
+             destName.includes(currentEstName) || 
+             currentEstName.includes(destName) ||
+             destName.replace(/\s+/g, '') === currentEstName.replace(/\s+/g, '');
+    }
+    return false;
+  };
+
   const loadData = () => {
     const currentUser = db.getCurrentUser();
     if (!currentUser) return;
@@ -135,17 +163,22 @@ export default function EstablishmentDashboard() {
     if (!currentEst) return;
     setEstablishment(currentEst);
 
+    const currentEstName = currentEst.name.toLowerCase().trim();
+    const matchingEstIds = allEsts
+      .filter(e => {
+        const name = e.name.toLowerCase().trim();
+        return name === currentEstName || 
+               name.includes(currentEstName) || 
+               currentEstName.includes(name) ||
+               name.replace(/\s+/g, '') === currentEstName.replace(/\s+/g, '');
+      })
+      .map(e => e.id);
+
     const todayStr = db.getLocalDateString();
     const allSchedules = db.getSchedules();
     
-    // --- FILTRAGEM ROBUSTA POR NOME DO ESTABELECIMENTO ---
-    // Encontra todos os IDs de estabelecimentos que compartilham o mesmo nome (para lidar com duplicatas de sincronização)
-    const matchingEstIds = allEsts
-      .filter(e => e.name.toLowerCase().trim() === currentEst.name.toLowerCase().trim())
-      .map(e => e.id);
-
-    // Filtra as escalas do dia de hoje para qualquer um dos IDs correspondentes ao nome do estabelecimento
-    const estSchedules = allSchedules.filter(s => matchingEstIds.includes(s.establishmentId) && s.date === todayStr);
+    // Filtra as escalas do dia de hoje usando a resolução por nome cruzado
+    const estSchedules = allSchedules.filter(s => isScheduleForCurrentEst(s, currentEstName, matchingEstIds, allEsts) && s.date === todayStr);
     setTodaySchedules(estSchedules);
 
     const allUsers = db.getUsers();
@@ -156,8 +189,8 @@ export default function EstablishmentDashboard() {
     setScheduledRiders(riders);
 
     const allDeliveries = db.getDeliveries();
-    // Filtra as corridas de hoje para qualquer um dos IDs correspondentes ao nome do estabelecimento
-    const estDeliveriesToday = allDeliveries.filter(d => matchingEstIds.includes(d.establishmentId) && d.date === todayStr);
+    // Filtra as corridas de hoje usando a resolução por nome cruzado
+    const estDeliveriesToday = allDeliveries.filter(d => isDeliveryForCurrentEst(d, currentEstName, matchingEstIds, allEsts) && d.date === todayStr);
     setTodayDeliveries(estDeliveriesToday);
 
     const locations = db.getRiderLocations();
@@ -790,7 +823,10 @@ export default function EstablishmentDashboard() {
         .map(e => e.id)
     : [];
 
-  const pendingDeliveries = allDeliveries.filter(d => matchingEstIds.includes(d.establishmentId) && d.status === 'pending');
+  const currentEstName = establishment ? establishment.name.toLowerCase().trim() : '';
+  const allEsts = db.getEstablishments();
+
+  const pendingDeliveries = allDeliveries.filter(d => isDeliveryForCurrentEst(d, currentEstName, matchingEstIds, allEsts) && d.status === 'pending');
   const processedDeliveries = todayDeliveries.filter(d => d.status !== 'pending');
 
   // Derivação de Estados dos Chats em Tempo Real
