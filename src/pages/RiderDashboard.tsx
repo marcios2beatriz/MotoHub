@@ -384,14 +384,13 @@ export default function RiderDashboard() {
   }).reduce((sum, d) => sum + d.value, 0);
 
   const getFutureSchedules = () => {
-    const today = new Date();
-    today.setHours(0,0,0,0);
-    const limitDate = new Date();
-    limitDate.setDate(today.getDate() + 30);
+    const todayStr = db.getLocalDateString();
+    const limit = new Date();
+    limit.setDate(limit.getDate() + 30);
+    const limitDateStr = db.getLocalDateString(limit);
 
     return schedules.filter(s => {
-      const sDate = new Date(s.date + 'T00:00:00');
-      return sDate >= today && sDate <= limitDate;
+      return s.date >= todayStr && s.date <= limitDateStr;
     }).sort((a, b) => a.date.localeCompare(b.date));
   };
 
@@ -1001,7 +1000,7 @@ export default function RiderDashboard() {
 
         {/* Tab Content: History */}
         {activeTab === 'history' && (() => {
-          const todayStr = new Date().toISOString().split('T')[0];
+          const todayStr = db.getLocalDateString();
           const allEsts = db.getEstablishments();
           const pastSchedules = schedules
             .filter(s => s.date < todayStr)
