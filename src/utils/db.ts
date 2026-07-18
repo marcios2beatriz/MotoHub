@@ -590,7 +590,19 @@ export const db = {
               active: e.active,
               updatedAt: e.updated_at || undefined
             }));
-          setStorageData('dm_establishments', mappedEsts);
+          
+          // Merge Inteligente: Preserva estabelecimentos locais recém-criados
+          const localEsts = getStorageData<Establishment[]>('dm_establishments', INITIAL_ESTABLISHMENTS);
+          const mergedEsts = [...localEsts];
+          mappedEsts.forEach(remote => {
+            const idx = mergedEsts.findIndex(e => e.id === remote.id);
+            if (idx >= 0) {
+              mergedEsts[idx] = remote;
+            } else if (!deletedIds.includes(remote.id)) {
+              mergedEsts.push(remote);
+            }
+          });
+          setStorageData('dm_establishments', mergedEsts);
         }
       }
 
@@ -617,12 +629,24 @@ export const db = {
               establishmentId: u.establishment_id || undefined,
               updatedAt: u.updated_at || undefined
             }));
-          setStorageData('dm_users', mappedUsers);
+          
+          // Merge Inteligente: Preserva usuários locais recém-criados
+          const localUsers = getStorageData<User[]>('dm_users', INITIAL_USERS);
+          const mergedUsers = [...localUsers];
+          mappedUsers.forEach(remote => {
+            const idx = mergedUsers.findIndex(u => u.id === remote.id);
+            if (idx >= 0) {
+              mergedUsers[idx] = remote;
+            } else if (!deletedIds.includes(remote.id)) {
+              mergedUsers.push(remote);
+            }
+          });
+          setStorageData('dm_users', mergedUsers);
 
           // Atualiza a sessão do usuário logado
           const currentUser = db.getCurrentUser();
           if (currentUser) {
-            const updatedCurrent = mappedUsers.find(u => u.email.toLowerCase() === currentUser.email.toLowerCase());
+            const updatedCurrent = mergedUsers.find(u => u.email.toLowerCase() === currentUser.email.toLowerCase());
             if (updatedCurrent) {
               db.setCurrentUser(updatedCurrent);
             }
@@ -670,7 +694,19 @@ export const db = {
                 updatedAt
               };
             });
-          setStorageData('dm_schedules', mappedSchs);
+          
+          // Merge Inteligente
+          const localSchs = getStorageData<Schedule[]>('dm_schedules', []);
+          const mergedSchs = [...localSchs];
+          mappedSchs.forEach(remote => {
+            const idx = mergedSchs.findIndex(s => s.id === remote.id);
+            if (idx >= 0) {
+              mergedSchs[idx] = remote;
+            } else if (!deletedIds.includes(remote.id)) {
+              mergedSchs.push(remote);
+            }
+          });
+          setStorageData('dm_schedules', mergedSchs);
         }
       }
 
@@ -721,7 +757,19 @@ export const db = {
                 updatedAt
               };
             });
-          setStorageData('dm_deliveries', mappedDels);
+          
+          // Merge Inteligente
+          const localDels = getStorageData<Delivery[]>('dm_deliveries', []);
+          const mergedDels = [...localDels];
+          mappedDels.forEach(remote => {
+            const idx = mergedDels.findIndex(d => d.id === remote.id);
+            if (idx >= 0) {
+              mergedDels[idx] = remote;
+            } else if (!deletedIds.includes(remote.id)) {
+              mergedDels.push(remote);
+            }
+          });
+          setStorageData('dm_deliveries', mergedDels);
         }
       }
 
@@ -743,7 +791,19 @@ export const db = {
               date: n.date,
               read: n.read
             }));
-          setStorageData('dm_notifications', mappedNotifs);
+          
+          // Merge Inteligente
+          const localNotifs = getStorageData<Notification[]>('dm_notifications', []);
+          const mergedNotifs = [...localNotifs];
+          mappedNotifs.forEach(remote => {
+            const idx = mergedNotifs.findIndex(n => n.id === remote.id);
+            if (idx >= 0) {
+              mergedNotifs[idx] = remote;
+            } else if (!deletedIds.includes(remote.id)) {
+              mergedNotifs.push(remote);
+            }
+          });
+          setStorageData('dm_notifications', mergedNotifs);
         }
       }
 
@@ -766,7 +826,19 @@ export const db = {
               status: r.status as any,
               createdAt: r.created_at
             }));
-          setStorageData('dm_partner_requests', mappedReqs);
+          
+          // Merge Inteligente
+          const localReqs = getStorageData<PartnerRequest[]>('dm_partner_requests', []);
+          const mergedReqs = [...localReqs];
+          mappedReqs.forEach(remote => {
+            const idx = mergedReqs.findIndex(r => r.id === remote.id);
+            if (idx >= 0) {
+              mergedReqs[idx] = remote;
+            } else if (!deletedIds.includes(remote.id)) {
+              mergedReqs.push(remote);
+            }
+          });
+          setStorageData('dm_partner_requests', mergedReqs);
         }
       }
 
