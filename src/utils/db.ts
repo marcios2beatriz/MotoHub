@@ -661,18 +661,8 @@ export const db = {
               updatedAt: e.updated_at || undefined
             }));
           
-          // Merge Inteligente: Preserva estabelecimentos locais recém-criados
-          const localEsts = getStorageData<Establishment[]>('dm_establishments', INITIAL_ESTABLISHMENTS);
-          const mergedEsts = [...localEsts];
-          mappedEsts.forEach(remote => {
-            const idx = mergedEsts.findIndex(e => e.id === remote.id);
-            if (idx >= 0) {
-              mergedEsts[idx] = remote;
-            } else if (!deletedIds.includes(remote.id)) {
-              mergedEsts.push(remote);
-            }
-          });
-          setStorageData('dm_establishments', mergedEsts);
+          // Sobrescrita direta para propagar exclusões remotas
+          setStorageData('dm_establishments', mappedEsts);
         }
       }
 
@@ -700,23 +690,13 @@ export const db = {
               updatedAt: u.updated_at || undefined
             }));
           
-          // Merge Inteligente: Preserva usuários locais recém-criados
-          const localUsers = getStorageData<User[]>('dm_users', INITIAL_USERS);
-          const mergedUsers = [...localUsers];
-          mappedUsers.forEach(remote => {
-            const idx = mergedUsers.findIndex(u => u.id === remote.id);
-            if (idx >= 0) {
-              mergedUsers[idx] = remote;
-            } else if (!deletedIds.includes(remote.id)) {
-              mergedUsers.push(remote);
-            }
-          });
-          setStorageData('dm_users', mergedUsers);
+          // Sobrescrita direta para propagar exclusões remotas
+          setStorageData('dm_users', mappedUsers);
 
           // Atualiza a sessão do usuário logado
           const currentUser = db.getCurrentUser();
           if (currentUser) {
-            const updatedCurrent = mergedUsers.find(u => u.email.toLowerCase() === currentUser.email.toLowerCase());
+            const updatedCurrent = mappedUsers.find(u => u.email.toLowerCase() === currentUser.email.toLowerCase());
             if (updatedCurrent) {
               db.setCurrentUser(updatedCurrent);
             }
@@ -765,18 +745,8 @@ export const db = {
               };
             });
           
-          // Merge Inteligente
-          const localSchs = getStorageData<Schedule[]>('dm_schedules', []);
-          const mergedSchs = [...localSchs];
-          mappedSchs.forEach(remote => {
-            const idx = mergedSchs.findIndex(s => s.id === remote.id);
-            if (idx >= 0) {
-              mergedSchs[idx] = remote;
-            } else if (!deletedIds.includes(remote.id)) {
-              mergedSchs.push(remote);
-            }
-          });
-          setStorageData('dm_schedules', mergedSchs);
+          // Sobrescrita direta para propagar exclusões remotas e evitar duplicidade
+          setStorageData('dm_schedules', mappedSchs);
         }
       }
 
@@ -828,18 +798,8 @@ export const db = {
               };
             });
           
-          // Merge Inteligente
-          const localDels = getStorageData<Delivery[]>('dm_deliveries', []);
-          const mergedDels = [...localDels];
-          mappedDels.forEach(remote => {
-            const idx = mergedDels.findIndex(d => d.id === remote.id);
-            if (idx >= 0) {
-              mergedDels[idx] = remote;
-            } else if (!deletedIds.includes(remote.id)) {
-              mergedDels.push(remote);
-            }
-          });
-          setStorageData('dm_deliveries', mergedDels);
+          // Sobrescrita direta para propagar exclusões remotas
+          setStorageData('dm_deliveries', mappedDels);
         }
       }
 
@@ -862,18 +822,8 @@ export const db = {
               read: n.read
             }));
           
-          // Merge Inteligente
-          const localNotifs = getStorageData<Notification[]>('dm_notifications', []);
-          const mergedNotifs = [...localNotifs];
-          mappedNotifs.forEach(remote => {
-            const idx = mergedNotifs.findIndex(n => n.id === remote.id);
-            if (idx >= 0) {
-              mergedNotifs[idx] = remote;
-            } else if (!deletedIds.includes(remote.id)) {
-              mergedNotifs.push(remote);
-            }
-          });
-          setStorageData('dm_notifications', mergedNotifs);
+          // Sobrescrita direta para propagar exclusões remotas
+          setStorageData('dm_notifications', mappedNotifs);
         }
       }
 
@@ -897,18 +847,8 @@ export const db = {
               createdAt: r.created_at
             }));
           
-          // Merge Inteligente
-          const localReqs = getStorageData<PartnerRequest[]>('dm_partner_requests', []);
-          const mergedReqs = [...localReqs];
-          mappedReqs.forEach(remote => {
-            const idx = mergedReqs.findIndex(r => r.id === remote.id);
-            if (idx >= 0) {
-              mergedReqs[idx] = remote;
-            } else if (!deletedIds.includes(remote.id)) {
-              mergedReqs.push(remote);
-            }
-          });
-          setStorageData('dm_partner_requests', mergedReqs);
+          // Sobrescrita direta para propagar exclusões remotas
+          setStorageData('dm_partner_requests', mappedReqs);
         }
       }
 
