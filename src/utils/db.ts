@@ -584,6 +584,14 @@ export const db = {
       const estIdMap = new Map<string, string>();
 
       if (!estsError && ests) {
+        // Preenche o estIdMap comparando pelo nome do estabelecimento para mapear IDs locais para UUIDs do Supabase
+        ests.forEach(e => {
+          const localMatch = localEsts.find(le => le.name.toLowerCase().trim() === e.name.toLowerCase().trim());
+          if (localMatch && localMatch.id !== e.id) {
+            estIdMap.set(localMatch.id, e.id);
+          }
+        });
+
         const mappedEsts: Establishment[] = ests
           .filter(e => !deletedIds.includes(e.id))
           .map(e => ({
@@ -614,6 +622,14 @@ export const db = {
       const userIdMap = new Map<string, string>();
 
       if (!usersError && users) {
+        // Preenche o userIdMap comparando pelo e-mail do usuário para mapear IDs locais para UUIDs do Supabase
+        users.forEach(u => {
+          const localMatch = localUsers.find(lu => lu.email.toLowerCase().trim() === u.email.toLowerCase().trim());
+          if (localMatch && localMatch.id !== u.id) {
+            userIdMap.set(localMatch.id, u.id);
+          }
+        });
+
         const mappedUsers: User[] = users
           .filter(u => !deletedIds.includes(u.id))
           .map(u => ({
@@ -658,6 +674,7 @@ export const db = {
       const { data: schs, error: schsError } = await supabase.from('schedules').select('*');
       let localSchs = getStorageData<Schedule[]>('dm_schedules', []);
 
+      // Migra os IDs locais de escalas para os novos UUIDs do Supabase
       if (userIdMap.size > 0 || estIdMap.size > 0) {
         localSchs = localSchs.map(s => ({
           ...s,
@@ -711,6 +728,7 @@ export const db = {
       const { data: dels, error: delsError } = await supabase.from('deliveries').select('*');
       let localDels = getStorageData<Delivery[]>('dm_deliveries', []);
 
+      // Migra os IDs locais de corridas para os novos UUIDs do Supabase
       if (userIdMap.size > 0 || estIdMap.size > 0) {
         localDels = localDels.map(d => ({
           ...d,
