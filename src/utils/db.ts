@@ -402,12 +402,19 @@ export const db = {
     const deletedIds = getDeletedIds();
     let users = getStorageData<User[]>('dm_users', INITIAL_USERS).filter(u => !deletedIds.includes(u.id));
     
-    // Auto-correção de segurança para garantir que a senha do Burgrill seja sempre 'burgrill'
+    // Auto-correção de segurança para garantir que o usuário do Burgrill tenha os dados corretos
     let updated = false;
     users = users.map(u => {
-      if (u.email.toLowerCase() === 'burgrill@delivery.com' && u.passwordHash !== 'burgrill') {
-        updated = true;
-        return { ...u, passwordHash: 'burgrill' };
+      if (u.email.toLowerCase() === 'burgrill@delivery.com') {
+        if (u.passwordHash !== 'burgrill' || u.name !== 'Gerente Burgrill' || u.establishmentId !== 'e2') {
+          updated = true;
+          return { 
+            ...u, 
+            name: 'Gerente Burgrill',
+            passwordHash: 'burgrill',
+            establishmentId: 'e2'
+          };
+        }
       }
       return u;
     });
@@ -430,7 +437,22 @@ export const db = {
   
   getEstablishments: () => {
     const deletedIds = getDeletedIds();
-    return getStorageData<Establishment[]>('dm_establishments', INITIAL_ESTABLISHMENTS).filter(e => !deletedIds.includes(e.id));
+    let ests = getStorageData<Establishment[]>('dm_establishments', INITIAL_ESTABLISHMENTS).filter(e => !deletedIds.includes(e.id));
+    
+    // Auto-correção para garantir que o estabelecimento e2 seja sempre "Burgrill" se houver conflito com Supabase
+    let updated = false;
+    ests = ests.map(e => {
+      if (e.id === 'e2' && e.name !== 'Burgrill') {
+        updated = true;
+        return { ...e, name: 'Burgrill' };
+      }
+      return e;
+    });
+
+    if (updated) {
+      setStorageData('dm_establishments', ests);
+    }
+    return ests;
   },
   setEstablishments: (est: Establishment[]) => {
     trackDeletions('dm_establishments', est, 'establishments');
