@@ -505,18 +505,25 @@ export const db = {
     }
     setStorageData('dm_rider_locations', locations);
 
-    supabase
-      .from('rider_locations')
-      .upsert({
-        rider_id: riderId,
-        rider_name: riderName,
-        lat,
-        lng,
-        updated_at: newLoc.updatedAt
-      }, { onConflict: 'rider_id' })
-      .then(({ error }) => {
-        if (error) console.warn('GPS sync error:', error.message);
-      });
+    if (!disabledTables.has('rider_locations')) {
+      supabase
+        .from('rider_locations')
+        .upsert({
+          rider_id: riderId,
+          rider_name: riderName,
+          lat,
+          lng,
+          updated_at: newLoc.updatedAt
+        }, { onConflict: 'rider_id' })
+        .then(({ error }) => {
+          if (error) {
+            console.warn('GPS sync error:', error.message);
+            if (error.message.includes("404") || error.message.includes("not found") || error.message.includes("relation")) {
+              disabledTables.add('rider_locations');
+            }
+          }
+        });
+    }
   },
 
   getCurrentUser: (): User | null => {
@@ -545,187 +552,229 @@ export const db = {
     try {
       const deletedIds = getDeletedIds();
 
-      // 1. Sincronizar Estabelecimentos (Sobrescreve local com Supabase se houver dados)
-      const { data: ests, error: estsError } = await supabase.from('establishments').select('*');
-      if (!estsError && ests && ests.length > 0) {
-        const mappedEsts: Establishment[] = ests
-          .filter(e => !deletedIds.includes(e.id))
-          .map(e => ({
-            id: e.id,
-            name: e.name,
-            address: {
-              street: e.street,
-              number: e.number,
-              complement: e.complement || '',
-              neighborhood: e.neighborhood,
-              city: e.city,
-              state: e.state,
-              zipCode: e.zip_code
-            },
-            phone: e.phone || '',
-            active: e.active,
-            updatedAt: e.updated_at || undefined
-          }));
-        setStorageData('dm_establishments', mappedEsts);
+      // 1. Sincronizar Estabelecimentos
+      if (!disabledTables.has('establishments')) {
+        const { data: ests, error: estsError } = await supabase.from('establishments').select('*');
+        if (estsError) {
+          if (estsError.message.includes("404") || estsError.message.includes("not found") || estsError.message.includes("relation")) {
+            disabledTables.add('establishments');
+          }
+        } else if (ests && ests.length > 0) {
+          const mappedEsts: Establishment[] = ests
+            .filter(e => !deletedIds.includes(e.id))
+            .map(e => ({
+              id: e.id,
+              name: e.name,
+              address: {
+                street: e.street,
+                number: e.number,
+                complement: e.complement || '',
+                neighborhood: e.neighborhood,
+                city: e.city,
+                state: e.state,
+                zipCode: e.zip_code
+              },
+              phone: e.phone || '',
+              active: e.active,
+              updatedAt: e.updated_at || undefined
+            }));
+          setStorageData('dm_establishments', mappedEsts);
+        }
       }
 
-      // 2. Sincronizar Usuários (Sobrescreve local com Supabase se houver dados)
-      const { data: users, error: usersError } = await supabase.from('users').select('*');
-      if (!usersError && users && users.length > 0) {
-        const mappedUsers: User[] = users
-          .filter(u => !deletedIds.includes(u.id))
-          .map(u => ({
-            id: u.id,
-            name: u.name,
-            cpf: u.cpf,
-            phone: u.phone || '',
-            email: u.email,
-            role: u.role as any,
-            active: u.active,
-            passwordHash: u.password_hash,
-            mustResetPassword: u.must_reset_password,
-            establishmentId: u.establishment_id || undefined,
-            updatedAt: u.updated_at || undefined
-          }));
-        setStorageData('dm_users', mappedUsers);
+      // 2. Sincronizar Usuários
+      if (!disabledTables.has('users')) {
+        const { data: users, error: usersError } = await supabase.from('users').select('*');
+        if (usersError) {
+          if (usersError.message.includes("404") || usersError.message.includes("not found") || usersError.message.includes("relation")) {
+            disabledTables.add('users');
+          }
+        } else if (users && users.length > 0) {
+          const mappedUsers: User[] = users
+            .filter(u => !deletedIds.includes(u.id))
+            .map(u => ({
+              id: u.id,
+              name: u.name,
+              cpf: u.cpf,
+              phone: u.phone || '',
+              email: u.email,
+              role: u.role as any,
+              active: u.active,
+              passwordHash: u.password_hash,
+              mustResetPassword: u.must_reset_password,
+              establishmentId: u.establishment_id || undefined,
+              updatedAt: u.updated_at || undefined
+            }));
+          setStorageData('dm_users', mappedUsers);
 
-        // Atualiza a sessão do usuário logado
-        const currentUser = db.getCurrentUser();
-        if (currentUser) {
-          const updatedCurrent = mappedUsers.find(u => u.email.toLowerCase() === currentUser.email.toLowerCase());
-          if (updatedCurrent) {
-            db.setCurrentUser(updatedCurrent);
+          // Atualiza a sessão do usuário logado
+          const currentUser = db.getCurrentUser();
+          if (currentUser) {
+            const updatedCurrent = mappedUsers.find(u => u.email.toLowerCase() === currentUser.email.toLowerCase());
+            if (updatedCurrent) {
+              db.setCurrentUser(updatedCurrent);
+            }
           }
         }
       }
 
       // 3. Sincronizar Escalas (Schedules)
-      const { data: schs, error: schsError } = await supabase.from('schedules').select('*');
-      if (!schsError && schs) {
-        const mappedSchs: Schedule[] = schs
-          .filter(s => !deletedIds.includes(s.id))
-          .map(s => {
-            let createdBy = s.created_by || 'Admin';
-            let chat = s.chat || undefined;
-            let updatedAt = s.updated_at || undefined;
+      if (!disabledTables.has('schedules')) {
+        const { data: schs, error: schsError } = await supabase.from('schedules').select('*');
+        if (schsError) {
+          if (schsError.message.includes("404") || schsError.message.includes("not found") || schsError.message.includes("relation")) {
+            disabledTables.add('schedules');
+          }
+        } else if (schs) {
+          const mappedSchs: Schedule[] = schs
+            .filter(s => !deletedIds.includes(s.id))
+            .map(s => {
+              let createdBy = s.created_by || 'Admin';
+              let chat = s.chat || undefined;
+              let updatedAt = s.updated_at || undefined;
 
-            if (s.created_by && s.created_by.startsWith('{')) {
-              try {
-                const parsed = JSON.parse(s.created_by);
-                createdBy = parsed.createdBy || 'Admin';
-                chat = parsed.chat || undefined;
-                updatedAt = parsed.updatedAt || undefined;
-              } catch (e) {
-                console.warn('Erro ao fazer parse do JSON do schedule:', e);
+              if (s.created_by && s.created_by.startsWith('{')) {
+                try {
+                  const parsed = JSON.parse(s.created_by);
+                  createdBy = parsed.createdBy || 'Admin';
+                  chat = parsed.chat || undefined;
+                  updatedAt = parsed.updatedAt || undefined;
+                } catch (e) {
+                  console.warn('Erro ao fazer parse do JSON do schedule:', e);
+                }
               }
-            }
 
-            return {
-              id: s.id,
-              riderId: s.rider_id,
-              establishmentId: s.establishment_id,
-              date: s.date,
-              shift: s.shift as any,
-              startTime: s.start_time,
-              endTime: s.end_time,
-              createdBy,
-              createdAt: s.created_at,
-              chat: chat || s.chat || undefined,
-              updatedAt
-            };
-          });
-        setStorageData('dm_schedules', mappedSchs);
+              return {
+                id: s.id,
+                riderId: s.rider_id,
+                establishmentId: s.establishment_id,
+                date: s.date,
+                shift: s.shift as any,
+                startTime: s.start_time,
+                endTime: s.end_time,
+                createdBy,
+                createdAt: s.created_at,
+                chat: chat || s.chat || undefined,
+                updatedAt
+              };
+            });
+          setStorageData('dm_schedules', mappedSchs);
+        }
       }
 
       // 4. Sincronizar Corridas (Deliveries)
-      const { data: dels, error: delsError } = await supabase.from('deliveries').select('*');
-      if (!delsError && dels) {
-        const mappedDels: Delivery[] = dels
-          .filter(d => !deletedIds.includes(d.id))
-          .map(d => {
-            let orderNumber = d.order_number || undefined;
-            let notes = d.notes || undefined;
-            let customerChat = d.customer_chat || undefined;
-            let updatedAt = d.updated_at || undefined;
+      if (!disabledTables.has('deliveries')) {
+        const { data: dels, error: delsError } = await supabase.from('deliveries').select('*');
+        if (delsError) {
+          if (delsError.message.includes("404") || delsError.message.includes("not found") || delsError.message.includes("relation")) {
+            disabledTables.add('deliveries');
+          }
+        } else if (dels) {
+          const mappedDels: Delivery[] = dels
+            .filter(d => !deletedIds.includes(d.id))
+            .map(d => {
+              let orderNumber = d.order_number || undefined;
+              let notes = d.notes || undefined;
+              let customerChat = d.customer_chat || undefined;
+              let updatedAt = d.updated_at || undefined;
 
-            if (d.order_number && d.order_number.startsWith('{')) {
-              try {
-                const parsed = JSON.parse(d.order_number);
-                orderNumber = parsed.orderNumber || undefined;
-                notes = parsed.notes || undefined;
-                customerChat = parsed.customerChat || undefined;
-                updatedAt = parsed.updatedAt || undefined;
-              } catch (e) {
-                console.warn('Erro ao fazer parse do JSON do delivery:', e);
+              if (d.order_number && d.order_number.startsWith('{')) {
+                try {
+                  const parsed = JSON.parse(d.order_number);
+                  orderNumber = parsed.orderNumber || undefined;
+                  notes = parsed.notes || undefined;
+                  customerChat = parsed.customerChat || undefined;
+                  updatedAt = parsed.updatedAt || undefined;
+                } catch (e) {
+                  console.warn('Erro ao fazer parse do JSON do delivery:', e);
+                }
+              } else if (d.order_number && d.order_number.includes('|||')) {
+                const parts = d.order_number.split('|||');
+                orderNumber = parts[0] || undefined;
+                notes = parts[1] || undefined;
               }
-            } else if (d.order_number && d.order_number.includes('|||')) {
-              const parts = d.order_number.split('|||');
-              orderNumber = parts[0] || undefined;
-              notes = parts[1] || undefined;
-            }
 
-            return {
-              id: d.id,
-              riderId: d.rider_id,
-              establishmentId: d.establishment_id,
-              date: d.date,
-              time: d.time,
-              value: Number(d.value),
-              status: d.status as any,
-              scheduleId: d.schedule_id || undefined,
-              orderNumber: orderNumber || undefined,
-              notes: notes || d.notes || undefined,
-              customerChat: customerChat || d.customer_chat || undefined,
-              updatedAt
-            };
-          });
-        setStorageData('dm_deliveries', mappedDels);
+              return {
+                id: d.id,
+                riderId: d.rider_id,
+                establishmentId: d.establishment_id,
+                date: d.date,
+                time: d.time,
+                value: Number(d.value),
+                status: d.status as any,
+                scheduleId: d.schedule_id || undefined,
+                orderNumber: orderNumber || undefined,
+                notes: notes || d.notes || undefined,
+                customerChat: customerChat || d.customer_chat || undefined,
+                updatedAt
+              };
+            });
+          setStorageData('dm_deliveries', mappedDels);
+        }
       }
 
       // 5. Sincronizar Notificações
-      const { data: notifs, error: notifsError } = await supabase.from('notifications').select('*');
-      if (!notifsError && notifs) {
-        const mappedNotifs: Notification[] = notifs
-          .filter(n => !deletedIds.includes(n.id))
-          .map(n => ({
-            id: n.id,
-            riderId: n.rider_id,
-            title: n.title,
-            message: n.message,
-            date: n.date,
-            read: n.read
-          }));
-        setStorageData('dm_notifications', mappedNotifs);
+      if (!disabledTables.has('notifications')) {
+        const { data: notifs, error: notifsError } = await supabase.from('notifications').select('*');
+        if (notifsError) {
+          if (notifsError.message.includes("404") || notifsError.message.includes("not found") || notifsError.message.includes("relation")) {
+            disabledTables.add('notifications');
+          }
+        } else if (notifs) {
+          const mappedNotifs: Notification[] = notifs
+            .filter(n => !deletedIds.includes(n.id))
+            .map(n => ({
+              id: n.id,
+              riderId: n.rider_id,
+              title: n.title,
+              message: n.message,
+              date: n.date,
+              read: n.read
+            }));
+          setStorageData('dm_notifications', mappedNotifs);
+        }
       }
 
       // 6. Sincronizar Solicitações de Parceria
-      const { data: reqs, error: reqsError } = await supabase.from('partner_requests').select('*');
-      if (!reqsError && reqs) {
-        const mappedReqs: PartnerRequest[] = reqs
-          .filter(r => !deletedIds.includes(r.id))
-          .map(r => ({
-            id: r.id,
-            establishmentName: r.establishment_name,
-            ownerName: r.owner_name,
-            phone: r.phone,
-            address: r.address,
-            status: r.status as any,
-            createdAt: r.created_at
-          }));
-        setStorageData('dm_partner_requests', mappedReqs);
+      if (!disabledTables.has('partner_requests')) {
+        const { data: reqs, error: reqsError } = await supabase.from('partner_requests').select('*');
+        if (reqsError) {
+          if (reqsError.message.includes("404") || reqsError.message.includes("not found") || reqsError.message.includes("relation")) {
+            disabledTables.add('partner_requests');
+          }
+        } else if (reqs) {
+          const mappedReqs: PartnerRequest[] = reqs
+            .filter(r => !deletedIds.includes(r.id))
+            .map(r => ({
+              id: r.id,
+              establishmentName: r.establishment_name,
+              ownerName: r.owner_name,
+              phone: r.phone,
+              address: r.address,
+              status: r.status as any,
+              createdAt: r.created_at
+            }));
+          setStorageData('dm_partner_requests', mappedReqs);
+        }
       }
 
       // 7. Sincronizar Localizações de GPS
-      const { data: locs, error: locsError } = await supabase.from('rider_locations').select('*');
-      if (!locsError && locs) {
-        const mappedLocs: RiderLocation[] = locs.map(l => ({
-          riderId: l.rider_id,
-          riderName: l.rider_name,
-          lat: l.lat,
-          lng: l.lng,
-          updatedAt: l.updated_at
-        }));
-        setStorageData('dm_rider_locations', mappedLocs);
+      if (!disabledTables.has('rider_locations')) {
+        const { data: locs, error: locsError } = await supabase.from('rider_locations').select('*');
+        if (locsError) {
+          if (locsError.message.includes("404") || locsError.message.includes("not found") || locsError.message.includes("relation")) {
+            disabledTables.add('rider_locations');
+          }
+        } else if (locs) {
+          const mappedLocs: RiderLocation[] = locs.map(l => ({
+            riderId: l.rider_id,
+            riderName: l.rider_name,
+            lat: l.lat,
+            lng: l.lng,
+            updatedAt: l.updated_at
+          }));
+          setStorageData('dm_rider_locations', mappedLocs);
+        }
       }
 
     } catch (err) {
