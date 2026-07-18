@@ -132,26 +132,32 @@ export default function EstablishmentDashboard() {
       }
     }
 
-    if (!estId) return;
-
-    if (currentEst) setEstablishment(currentEst);
+    if (!currentEst) return;
+    setEstablishment(currentEst);
 
     const todayStr = db.getLocalDateString();
     const allSchedules = db.getSchedules();
     
-    // Filtra estritamente as escalas do estabelecimento logado para o dia de hoje
-    const estSchedules = allSchedules.filter(s => s.establishmentId === estId && s.date === todayStr);
+    // --- FILTRAGEM ROBUSTA POR NOME DO ESTABELECIMENTO ---
+    // Encontra todos os IDs de estabelecimentos que compartilham o mesmo nome (para lidar com duplicatas de sincronização)
+    const matchingEstIds = allEsts
+      .filter(e => e.name.toLowerCase().trim() === currentEst.name.toLowerCase().trim())
+      .map(e => e.id);
+
+    // Filtra as escalas do dia de hoje para qualquer um dos IDs correspondentes ao nome do estabelecimento
+    const estSchedules = allSchedules.filter(s => matchingEstIds.includes(s.establishmentId) && s.date === todayStr);
     setTodaySchedules(estSchedules);
 
     const allUsers = db.getUsers();
     const scheduledIds = estSchedules.map(s => s.riderId);
     
-    // Regra de Isolamento Estrito: Mostra APENAS os motoboys que possuem escala ativa hoje para este estabelecimento
+    // Mostra os motoboys que possuem escala ativa hoje para este estabelecimento
     const riders = allUsers.filter(u => scheduledIds.includes(u.id));
     setScheduledRiders(riders);
 
     const allDeliveries = db.getDeliveries();
-    const estDeliveriesToday = allDeliveries.filter(d => d.establishmentId === estId && d.date === todayStr);
+    // Filtra as corridas de hoje para qualquer um dos IDs correspondentes ao nome do estabelecimento
+    const estDeliveriesToday = allDeliveries.filter(d => matchingEstIds.includes(d.establishmentId) && d.date === todayStr);
     setTodayDeliveries(estDeliveriesToday);
 
     const locations = db.getRiderLocations();
@@ -774,9 +780,17 @@ export default function EstablishmentDashboard() {
     .filter(d => d.status === 'active')
     .reduce((sum, d) => sum + d.value, 0);
 
-  // Buscar TODAS as corridas pendentes do estabelecimento (sem filtro de data para evitar problemas de fuso horário)
+  // Buscar TODAS as corridas pendentes do estabelecimento (usando a lista de IDs correspondentes ao nome)
   const allDeliveries = db.getDeliveries();
-  const pendingDeliveries = allDeliveries.filter(d => d.establishmentId === establishment?.id && d.status === 'pending');
+  
+  // Mapeamento de IDs correspondentes ao nome do estabelecimento para filtragem robusta
+  const matchingEstIds = establishment 
+    ? db.getEstablishments()
+        .filter(e => e.name.toLowerCase().trim() === establishment.name.toLowerCase().trim())
+        .map(e => e.id)
+    : [];
+
+  const pendingDeliveries = allDeliveries.filter(d => matchingEstIds.includes(d.establishmentId) && d.status === 'pending');
   const processedDeliveries = todayDeliveries.filter(d => d.status !== 'pending');
 
   // Derivação de Estados dos Chats em Tempo Real
