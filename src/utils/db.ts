@@ -301,7 +301,13 @@ export const db = {
               parsedAddress = { ...parsedAddress, ...e.address };
             } else if (typeof e.address === 'string') {
               try {
-                parsedAddress = { ...parsedAddress, ...JSON.parse(e.address) };
+                let temp = JSON.parse(e.address);
+                if (typeof temp === 'string') {
+                  temp = JSON.parse(temp); // Desfaz dupla serialização se houver
+                }
+                if (temp && typeof temp === 'object') {
+                  parsedAddress = { ...parsedAddress, ...temp };
+                }
               } catch (err) {
                 console.warn('Erro ao parsear endereço do estabelecimento:', err);
               }
@@ -480,7 +486,7 @@ export const db = {
           email: e.email || '',
           active: e.active,
           phone: e.phone || '',
-          address: e.address ? JSON.stringify(e.address) : null,
+          address: e.address, // Envia o objeto diretamente para que o Supabase salve como JSON/JSONB correto
           created_at: e.createdAt || new Date().toISOString(),
           updated_at: new Date().toISOString()
         });
