@@ -214,6 +214,13 @@ const syncToSupabase = async (table: string, data: any[]) => {
         };
       }
       if (table === 'schedules') {
+        // Serializa metadados extras em created_by para garantir sincronização mesmo sem a coluna 'chat'
+        const serializedCreatedBy = JSON.stringify({
+          createdBy: item.createdBy || 'Admin',
+          chat: item.chat || null,
+          updatedAt: item.updatedAt || new Date().toISOString()
+        });
+
         return {
           id: item.id,
           rider_id: item.riderId,
@@ -222,13 +229,21 @@ const syncToSupabase = async (table: string, data: any[]) => {
           shift: item.shift,
           start_time: item.startTime,
           end_time: item.endTime,
-          created_by: item.createdBy || 'Admin',
+          created_by: serializedCreatedBy,
           chat: item.chat || null,
           created_at: item.createdAt,
           updated_at: item.updatedAt || item.createdAt || new Date().toISOString()
         };
       }
       if (table === 'deliveries') {
+        // Serializa metadados extras em order_number para garantir sincronização mesmo sem as colunas 'notes' e 'customer_chat'
+        const serializedOrderNumber = JSON.stringify({
+          orderNumber: item.orderNumber || null,
+          notes: item.notes || null,
+          customerChat: item.customerChat || null,
+          updatedAt: item.updatedAt || new Date().toISOString()
+        });
+
         return {
           id: item.id,
           rider_id: item.riderId,
@@ -238,7 +253,7 @@ const syncToSupabase = async (table: string, data: any[]) => {
           value: item.value,
           status: item.status,
           schedule_id: item.scheduleId || null,
-          order_number: item.orderNumber || null,
+          order_number: serializedOrderNumber,
           notes: item.notes || null,
           customer_chat: item.customerChat || null,
           updated_at: item.updatedAt || new Date().toISOString(),
