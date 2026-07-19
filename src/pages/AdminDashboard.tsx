@@ -25,18 +25,13 @@ import {
   Building2,
   CheckCircle2,
   UserCheck,
+  UserPlus,
   Eye,
   EyeOff,
   TrendingUp,
-  DollarSign,
-  AlertTriangle,
-  CheckSquare,
-  UserPlus,
-  MapPin,
-  ShieldAlert
+  DollarSign
 } from 'lucide-react';
 
-// Importando os modais modulares
 import UserModal from '../components/UserModal';
 import EstablishmentModal from '../components/EstablishmentModal';
 import ScheduleModal from '../components/ScheduleModal';
@@ -44,49 +39,39 @@ import WeeklyScheduleModal from '../components/WeeklyScheduleModal';
 import RiderSchedulesModal from '../components/RiderSchedulesModal';
 import DeliveryModal from '../components/DeliveryModal';
 
-// Constantes para a escala semanal automática
 const DAY_KEYS = ['seg', 'ter', 'qua', 'qui', 'sex', 'sab', 'dom'] as const;
 const DAY_LABELS = ['Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado', 'Domingo'];
+
+const getThisMonday = () => {
+  const today = new Date();
+  const day = today.getDay();
+  const diff = today.getDate() - day + (day === 0 ? -6 : 1);
+  const monday = new Date(today.setDate(diff));
+  return monday.toISOString().split('T')[0];
+};
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
   const [adminUser, setAdminUser] = useState(db.getCurrentUser());
   const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'establishments' | 'requests' | 'schedules' | 'deliveries' | 'finance' | 'reports'>('overview');
 
-  // Listas de dados
   const [users, setUsers] = useState<User[]>([]);
   const [establishments, setEstablishments] = useState<Establishment[]>([]);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
   const [partnerRequests, setPartnerRequests] = useState<PartnerRequest[]>([]);
 
-  // Filtros e buscas
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
   const [roleFilter, setRoleFilter] = useState<'all' | 'admin' | 'rider' | 'establishment'>('all');
   const [requestStatusFilter, setRequestStatusFilter] = useState<'all' | 'pending' | 'contacted'>('all');
 
-  // Controle de visualização de senhas
   const [visiblePasswords, setVisiblePasswords] = useState<Record<string, boolean>>({});
 
-  // Modais e Formulários
   const [showUserModal, setShowUserModal] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [userForm, setUserForm] = useState({
-    name: '',
-    cpf: '',
-    phone: '',
-    email: '',
-    role: 'rider' as 'admin' | 'rider' | 'establishment',
-    password: '',
-    establishmentId: '',
-    establishmentName: '',
-    zipCode: '',
-    street: '',
-    number: '',
-    neighborhood: '',
-    city: '',
-    state: ''
+    name: '', cpf: '', phone: '', email: '', role: 'rider' as any, password: '', establishmentId: '', establishmentName: '', zipCode: '', street: '', number: '', neighborhood: '', city: '', state: ''
   });
 
   const [showEstModal, setShowEstModal] = useState(false);
@@ -97,36 +82,23 @@ export default function AdminDashboard() {
 
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [scheduleForm, setScheduleForm] = useState({ 
-    riderId: '', 
-    establishmentId: '', 
-    date: '', 
-    shift: 'morning' as 'morning' | 'afternoon' | 'night',
-    startTime: '08:00',
-    endTime: '12:00'
+    riderId: '', establishmentId: '', date: '', shift: 'morning' as any, startTime: '08:00', endTime: '12:00'
   });
   const [scheduleConflictWarning, setScheduleConflictWarning] = useState('');
 
-  // Modal de Escala Semanal Automática
   const [showWeeklyModal, setShowWeeklyModal] = useState(false);
   const [weeklyForm, setWeeklyForm] = useState({
-    riderId: '',
-    establishmentId: '',
-    shift: 'morning' as 'morning' | 'afternoon' | 'night',
-    startTime: '08:00',
-    endTime: '12:00',
-    weekStart: '',
+    riderId: '', establishmentId: '', shift: 'morning' as any, startTime: '08:00', endTime: '12:00', weekStart: '',
     days: { seg: true, ter: true, qua: true, qui: true, sex: true, sab: false, dom: false }
   });
-  const [weeklyPreview, setWeeklyPreview] = useState<{ date: string; label: string; conflict: boolean; key: string; enabled: boolean }[]>([]);
+  const [weeklyPreview, setWeeklyPreview] = useState<any[]>([]);
   const [weeklyStep, setWeeklyStep] = useState<'form' | 'preview'>('form');
 
-  // Card accordion da aba Escalas
   const [expandedRider, setExpandedRider] = useState<string | null>(null);
   const [scheduleViewMode, setScheduleViewMode] = useState<'accordion' | 'grid' | 'timeline'>('accordion');
   const [scheduleSearch, setScheduleSearch] = useState('');
-  // Modal "Ver Todas" do card
   const [riderSchedulesModal, setRiderSchedulesModal] = useState<string | null>(null);
-  // Filtros do histórico no modal
+
   const [modalHistoryEst, setModalHistoryEst] = useState('');
   const [modalHistoryFrom, setModalHistoryFrom] = useState('');
   const [modalHistoryTo, setModalHistoryTo] = useState('');
@@ -135,7 +107,6 @@ export default function AdminDashboard() {
   const [editingDelivery, setEditingDelivery] = useState<Delivery | null>(null);
   const [deliveryForm, setDeliveryForm] = useState({ riderId: '', establishmentId: '', date: '', time: '', value: '', orderNumber: '', notes: '' });
 
-  // Relatórios
   const [reportType, setReportType] = useState<'earnings' | 'deliveries' | 'schedules'>('earnings');
   const [reportPeriod, setReportPeriod] = useState<'daily' | 'weekly' | 'monthly' | 'custom'>('weekly');
   const [customStartDate, setCustomStartDate] = useState('');
@@ -158,13 +129,9 @@ export default function AdminDashboard() {
   }, [adminUser, navigate, activeTab]);
 
   useEffect(() => {
-    const handleSyncComplete = () => {
-      loadData();
-    };
+    const handleSyncComplete = () => loadData();
     window.addEventListener('db-sync-complete', handleSyncComplete);
-    return () => {
-      window.removeEventListener('db-sync-complete', handleSyncComplete);
-    };
+    return () => window.removeEventListener('db-sync-complete', handleSyncComplete);
   }, []);
 
   const handleLogout = () => {
@@ -172,12 +139,10 @@ export default function AdminDashboard() {
     navigate('/login');
   };
 
-  // --- GESTÃO DE USUÁRIOS ---
   const handleSaveUser = (e: React.FormEvent) => {
     e.preventDefault();
     const allUsers = db.getUsers();
     const allEsts = db.getEstablishments();
-
     const userCpf = userForm.role === 'establishment' ? db.generateUniqueDummyCpf() : userForm.cpf;
 
     const duplicateCpf = allUsers.find(u => u.cpf === userCpf && (!editingUser || u.id !== editingUser.id));
@@ -195,12 +160,10 @@ export default function AdminDashboard() {
     const nowStr = new Date().toISOString();
     let finalEstId = userForm.establishmentId;
 
-    // Se for gerente de estabelecimento, cria ou vincula o estabelecimento automaticamente com o endereço fornecido
     if (userForm.role === 'establishment' && userForm.establishmentName) {
       const existingEst = allEsts.find(e => e.name.toLowerCase() === userForm.establishmentName.toLowerCase());
       if (existingEst) {
         finalEstId = existingEst.id;
-        // Atualiza o endereço do estabelecimento existente se necessário
         const updatedEsts = allEsts.map(e => e.id === existingEst.id ? {
           ...e,
           address: {
@@ -270,7 +233,6 @@ export default function AdminDashboard() {
 
     setShowUserModal(false);
     setEditingUser(null);
-    setUserForm({ name: '', cpf: '', phone: '', email: '', role: 'rider', password: '', establishmentId: '', establishmentName: '', zipCode: '', street: '', number: '', neighborhood: '', city: '', state: '' });
     loadData();
   };
 
@@ -279,7 +241,7 @@ export default function AdminDashboard() {
       alert('Erro: Você não pode excluir a si mesmo.');
       return;
     }
-    if (confirm('Deseja realmente excluir este usuário definitivamente? Esta ação não pode ser desfeita.')) {
+    if (confirm('Deseja realmente excluir este usuário definitivamente?')) {
       await db.deleteUser(id);
       loadData();
     }
@@ -295,15 +257,12 @@ export default function AdminDashboard() {
   const handleApproveRider = (id: string) => {
     const allUsers = db.getUsers();
     const allEsts = db.getEstablishments();
-    
     const userToApprove = allUsers.find(u => u.id === id);
     if (!userToApprove) return;
 
-    // Ativar Usuário
     const updatedUsers = allUsers.map(u => u.id === id ? { ...u, active: true, updatedAt: new Date().toISOString() } : u);
     db.setUsers(updatedUsers);
 
-    // Se for gerente, ativar também o estabelecimento vinculado
     if (userToApprove.role === 'establishment' && userToApprove.establishmentId) {
       const updatedEsts = allEsts.map(e => e.id === userToApprove.establishmentId ? { ...e, active: true, updatedAt: new Date().toISOString() } : e);
       db.setEstablishments(updatedEsts);
@@ -311,22 +270,19 @@ export default function AdminDashboard() {
     
     if (userToApprove.role === 'rider') {
       const allNotif = db.getNotifications();
-      const newNotif: Notification = {
+      db.setNotifications([...allNotif, {
         id: 'n_' + Date.now(),
         riderId: userToApprove.id,
         title: '🎉 Cadastro Aprovado!',
-        message: 'Seu cadastro foi aprovado! Você já pode acessar o sistema com seu e-mail e senha.',
+        message: 'Seu cadastro foi aprovado! Você já pode acessar o sistema.',
         date: new Date().toISOString(),
         read: false
-      };
-      db.setNotifications([...allNotif, newNotif]);
+      }]);
     }
-    
     loadData();
-    alert('Usuário aprovado e ativado com sucesso!');
+    alert('Usuário aprovado com sucesso!');
   };
 
-  // --- GESTÃO DE ESTABELECIMENTOS ---
   const handleSaveEst = (e: React.FormEvent) => {
     e.preventDefault();
     const allEst = db.getEstablishments();
@@ -338,17 +294,10 @@ export default function AdminDashboard() {
       return;
     }
 
-    const duplicateEmail = allUsers.find(u => u.email.toLowerCase() === estForm.email.toLowerCase() && (!editingEst || u.establishmentId !== editingEst.id));
-    if (duplicateEmail) {
-      alert('Erro: E-mail já cadastrado para outro usuário.');
-      return;
-    }
-
     const estId = editingEst ? editingEst.id : 'e_' + Date.now();
     const nowStr = new Date().toISOString();
 
     if (editingEst) {
-      // Atualizar Estabelecimento
       const updated = allEst.map(es => es.id === editingEst.id ? {
         ...es,
         name: estForm.name,
@@ -366,11 +315,8 @@ export default function AdminDashboard() {
       } : es);
       db.setEstablishments(updated);
 
-      // Verificar se já existe um usuário gerente para este estabelecimento
       const hasManager = allUsers.some(u => u.establishmentId === editingEst.id);
-
       if (hasManager) {
-        // Atualizar Usuário correspondente existente
         const updatedUsers = allUsers.map(u => u.establishmentId === editingEst.id ? {
           ...u,
           name: 'Gerente ' + estForm.name,
@@ -380,24 +326,8 @@ export default function AdminDashboard() {
           updatedAt: nowStr
         } : u);
         db.setUsers(updatedUsers);
-      } else if (estForm.email) {
-        // Criar um novo Usuário gerente caso não existisse antes
-        const newEstUser: User = {
-          id: 'u_' + Date.now(),
-          name: 'Gerente ' + estForm.name,
-          cpf: db.generateUniqueDummyCpf(),
-          phone: estForm.phone,
-          email: estForm.email,
-          role: 'establishment',
-          active: true,
-          passwordHash: estForm.password || 'bella123',
-          establishmentId: editingEst.id,
-          updatedAt: nowStr
-        };
-        db.setUsers([...allUsers, newEstUser]);
       }
     } else {
-      // Criar Estabelecimento
       const newEst: Establishment = {
         id: estId,
         name: estForm.name,
@@ -416,7 +346,6 @@ export default function AdminDashboard() {
       };
       db.setEstablishments([...allEst, newEst]);
 
-      // Criar Usuário correspondente (Obrigatório!)
       const newEstUser: User = {
         id: 'u_' + Date.now(),
         name: 'Gerente ' + estForm.name,
@@ -434,12 +363,11 @@ export default function AdminDashboard() {
 
     setShowEstModal(false);
     setEditingEst(null);
-    setEstForm({ name: '', street: '', number: '', complement: '', neighborhood: '', city: '', state: '', zipCode: '', phone: '', email: '', password: '' });
     loadData();
   };
 
   const handleDeleteEst = async (id: string) => {
-    if (confirm('Deseja realmente excluir este estabelecimento definitivamente? Todos os gerentes vinculados perderão o acesso.')) {
+    if (confirm('Deseja realmente excluir este estabelecimento definitivamente?')) {
       await db.deleteEstablishment(id);
       loadData();
     }
@@ -452,23 +380,13 @@ export default function AdminDashboard() {
     loadData();
   };
 
-  // --- GESTÃO DE ESCALAS ---
-  const checkScheduleConflict = (riderId: string, date: string, shift: string) => {
-    const conflict = schedules.find(s => s.riderId === riderId && s.date === date && s.shift === shift);
-    if (conflict) {
-      const rider = users.find(r => r.id === riderId);
-      const est = establishments.find(e => e.id === conflict.establishmentId);
-      return `Aviso: O motoboy ${rider?.name} já está escalado no estabelecimento ${est?.name} neste mesmo dia e turno!`;
-    }
-    return '';
-  };
-
   const handleSaveSchedule = (e: React.FormEvent) => {
     e.preventDefault();
-    const conflict = checkScheduleConflict(scheduleForm.riderId, scheduleForm.date, scheduleForm.shift);
-    
+    const conflict = schedules.find(s => s.riderId === scheduleForm.riderId && s.date === scheduleForm.date && s.shift === scheduleForm.shift);
     if (conflict && !scheduleConflictWarning) {
-      setScheduleConflictWarning(conflict);
+      const rider = users.find(r => r.id === scheduleForm.riderId);
+      const est = establishments.find(es => es.id === conflict.establishmentId);
+      setScheduleConflictWarning(`Aviso: O motoboy ${rider?.name} já está escalado no estabelecimento ${est?.name} neste mesmo dia e turno!`);
       return;
     }
 
@@ -485,66 +403,42 @@ export default function AdminDashboard() {
       updatedAt: new Date().toISOString()
     };
 
-    const updatedSchedules = [...schedules, newSchedule];
-    db.setSchedules(updatedSchedules);
+    db.setSchedules([...schedules, newSchedule]);
 
     const est = establishments.find(es => es.id === scheduleForm.establishmentId);
     const allNotif = db.getNotifications();
-    const newNotif: Notification = {
+    db.setNotifications([...allNotif, {
       id: 'n_' + Date.now(),
       riderId: scheduleForm.riderId,
       title: '📍 Novo Encaminhamento de Rota',
-      message: `Você foi designado para o estabelecimento ${est?.name} no dia ${new Date(scheduleForm.date + 'T00:00:00').toLocaleDateString('pt-BR')} no turno da ${getShiftLabel(scheduleForm.shift)} (${scheduleForm.startTime} - ${scheduleForm.endTime}). Por favor, dirija-se ao local.`,
+      message: `Você foi designado para o estabelecimento ${est?.name} no dia ${new Date(scheduleForm.date + 'T00:00:00').toLocaleDateString('pt-BR')} no turno da ${getShiftLabel(scheduleForm.shift)}.`,
       date: new Date().toISOString(),
       read: false
-    };
-    db.setNotifications([...allNotif, newNotif]);
+    }]);
 
     setShowScheduleModal(false);
-    setScheduleForm({ 
-      riderId: '', 
-      establishmentId: '', 
-      date: '', 
-      shift: 'morning',
-      startTime: '08:00',
-      endTime: '12:00'
-    });
     setScheduleConflictWarning('');
     loadData();
   };
 
-  const handleCancelSchedule = (id: string) => {
+  const handleCancelSchedule = async (id: string) => {
     const schedule = schedules.find(s => s.id === id);
     if (!schedule) return;
 
     if (confirm('Tem certeza que deseja cancelar esta escala?')) {
-      const updated = schedules.filter(s => s.id !== id);
-      db.setSchedules(updated);
-
+      await db.deleteSchedule(id);
       const est = establishments.find(es => es.id === schedule.establishmentId);
       const allNotif = db.getNotifications();
-      const newNotif: Notification = {
+      db.setNotifications([...allNotif, {
         id: 'n_' + Date.now(),
         riderId: schedule.riderId,
         title: 'Escala Cancelada',
         message: `Sua escala no estabelecimento ${est?.name} para o dia ${new Date(schedule.date + 'T00:00:00').toLocaleDateString('pt-BR')} foi cancelada.`,
         date: new Date().toISOString(),
         read: false
-      };
-      db.setNotifications([...allNotif, newNotif]);
-
+      }]);
       loadData();
     }
-  };
-
-  // --- ESCALA SEMANAL AUTOMÁTICA ---
-  const getThisMonday = () => {
-    const today = new Date();
-    const day = today.getDay();
-    const diff = day === 0 ? -6 : 1 - day;
-    const monday = new Date(today);
-    monday.setDate(today.getDate() + diff);
-    return monday.toISOString().split('T')[0];
   };
 
   const buildWeeklyPreview = (form: typeof weeklyForm) => {
@@ -555,9 +449,7 @@ export default function AdminDashboard() {
       const d = new Date(monday);
       d.setDate(monday.getDate() + idx);
       const dateStr = d.toISOString().split('T')[0];
-      const conflict = !!allSchedules.find(
-        s => s.riderId === form.riderId && s.date === dateStr && s.shift === form.shift
-      );
+      const conflict = !!allSchedules.find(s => s.riderId === form.riderId && s.date === dateStr && s.shift === form.shift);
       return { date: dateStr, label: DAY_LABELS[idx], conflict, key, enabled: form.days[key] };
     });
     setWeeklyPreview(preview);
@@ -590,7 +482,7 @@ export default function AdminDashboard() {
         id: 'n_' + Date.now() + '_' + day.date,
         riderId: weeklyForm.riderId,
         title: '📍 Novo Encaminhamento de Rota',
-        message: `Você foi designado para o estabelecimento ${est?.name} no dia ${new Date(day.date + 'T00:00:00').toLocaleDateString('pt-BR')} no turno da ${getShiftLabel(weeklyForm.shift)} (${weeklyForm.startTime} - ${weeklyForm.endTime}). Por favor, dirija-se ao local.`,
+        message: `Você foi designado para o estabelecimento ${est?.name} no dia ${new Date(day.date + 'T00:00:00').toLocaleDateString('pt-BR')} no turno da ${getShiftLabel(weeklyForm.shift)}.`,
         date: new Date().toISOString(),
         read: false
       });
@@ -601,16 +493,9 @@ export default function AdminDashboard() {
 
     setShowWeeklyModal(false);
     setWeeklyStep('form');
-    setWeeklyForm({
-      riderId: '', establishmentId: '', shift: 'morning',
-      startTime: '08:00', endTime: '12:00', weekStart: getThisMonday(),
-      days: { seg: true, ter: true, qua: true, qui: true, sex: true, sab: false, dom: false }
-    });
-    setWeeklyPreview([]);
     loadData();
   };
 
-  // --- REGISTRO DE CORRIDAS ---
   const handleSaveDelivery = (e: React.FormEvent) => {
     e.preventDefault();
     const val = parseFloat(deliveryForm.value);
@@ -619,21 +504,10 @@ export default function AdminDashboard() {
       return;
     }
 
-    const activeSchedule = schedules.find(s => 
-      s.riderId === deliveryForm.riderId && 
-      s.establishmentId === deliveryForm.establishmentId && 
-      s.date === deliveryForm.date
-    );
-
+    const activeSchedule = schedules.find(s => s.riderId === deliveryForm.riderId && s.establishmentId === deliveryForm.establishmentId && s.date === deliveryForm.date);
     const nowStr = new Date().toISOString();
 
     if (editingDelivery) {
-      const todayStr = db.getLocalDateString();
-      if (editingDelivery.date !== todayStr) {
-        alert('Erro: Só é permitido editar corridas lançadas no dia de hoje.');
-        return;
-      }
-
       const updated = deliveries.map(d => d.id === editingDelivery.id ? {
         ...d,
         riderId: deliveryForm.riderId,
@@ -667,21 +541,11 @@ export default function AdminDashboard() {
 
     setShowDeliveryModal(false);
     setEditingDelivery(null);
-    setDeliveryForm({ riderId: '', establishmentId: '', date: '', time: '', value: '', orderNumber: '', notes: '' });
     loadData();
   };
 
   const handleCancelDelivery = (id: string) => {
-    const delivery = deliveries.find(d => d.id === id);
-    if (!delivery) return;
-
-    const todayStr = db.getLocalDateString();
-    if (delivery.date !== todayStr) {
-      alert('Erro: Só é permitido cancelar corridas lançadas no dia de hoje.');
-      return;
-    }
-
-    if (confirm('Deseja realmente cancelar esta corrida? O valor será deduzido do faturamento do motoboy.')) {
+    if (confirm('Deseja realmente cancelar esta corrida?')) {
       const updated = deliveries.map(d => d.id === id ? { ...d, status: 'cancelled' as const, updatedAt: new Date().toISOString() } : d);
       db.setDeliveries(updated);
       loadData();
@@ -689,73 +553,29 @@ export default function AdminDashboard() {
   };
 
   const handleApproveDelivery = (id: string) => {
-    const delivery = deliveries.find(d => d.id === id);
-    if (!delivery) return;
-
     const updated = deliveries.map(d => d.id === id ? { ...d, status: 'active' as const, updatedAt: new Date().toISOString() } : d);
     db.setDeliveries(updated);
-
-    const est = establishments.find(e => e.id === delivery.establishmentId);
-    const allNotif = db.getNotifications();
-    const newNotif: Notification = {
-      id: 'n_' + Date.now(),
-      riderId: delivery.riderId,
-      title: '✅ Corrida Aprovada!',
-      message: `Sua corrida no valor de R$ ${delivery.value.toFixed(2)} foi aprovada pelo administrador para o estabelecimento ${est?.name}.`,
-      date: new Date().toISOString(),
-      read: false
-    };
-    db.setNotifications([...allNotif, newNotif]);
-
     loadData();
-    alert('Corrida aprovada com sucesso!');
   };
 
   const handleRejectDelivery = (id: string) => {
-    const reason = prompt('Digite o motivo da rejeição (opcional):');
+    const reason = prompt('Digite o motivo da rejeição:');
     if (reason !== null) {
-      const delivery = deliveries.find(d => d.id === id);
-      if (!delivery) return;
-
-      const updatedNotes = delivery.notes 
-        ? `${delivery.notes} | Rejeitado: ${reason}` 
-        : `Motivo da rejeição: ${reason}`;
-
-      const updated = deliveries.map(d => d.id === id ? { ...d, status: 'rejected' as const, notes: updatedNotes, updatedAt: new Date().toISOString() } : d);
+      const updated = deliveries.map(d => d.id === id ? { ...d, status: 'rejected' as const, notes: reason, updatedAt: new Date().toISOString() } : d);
       db.setDeliveries(updated);
-
-      const est = establishments.find(e => e.id === delivery.establishmentId);
-      const allNotif = db.getNotifications();
-      const newNotif: Notification = {
-        id: 'n_' + Date.now(),
-        riderId: delivery.riderId,
-        title: '❌ Corrida Rejeitada',
-        message: `Sua corrida no valor de R$ ${delivery.value.toFixed(2)} foi rejeitada pelo administrador para o estabelecimento ${est?.name}. Motivo: ${reason || 'Não especificado'}.`,
-        date: new Date().toISOString(),
-        read: false
-      };
-      db.setNotifications([...allNotif, newNotif]);
-
       loadData();
     }
   };
 
-  // --- GESTÃO DE SOLICITAÇÕES DE PARCERIA ---
   const handleToggleRequestStatus = (id: string) => {
-    const updated = partnerRequests.map(r => {
-      if (r.id === id) {
-        return { ...r, status: r.status === 'pending' ? 'contacted' as const : 'pending' as const };
-      }
-      return r;
-    });
+    const updated = partnerRequests.map(r => r.id === id ? { ...r, status: r.status === 'pending' ? 'contacted' as const : 'pending' as const } : r);
     db.setPartnerRequests(updated);
     loadData();
   };
 
-  const handleDeleteRequest = (id: string) => {
+  const handleDeleteRequest = async (id: string) => {
     if (confirm('Deseja realmente excluir esta solicitação?')) {
-      const updated = partnerRequests.filter(r => r.id !== id);
-      db.setPartnerRequests(updated);
+      await db.deletePartnerRequest(id);
       loadData();
     }
   };
@@ -763,62 +583,30 @@ export default function AdminDashboard() {
   const handleContactRequest = (request: PartnerRequest) => {
     const cleanPhone = request.phone.replace(/\D/g, '');
     const formattedPhone = cleanPhone.startsWith('55') ? cleanPhone : `55${cleanPhone}`;
-    const message = encodeURIComponent(`Olá ${request.ownerName}! Recebemos sua solicitação de parceria para o estabelecimento ${request.establishmentName} no MotoHub. Gostaria de dar andamento ao seu cadastro?`);
+    const message = encodeURIComponent(`Olá ${request.ownerName}! Recebemos sua solicitação de parceria para o estabelecimento ${request.establishmentName} no MotoHub.`);
     window.open(`https://wa.me/${formattedPhone}?text=${message}`, '_blank');
   };
 
   const handleApproveRequest = (req: PartnerRequest) => {
     const allEsts = db.getEstablishments();
-    const allUsers = db.getUsers();
-
-    // Encontrar o estabelecimento pré-criado pelo nome
     const est = allEsts.find(e => e.name.toLowerCase() === req.establishmentName.toLowerCase());
-    
     if (est) {
-      // Ativar o estabelecimento
       const updatedEsts = allEsts.map(e => e.id === est.id ? { ...e, active: true, updatedAt: new Date().toISOString() } : e);
       db.setEstablishments(updatedEsts);
-
-      // Ativar a conta do gerente vinculada
-      const updatedUsers = allUsers.map(u => u.establishmentId === est.id ? { ...u, active: true, updatedAt: new Date().toISOString() } : u);
+      const updatedUsers = db.getUsers().map(u => u.establishmentId === est.id ? { ...u, active: true, updatedAt: new Date().toISOString() } : u);
       db.setUsers(updatedUsers);
-
-      // Marcar solicitação como contatada/aprovada
       const updatedRequests = partnerRequests.map(r => r.id === req.id ? { ...r, status: 'contacted' as const } : r);
       db.setPartnerRequests(updatedRequests);
-
       loadData();
-      alert('Solicitação aprovada! O estabelecimento e a conta do gerente foram ativados com sucesso.');
-    } else {
-      // Fallback caso o estabelecimento não tenha sido pré-criado (abre o modal)
-      setEditingEst(null);
-      setEstForm({
-        name: req.establishmentName,
-        street: '',
-        number: '',
-        complement: '',
-        neighborhood: '',
-        city: '',
-        state: '',
-        zipCode: '',
-        phone: req.phone,
-        email: '',
-        password: ''
-      });
-      setShowEstModal(true);
-
-      const updated = partnerRequests.map(r => r.id === req.id ? { ...r, status: 'contacted' as const } : r);
-      db.setPartnerRequests(updated);
+      alert('Solicitação aprovada com sucesso!');
     }
   };
 
-  // --- FECHAMENTO FINANCEIRO ---
   const handleSettleRiderDeliveries = (riderId: string) => {
     if (confirm('Deseja realmente dar baixa e marcar todas as corridas ativas deste motoboy como pagas?')) {
       const updated = deliveries.map(d => d.riderId === riderId && d.status === 'active' ? { ...d, paid: true, updatedAt: new Date().toISOString() } : d);
       db.setDeliveries(updated);
       loadData();
-      alert('Baixa realizada com sucesso! O saldo do motoboy foi zerado.');
     }
   };
 
@@ -827,15 +615,12 @@ export default function AdminDashboard() {
       const updated = deliveries.map(d => d.establishmentId === estId && d.status === 'active' ? { ...d, paid: true, updatedAt: new Date().toISOString() } : d);
       db.setDeliveries(updated);
       loadData();
-      alert('Baixa realizada com sucesso! O saldo do estabelecimento foi zerado.');
     }
   };
 
-  // --- RELATÓRIOS E EXPORTAÇÃO ---
   const getFilteredReportData = () => {
     let start = new Date();
     let end = new Date();
-
     if (reportPeriod === 'daily') {
       start.setHours(0,0,0,0);
     } else if (reportPeriod === 'weekly') {
@@ -851,59 +636,37 @@ export default function AdminDashboard() {
     }
 
     const riders = users.filter(u => u.role === 'rider');
-
     if (reportType === 'earnings') {
-      const summary: { [key: string]: { name: string; total: number; count: number } } = {};
-      riders.forEach(r => {
-        summary[r.id] = { name: r.name, total: 0, count: 0 };
-      });
-
+      const summary: any = {};
+      riders.forEach(r => { summary[r.id] = { name: r.name, total: 0, count: 0 }; });
       deliveries.filter(d => d.status === 'active').forEach(d => {
         const dDate = new Date(d.date + 'T00:00:00');
-        if (dDate >= start && dDate <= end) {
-          if (summary[d.riderId]) {
-            summary[d.riderId].total += d.value;
-            summary[d.riderId].count += 1;
-          }
+        if (dDate >= start && dDate <= end && summary[d.riderId]) {
+          summary[d.riderId].total += d.value;
+          summary[d.riderId].count += 1;
         }
       });
-
       return Object.values(summary);
     } else if (reportType === 'deliveries') {
-      const summary: { [key: string]: { name: string; count: number; cancelled: number } } = {};
-      riders.forEach(r => {
-        summary[r.id] = { name: r.name, count: 0, cancelled: 0 };
-      });
-
+      const summary: any = {};
+      riders.forEach(r => { summary[r.id] = { name: r.name, count: 0, cancelled: 0 }; });
       deliveries.forEach(d => {
         const dDate = new Date(d.date + 'T00:00:00');
-        if (dDate >= start && dDate <= end) {
-          if (summary[d.riderId]) {
-            if (d.status === 'active') {
-              summary[d.riderId].count += 1;
-            } else {
-              summary[d.riderId].cancelled += 1;
-            }
-          }
+        if (dDate >= start && dDate <= end && summary[d.riderId]) {
+          if (d.status === 'active') summary[d.riderId].count += 1;
+          else summary[d.riderId].cancelled += 1;
         }
       });
-
       return Object.values(summary);
     } else {
-      const summary: { [key: string]: { name: string; count: number } } = {};
-      establishments.forEach(e => {
-        summary[e.id] = { name: e.name, count: 0 };
-      });
-
+      const summary: any = {};
+      establishments.forEach(e => { summary[e.id] = { name: e.name, count: 0 }; });
       schedules.forEach(s => {
         const sDate = new Date(s.date + 'T00:00:00');
-        if (sDate >= start && sDate <= end) {
-          if (summary[s.establishmentId]) {
-            summary[s.establishmentId].count += 1;
-          }
+        if (sDate >= start && sDate <= end && summary[s.establishmentId]) {
+          summary[s.establishmentId].count += 1;
         }
       });
-
       return Object.values(summary);
     }
   };
@@ -911,24 +674,16 @@ export default function AdminDashboard() {
   const exportToCSV = () => {
     const data = getFilteredReportData();
     let csvContent = "data:text/csv;charset=utf-8,";
-
     if (reportType === 'earnings') {
       csvContent += "Motoboy,Total Faturado (R$),Quantidade de Corridas\n";
-      data.forEach((row: any) => {
-        csvContent += `"${row.name}",${row.total.toFixed(2)},${row.count}\n`;
-      });
+      data.forEach((row: any) => { csvContent += `"${row.name}",${row.total.toFixed(2)},${row.count}\n`; });
     } else if (reportType === 'deliveries') {
       csvContent += "Motoboy,Corridas Ativas,Corridas Canceladas\n";
-      data.forEach((row: any) => {
-        csvContent += `"${row.name}",${row.count},${row.cancelled}\n`;
-      });
+      data.forEach((row: any) => { csvContent += `"${row.name}",${row.count},${row.cancelled}\n`; });
     } else {
       csvContent += "Estabelecimento,Total de Escalas\n";
-      data.forEach((row: any) => {
-        csvContent += `"${row.name}",${row.count}\n`;
-      });
+      data.forEach((row: any) => { csvContent += `"${row.name}",${row.count}\n`; });
     }
-
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
@@ -975,7 +730,6 @@ export default function AdminDashboard() {
   const pendingDeliveries = deliveries.filter(d => d.status === 'pending');
   const processedDeliveries = deliveries.filter(d => d.status !== 'pending');
 
-  // --- CÁLCULOS DE VISÃO GERAL ---
   const todayStr = db.getLocalDateString();
   const activeDeliveriesToday = deliveries.filter(d => d.date === todayStr && d.status === 'active');
   const totalRevenueToday = activeDeliveriesToday.reduce((sum, d) => sum + d.value, 0);
@@ -1040,7 +794,7 @@ export default function AdminDashboard() {
         {/* Sidebar Navigation — desktop only */}
         <div className="hidden lg:block lg:col-span-1 bg-white p-4 rounded-xl shadow-sm border border-slate-200 h-fit space-y-1">
           <button
-            onClick={() => { setActiveTab('overview'); }}
+            onClick={() => setActiveTab('overview')}
             className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
               activeTab === 'overview' ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-50'
             }`}
@@ -1101,7 +855,7 @@ export default function AdminDashboard() {
             <span>Registrar Corridas</span>
           </button>
           <button
-            onClick={() => { setActiveTab('finance'); }}
+            onClick={() => setActiveTab('finance')}
             className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
               activeTab === 'finance' ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-50'
             }`}
@@ -1110,7 +864,7 @@ export default function AdminDashboard() {
             <span>Fechamento</span>
           </button>
           <button
-            onClick={() => { setActiveTab('reports'); }}
+            onClick={() => setActiveTab('reports')}
             className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
               activeTab === 'reports' ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-50'
             }`}
@@ -1295,7 +1049,6 @@ export default function AdminDashboard() {
                 </button>
               </div>
 
-              {/* Filtros */}
               <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                 <div className="relative sm:col-span-2">
                   <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
@@ -1328,7 +1081,6 @@ export default function AdminDashboard() {
                 </select>
               </div>
 
-              {/* Tabela */}
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[680px] text-left border-collapse">
                   <thead>
@@ -1757,13 +1509,13 @@ export default function AdminDashboard() {
                   />
                 </div>
                 <div className="flex items-center bg-slate-100 rounded-lg p-1 gap-1 self-end sm:self-auto">
-                  <button onClick={() => setScheduleViewMode('accordion')} title="Lista" className={`flex items-center gap-1.5 px-3 py-2 rounded-md text-xs font-medium transition-colors ${scheduleViewMode === 'accordion' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                  <button onClick={() => setScheduleViewMode('accordion')} className={`flex items-center gap-1.5 px-3 py-2 rounded-md text-xs font-medium transition-colors ${scheduleViewMode === 'accordion' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
                     <List className="h-3.5 w-3.5" /><span>Lista</span>
                   </button>
-                  <button onClick={() => setScheduleViewMode('grid')} title="Cards" className={`flex items-center gap-1.5 px-3 py-2 rounded-md text-xs font-medium transition-colors ${scheduleViewMode === 'grid' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                  <button onClick={() => setScheduleViewMode('grid')} className={`flex items-center gap-1.5 px-3 py-2 rounded-md text-xs font-medium transition-colors ${scheduleViewMode === 'grid' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
                     <LayoutGrid className="h-3.5 w-3.5" /><span>Cards</span>
                   </button>
-                  <button onClick={() => setScheduleViewMode('timeline')} title="Agenda" className={`flex items-center gap-1.5 px-3 py-2 rounded-md text-xs font-medium transition-colors ${scheduleViewMode === 'timeline' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                  <button onClick={() => setScheduleViewMode('timeline')} className={`flex items-center gap-1.5 px-3 py-2 rounded-md text-xs font-medium transition-colors ${scheduleViewMode === 'timeline' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
                     <Calendar className="h-3.5 w-3.5" /><span>Agenda</span>
                   </button>
                 </div>
@@ -1773,9 +1525,7 @@ export default function AdminDashboard() {
                 const todayStr = db.getLocalDateString();
                 const q = scheduleSearch.toLowerCase();
                 const riders = users.filter(u => u.role === 'rider');
-                const filteredList = riders.filter(r =>
-                  r.name.toLowerCase().includes(q) || r.cpf.includes(q) || r.phone.includes(q)
-                );
+                const filteredList = riders.filter(r => r.name.toLowerCase().includes(q) || r.cpf.includes(q) || r.phone.includes(q));
                 if (filteredList.length === 0) return (
                   <div className="py-10 text-center text-slate-400">
                     <Search className="h-10 w-10 mx-auto mb-2 text-slate-300" />
@@ -1812,7 +1562,6 @@ export default function AdminDashboard() {
                                 <div className="px-5 py-6 text-center text-slate-400 text-sm">
                                   <Calendar className="h-8 w-8 mx-auto mb-2 text-slate-300" />
                                   <p>Nenhuma escala cadastrada.</p>
-                                  <button onClick={() => { setScheduleForm({ riderId: rider.id, establishmentId: '', date: todayStr, shift: 'morning', startTime: '08:00', endTime: '12:00' }); setScheduleConflictWarning(''); setShowScheduleModal(true); }} className="mt-3 text-indigo-600 hover:underline text-xs font-medium">+ Criar escala agora</button>
                                 </div>
                               ) : (
                                 <div className="divide-y divide-slate-100">
@@ -1864,9 +1613,7 @@ export default function AdminDashboard() {
                             <div className="min-w-0">
                               <p className="font-bold text-slate-800 truncate">{rider.name}</p>
                               <p className="text-xs text-slate-500 truncate">{rider.phone}</p>
-                              <p className="text-xs text-slate-400 truncate">{rider.cpf}</p>
                             </div>
-                            {!rider.active && <span className="ml-auto bg-red-100 text-red-700 text-xs px-2 py-0.5 rounded-full flex-shrink-0">Inativo</span>}
                           </div>
                           <div className="grid grid-cols-2 gap-2">
                             <div className="bg-indigo-50 rounded-lg px-3 py-2 text-center">
@@ -1882,10 +1629,8 @@ export default function AdminDashboard() {
                             <div className="bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
                               <p className="text-xs font-bold text-emerald-700 uppercase mb-1">Próxima escala</p>
                               <p className="text-sm font-semibold text-slate-800 truncate">{nextEst?.name || 'N/A'}</p>
-                              <p className="text-sm font-semibold text-slate-500 mt-0.5">
-                                {new Date(next.date + 'T00:00:00').toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: '2-digit' })}
-                                {' · '}<span className={`font-medium ${next.shift === 'morning' ? 'text-amber-600' : next.shift === 'afternoon' ? 'text-orange-600' : next.shift === 'night' ? 'text-blue-600' : ''}`}>{getShiftLabel(next.shift)}</span>
-                                {' · '}{next.startTime}–{next.endTime}
+                              <p className="text-xs text-slate-500 mt-1">
+                                {new Date(next.date + 'T00:00:00').toLocaleDateString('pt-BR')} · {getShiftLabel(next.shift)}
                               </p>
                             </div>
                           ) : (
