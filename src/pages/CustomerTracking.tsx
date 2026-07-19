@@ -24,6 +24,7 @@ export default function CustomerTracking() {
   const [estCoords, setEstCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const [isExpired, setIsExpired] = useState(false);
 
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
@@ -41,6 +42,17 @@ export default function CustomerTracking() {
     const currentDelivery = allDeliveries.find(d => d.id === deliveryId);
     
     if (currentDelivery) {
+      // Verificar expiração de 1h 30m (90 minutos)
+      const deliveryDateTime = new Date(`${currentDelivery.date}T${currentDelivery.time}:00`);
+      const timeDifferenceMs = Date.now() - deliveryDateTime.getTime();
+      const ninetyMinutesInMs = 90 * 60 * 1000; // 1h 30m
+      
+      if (timeDifferenceMs > ninetyMinutesInMs) {
+        setIsExpired(true);
+        setLoading(false);
+        return;
+      }
+
       setDelivery(currentDelivery);
       
       const allUsers = db.getUsers();
@@ -395,6 +407,21 @@ export default function CustomerTracking() {
     );
   }
 
+  if (isExpired) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4 text-center">
+        <Clock className="h-12 w-12 text-red-500 mb-3 animate-pulse" />
+        <h2 className="text-lg font-bold text-slate-800">Link de Acompanhamento Expirado</h2>
+        <p className="text-sm text-slate-500 mt-1 max-w-xs">
+          Este link de rastreamento expirou por limite de tempo (limite de 1 hora e 30 minutos desde o início da entrega).
+        </p>
+        <button onClick={() => navigate('/')} className="mt-4 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium">
+          Voltar ao Início
+        </button>
+      </div>
+    );
+  }
+
   if (!delivery) {
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4 text-center">
@@ -455,10 +482,6 @@ export default function CustomerTracking() {
                 </span>
                 {delivery.status === 'active' ? 'Saiu para Entrega' : 'Aguardando Envio'}
               </h3>
-            </div>
-            <div className="text-right">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Valor</span>
-              <p className="text-base font-extrabold text-emerald-600 mt-0.5">R$ {delivery.value.toFixed(2)}</p>
             </div>
           </div>
 
