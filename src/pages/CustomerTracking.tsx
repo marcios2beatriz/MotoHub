@@ -307,7 +307,10 @@ export default function CustomerTracking() {
         }
       }
 
-      geocode();
+      initMap(finalLat, finalLng);
+    };
+
+    geocode();
   }, [establishment?.id]);
 
   // Atualização do Marcador do Motoboy e Ajuste de Zoom Inteligente
