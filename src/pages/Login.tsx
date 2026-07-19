@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../utils/db';
-import { Lock, Mail, AlertTriangle, ArrowLeft } from 'lucide-react';
+import { Lock, Mail, AlertTriangle, ArrowLeft, RefreshCw } from 'lucide-react';
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -38,8 +38,21 @@ export default function Login() {
     }
   };
 
+  const handleResetDatabase = () => {
+    if (confirm('Deseja realmente restaurar o banco de dados local para os dados padrão? Isso limpará as alterações locais e reativará o usuário admin padrão.')) {
+      // Limpa todas as chaves do LocalStorage que começam com "dm_"
+      Object.keys(localStorage).forEach(key => {
+        if (key.startsWith('dm_')) {
+          localStorage.removeItem(key);
+        }
+      });
+      alert('Banco de dados local restaurado com sucesso! A página será recarregada.');
+      window.location.reload();
+    }
+  };
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
+    <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 px-4 py-12">
       <div className="max-w-md w-full space-y-8 bg-white p-8 rounded-xl shadow-lg border border-slate-100 relative pt-12">
         {/* Botão Voltar */}
         <button 
@@ -115,6 +128,18 @@ export default function Login() {
             </button>
           </div>
         </form>
+      </div>
+
+      {/* Botão de Restauração de Emergência */}
+      <div className="mt-6 text-center">
+        <button
+          onClick={handleResetDatabase}
+          className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-400 hover:text-red-600 transition-colors bg-white px-3 py-2 rounded-lg shadow-sm border border-slate-200"
+          title="Restaurar dados padrão do sistema"
+        >
+          <RefreshCw className="h-3.5 w-3.5" />
+          <span>Restaurar Dados Padrão</span>
+        </button>
       </div>
     </div>
   );

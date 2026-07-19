@@ -77,12 +77,47 @@ export default function RiderDashboard() {
   const [historyDateFrom, setHistoryDateFrom] = useState('');
   const [historyDateTo, setHistoryDateTo] = useState('');
 
+  // Helper ultra-robusto para resolver estabelecimento por ID ou nome aproximado
+  const resolveEst = (id: string): Establishment | undefined => {
+    const allEsts = db.getEstablishments();
+    let found = allEsts.find(e => e.id === id);
+    if (found) return found;
+    
+    // Fallback por nome aproximado caso o ID seja diferente ou corrompido
+    found = allEsts.find(e => 
+      e.name.toLowerCase().trim() === id.toLowerCase().trim() ||
+      e.name.toLowerCase().trim().includes(id.toLowerCase().trim()) ||
+      id.toLowerCase().trim().includes(e.name.toLowerCase().trim())
+    );
+    return found;
+  };
+
   const loadData = () => {
     if (!user) return;
-    const allSchedules = db.getSchedules().filter(s => s.riderId === user.id);
-    const allDeliveries = db.getDeliveries().filter(d => d.riderId === user.id);
-    const allNotifications = db.getNotifications().filter(n => n.riderId === user.id);
+    const allUsers = db.getUsers();
+    const freshUser = allUsers.find(u => u.email.toLowerCase() === user.email.toLowerCase()) || user;
+    
+    // Filtro ultra-robusto por ID ou e-mail do motoboy para evitar sumiço por divergência de IDs
+    const allSchedules = db.getSchedules().filter(s => {
+      if (s.riderId === freshUser.id) return true;
+      const riderOfSch = allUsers.find(u => u.id === s.riderId);
+      return riderOfSch && riderOfSch.email.toLowerCase() === freshUser.email.toLowerCase();
+    });
+
+    const allDeliveries = db.getDeliveries().filter(d => {
+      if (d.riderId === freshUser.id) return true;
+      const riderOfDel = allUsers.find(u => u.id === d.riderId);
+      return riderOfDel && riderOfDel.email.toLowerCase() === freshUser.email.toLowerCase();
+    });
+
+    const allNotifications = db.getNotifications().filter(n => {
+      if (n.riderId === freshUser.id) return true;
+      const riderOfNotif = allUsers.find(u => u.id === n.riderId);
+      return riderOfNotif && riderOfNotif.email.toLowerCase() === freshUser.email.toLowerCase();
+    });
+
     const allEsts = db.getEstablishments().filter(e => e.active);
+    
     setSchedules(allSchedules);
     setDeliveries(allDeliveries);
     setNotifications(allNotifications);
@@ -110,7 +145,7 @@ export default function RiderDashboard() {
           newLines.forEach(line => {
             const isMe = line.includes('- Motoboy') || line.includes(`(${user?.name})`);
             if (!isMe) {
-              const est = establishments.find(e => e.id === d.establishmentId);
+              const est = resolveEst(d.establishmentId);
               const messageText = line.substring(line.indexOf(']: ') + 3);
               
               sendDeviceNotification(
@@ -171,7 +206,7 @@ export default function RiderDashboard() {
           newLines.forEach(line => {
             const isMe = line.includes('- Motoboy') || line.includes(`(${user?.name})`);
             if (!isMe) {
-              const est = establishments.find(e => e.id === s.establishmentId);
+              const est = resolveEst(s.establishmentId);
               const messageText = line.substring(line.indexOf(']: ') + 3);
               
               sendDeviceNotification(
@@ -349,25 +384,34 @@ export default function RiderDashboard() {
   }).reduce((sum, d) => sum + d.value, 0);
 
   const getFutureSchedules = () => {
-    const today = new Date();
-    today.setHours(0,0,0,0);
-    const limitDate = new Date();
-    limitDate.setDate(today.getDate() + 30);
+    const todayStr = db.getLocalDateString();
+    const limit = new Date();
+    limit.setDate(limit.getDate() + 30);
+    const limitDateStr = db.getLocalDateString(limit);
 
     return schedules.filter(s => {
-      const sDate = new Date(s.date + 'T00:00:00');
-      return sDate >= today && sDate <= limitDate;
+      return s.date >= todayStr && s.date <= limitDateStr;
     }).sort((a, b) => a.date.localeCompare(b.date));
   };
 
   const filteredFutureSchedules = getFutureSchedules().filter(s => {
-    const matchesEst = scheduleEstFilter ? s.establishmentId === scheduleEstFilter : true;
+    let matchesEst = true;
+    if (scheduleEstFilter) {
+      const filterEst = establishments.find(e => e.id === scheduleEstFilter);
+      const schEst = resolveEst(s.establishmentId);
+      if (filterEst && schEst) {
+        matchesEst = filterEst.name.toLowerCase().trim() === schEst.name.toLowerCase().trim();
+      } else {
+        matchesEst = s.establishmentId === scheduleEstFilter;
+      }
+    }
     const matchesDate = scheduleDateFilter ? s.date === scheduleDateFilter : true;
     return matchesEst && matchesDate;
   });
 
   const handleOpenGPS = (address: any) => {
-    const query = encodeURIComponent(`${address.street}, ${address.number}, ${address.neighborhood}, ${address.city} - ${address.state}`);
+    if (!address) return;
+    const query = encodeURIComponent(`${address.street || ''}, ${address.number || ''}, ${address.neighborhood || ''}, ${address.city || ''} - ${address.state || ''}`);
     window.open(`https://www.google.com/maps/search/?api=1&query=${query}`, '_blank');
   };
 
@@ -416,7 +460,7 @@ export default function RiderDashboard() {
       } : d);
 
       db.setDeliveries(updated);
-      alert('Corrida atualizada com sucesso! Aguardando aprovação.');
+      alert('Corrida updated com sucesso! Aguardando aprovação.');
     } else {
       const newDelivery: Delivery = {
         id: 'd_' + Date.now(),
@@ -730,7 +774,7 @@ export default function RiderDashboard() {
               ) : (
                 <div className="divide-y divide-slate-100">
                   {todayDeliveries.map((delivery) => {
-                    const est = db.getEstablishments().find(e => e.id === delivery.establishmentId);
+                    const est = resolveEst(delivery.establishmentId);
                     return (
                       <div key={delivery.id} className="py-3 flex justify-between items-center">
                         <div className="min-w-0 flex-1 pr-4">
@@ -898,7 +942,7 @@ export default function RiderDashboard() {
             ) : (
               <div className="space-y-4">
                 {filteredFutureSchedules.map((schedule) => {
-                  const est = db.getEstablishments().find(e => e.id === schedule.establishmentId);
+                  const est = resolveEst(schedule.establishmentId);
                   const isTransition = schedule.date === todayStr;
 
                   return (
@@ -942,8 +986,8 @@ export default function RiderDashboard() {
                           <div className="flex items-start space-x-2">
                             <MapPin className="h-5 w-5 text-slate-400 flex-shrink-0 mt-0.5" />
                             <div className="text-xs text-slate-600">
-                              <p className="font-medium">{est.address.street}, {est.address.number}</p>
-                              <p>{est.address.neighborhood} - {est.address.city}/{est.address.state}</p>
+                              <p className="font-medium">{est.address?.street || 'Endereço não cadastrado'}, {est.address?.number || 'S/N'}</p>
+                              <p>{est.address?.neighborhood || ''} {est.address?.city ? `- ${est.address.city}` : ''}/{est.address?.state || ''}</p>
                             </div>
                           </div>
                           <button
@@ -965,7 +1009,7 @@ export default function RiderDashboard() {
 
         {/* Tab Content: History */}
         {activeTab === 'history' && (() => {
-          const todayStr = new Date().toISOString().split('T')[0];
+          const todayStr = db.getLocalDateString();
           const allEsts = db.getEstablishments();
           const pastSchedules = schedules
             .filter(s => s.date < todayStr)
@@ -1051,7 +1095,7 @@ export default function RiderDashboard() {
               ) : (
                 <div className="space-y-3">
                   {dateFiltered.map(schedule => {
-                    const est = allEsts.find(e => e.id === schedule.establishmentId);
+                    const est = resolveEst(schedule.establishmentId);
                     return (
                       <div key={schedule.id} className="bg-white border border-slate-200 rounded-xl p-4 opacity-80">
                         <div className="flex items-start justify-between gap-2">
@@ -1077,7 +1121,7 @@ export default function RiderDashboard() {
                         {est && (
                           <div className="mt-3 flex items-center gap-2 text-xs text-slate-500 bg-slate-50 rounded-lg px-3 py-2">
                             <MapPin className="h-3.5 w-3.5 text-slate-400 flex-shrink-0" />
-                            <span>{est.address.street}, {est.address.number} — {est.address.neighborhood}, {est.address.city}/{est.address.state}</span>
+                            <span>{est.address?.street || 'Endereço não cadastrado'}, {est.address?.number || 'S/N'} — {est.address?.neighborhood || ''}, {est.address?.city || ''}/{est.address?.state || ''}</span>
                           </div>
                         )}
                       </div>

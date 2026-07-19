@@ -171,7 +171,7 @@ export default function AdminDashboard() {
     const allUsers = db.getUsers();
     const allEsts = db.getEstablishments();
 
-    const userCpf = userForm.role === 'establishment' ? '000.000.000-00' : userForm.cpf;
+    const userCpf = userForm.role === 'establishment' ? db.generateUniqueDummyCpf() : userForm.cpf;
 
     const duplicateCpf = allUsers.find(u => u.cpf === userCpf && (!editingUser || u.id !== editingUser.id));
     const duplicateEmail = allUsers.find(u => u.email.toLowerCase() === userForm.email.toLowerCase() && (!editingUser || u.id !== editingUser.id));
@@ -267,13 +267,13 @@ export default function AdminDashboard() {
     loadData();
   };
 
-  const handleDeleteUser = (id: string) => {
+  const handleDeleteUser = async (id: string) => {
     if (id === adminUser?.id) {
       alert('Erro: Você não pode excluir a si mesmo.');
       return;
     }
     if (confirm('Deseja realmente excluir este usuário definitivamente? Esta ação não pode ser desfeita.')) {
-      db.deleteUser(id);
+      await db.deleteUser(id);
       loadData();
     }
   };
@@ -378,7 +378,7 @@ export default function AdminDashboard() {
         const newEstUser: User = {
           id: 'u_' + Date.now(),
           name: 'Gerente ' + estForm.name,
-          cpf: '000.000.000-00',
+          cpf: db.generateUniqueDummyCpf(),
           phone: estForm.phone,
           email: estForm.email,
           role: 'establishment',
@@ -409,22 +409,20 @@ export default function AdminDashboard() {
       };
       db.setEstablishments([...allEst, newEst]);
 
-      // Criar Usuário correspondente
-      if (estForm.email) {
-        const newEstUser: User = {
-          id: 'u_' + Date.now(),
-          name: 'Gerente ' + estForm.name,
-          cpf: '000.000.000-00',
-          phone: estForm.phone,
-          email: estForm.email,
-          role: 'establishment',
-          active: true,
-          passwordHash: estForm.password || 'bella123',
-          establishmentId: estId,
-          updatedAt: nowStr
-        };
-        db.setUsers([...allUsers, newEstUser]);
-      }
+      // Criar Usuário correspondente (Obrigatório!)
+      const newEstUser: User = {
+        id: 'u_' + Date.now(),
+        name: 'Gerente ' + estForm.name,
+        cpf: db.generateUniqueDummyCpf(),
+        phone: estForm.phone,
+        email: estForm.email || `${estForm.name.toLowerCase().replace(/\s+/g, '')}@delivery.com`,
+        role: 'establishment',
+        active: true,
+        passwordHash: estForm.password || 'bella123',
+        establishmentId: estId,
+        updatedAt: nowStr
+      };
+      db.setUsers([...allUsers, newEstUser]);
     }
 
     setShowEstModal(false);
@@ -433,9 +431,9 @@ export default function AdminDashboard() {
     loadData();
   };
 
-  const handleDeleteEst = (id: string) => {
+  const handleDeleteEst = async (id: string) => {
     if (confirm('Deseja realmente excluir este estabelecimento definitivamente? Todos os gerentes vinculados perderão o acesso.')) {
-      db.deleteEstablishment(id);
+      await db.deleteEstablishment(id);
       loadData();
     }
   };
@@ -623,7 +621,7 @@ export default function AdminDashboard() {
     const nowStr = new Date().toISOString();
 
     if (editingDelivery) {
-      const todayStr = new Date().toISOString().split('T')[0];
+      const todayStr = db.getLocalDateString();
       if (editingDelivery.date !== todayStr) {
         alert('Erro: Só é permitido editar corridas lançadas no dia de hoje.');
         return;
@@ -669,7 +667,7 @@ export default function AdminDashboard() {
     const delivery = deliveries.find(d => d.id === id);
     if (!delivery) return;
 
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = db.getLocalDateString();
     if (delivery.date !== todayStr) {
       alert('Erro: Só é permitido cancelar corridas lançadas no dia de hoje.');
       return;
@@ -1153,11 +1151,10 @@ export default function AdminDashboard() {
                             </p>
                           </td>
                           <td className="py-3 px-4 text-slate-600">
-                            <p className="font-mono text-xs">{user.role === 'establishment' ? '—' : user.cpf}</p>
-                            <p className="text-xs text-slate-400">{user.email}</p>
+                            <p className="text-xs">{user.cpf}</p>
                             <p className="text-xs text-slate-400">{user.phone}</p>
                           </td>
-                          <td className="py-3 px-4">
+                          <td className="py-3 px-4 text-slate-600">
                             <div className="flex items-center space-x-2">
                               <span className="font-mono text-sm bg-slate-100 px-2 py-1 rounded border border-slate-200">
                                 {isPassVisible ? user.passwordHash : '••••••••'}
@@ -1171,11 +1168,11 @@ export default function AdminDashboard() {
                               </button>
                             </div>
                           </td>
-                          <td className="py-3 px-4">
-                            <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
-                              user.active ? 'bg-emerald-100 text-emerald-800' : 'bg-blue-100 text-blue-800'
+                          <td className="py-3 px-4 text-slate-600">
+                            <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+                              user.active ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'
                             }`}>
-                              {user.active ? 'Ativo' : 'Pendente'}
+                              {user.active ? 'Ativo' : 'Inativo'}
                             </span>
                           </td>
                           <td className="py-3 px-4 text-right space-x-2 whitespace-nowrap">
@@ -1185,7 +1182,7 @@ export default function AdminDashboard() {
                                   setScheduleForm({
                                     riderId: user.id,
                                     establishmentId: '',
-                                    date: new Date().toISOString().split('T')[0],
+                                    date: db.getLocalDateString(),
                                     shift: 'morning',
                                     startTime: '08:00',
                                     endTime: '12:00'
@@ -1279,7 +1276,6 @@ export default function AdminDashboard() {
                   }}
                   className="flex items-center justify-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
                 >
-                  <Plus className="h-4 w-4" />
                   <span>Novo Estabelecimento</span>
                 </button>
               </div>
@@ -1316,8 +1312,7 @@ export default function AdminDashboard() {
                       <th className="py-3 px-4">Endereço</th>
                       <th className="py-3 px-4">Telefone</th>
                       <th className="py-3 px-4">E-mail de Acesso</th>
-                      <th className="py-3 px-4">Senha do Gerente</th>
-                      <th className="py-3 px-4">Status</th>
+                      <th className="py-3 px-4">Senha Cadastrada</th>
                       <th className="py-3 px-4 text-right">Ações</th>
                     </tr>
                   </thead>
@@ -1334,7 +1329,7 @@ export default function AdminDashboard() {
                           </td>
                           <td className="py-3 px-4 text-slate-600">{est.phone}</td>
                           <td className="py-3 px-4 text-slate-600 font-medium">{estUser?.email || 'Sem conta'}</td>
-                          <td className="py-3 px-4">
+                          <td className="py-3 px-4 text-slate-600">
                             {estUser ? (
                               <div className="flex items-center space-x-2">
                                 <span className="font-mono text-sm bg-slate-100 px-2 py-1 rounded border border-slate-200">
@@ -1351,13 +1346,6 @@ export default function AdminDashboard() {
                             ) : (
                               <span className="text-slate-400 text-xs">—</span>
                             )}
-                          </td>
-                          <td className="py-3 px-4">
-                            <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
-                              est.active ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'
-                            }`}>
-                              {est.active ? 'Ativo' : 'Inativo'}
-                            </span>
                           </td>
                           <td className="py-3 px-4 text-right space-x-2 whitespace-nowrap">
                             <button
@@ -1396,7 +1384,6 @@ export default function AdminDashboard() {
                             <button
                               onClick={() => handleDeleteEst(est.id)}
                               className="p-1.5 text-red-500 hover:bg-red-50 rounded transition-colors inline-flex"
-                              title="Excluir Estabelecimento Definitivamente"
                             >
                               <Trash2 className="h-4 w-4" />
                             </button>
@@ -1512,7 +1499,6 @@ export default function AdminDashboard() {
                             <button
                               onClick={() => handleDeleteRequest(req.id)}
                               className="p-1.5 text-red-500 hover:bg-red-50 rounded transition-colors inline-flex"
-                              title="Excluir"
                             >
                               <Trash2 className="h-4 w-4" />
                             </button>
@@ -1575,7 +1561,7 @@ export default function AdminDashboard() {
               </div>
 
               {(() => {
-                const todayStr = new Date().toISOString().split('T')[0];
+                const todayStr = db.getLocalDateString();
                 const q = scheduleSearch.toLowerCase();
                 const riders = users.filter(u => u.role === 'rider');
                 const filteredList = riders.filter(r =>
@@ -1635,7 +1621,7 @@ export default function AdminDashboard() {
                                             <p className="text-xs text-slate-500 flex flex-wrap items-center gap-1 mt-0.5">
                                               <span>{new Date(sch.date + 'T00:00:00').toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' })}</span>
                                               <span className="text-slate-300">•</span>
-                                              <span className={`font-medium ${sch.shift === 'morning' ? 'text-amber-600' : sch.shift === 'afternoon' ? 'text-orange-600' : 'text-blue-600'}`}>{getShiftLabel(sch.shift)}</span>
+                                              <span className={`font-medium ${sch.shift === 'morning' ? 'text-amber-600' : sch.shift === 'afternoon' ? 'text-orange-600' : sch.shift === 'night' ? 'text-blue-600' : ''}`}>{getShiftLabel(sch.shift)}</span>
                                               <span className="text-slate-300">•</span>
                                               <span className="font-mono text-slate-600">{sch.startTime}–{sch.endTime}</span>
                                             </p>
@@ -1689,7 +1675,7 @@ export default function AdminDashboard() {
                               <p className="text-sm font-semibold text-slate-800 truncate">{nextEst?.name || 'N/A'}</p>
                               <p className="text-sm font-semibold text-slate-500 mt-0.5">
                                 {new Date(next.date + 'T00:00:00').toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: '2-digit' })}
-                                {' · '}<span className={`font-medium ${next.shift === 'morning' ? 'text-amber-600' : next.shift === 'afternoon' ? 'text-orange-600' : 'text-blue-600'}`}>{getShiftLabel(next.shift)}</span>
+                                {' · '}<span className={`font-medium ${next.shift === 'morning' ? 'text-amber-600' : next.shift === 'afternoon' ? 'text-orange-600' : next.shift === 'night' ? 'text-blue-600' : ''}`}>{getShiftLabel(next.shift)}</span>
                                 {' · '}{next.startTime}–{next.endTime}
                               </p>
                             </div>
@@ -1750,7 +1736,7 @@ export default function AdminDashboard() {
                                   </div>
                                   <div className="flex items-center gap-3 flex-shrink-0">
                                     <div className="text-right">
-                                      <p className={`text-xs font-bold ${sch.shift === 'morning' ? 'text-amber-600' : sch.shift === 'afternoon' ? 'text-orange-600' : 'text-blue-600'}`}>{getShiftLabel(sch.shift)}</p>
+                                      <p className={`text-xs font-bold ${sch.shift === 'morning' ? 'text-amber-600' : sch.shift === 'afternoon' ? 'text-orange-600' : sch.shift === 'night' ? 'text-blue-600' : ''}`}>{getShiftLabel(sch.shift)}</p>
                                       <p className="text-xs font-mono text-slate-600">{sch.startTime}–{sch.endTime}</p>
                                     </div>
                                     <button onClick={() => handleCancelSchedule(sch.id)} className="text-red-400 hover:text-red-600 hover:bg-red-50 p-1.5 rounded transition-colors flex-shrink-0"><Trash2 className="h-3.5 w-3.5" /></button>
@@ -1773,7 +1759,7 @@ export default function AdminDashboard() {
             <div className="space-y-6">
               {/* Pending Deliveries Approval Section */}
               {pendingDeliveries.length > 0 && (
-                <div className="bg-amber-50/50 p-6 rounded-xl shadow-sm border border-amber-200 space-y-4">
+                <div className="bg-amber-50/50 p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
                   <h2 className="text-lg font-bold text-amber-800 flex items-center space-x-2">
                     <Clock className="h-5 w-5 text-amber-600 animate-pulse" />
                     <span>Corridas Pendentes de Aprovação ({pendingDeliveries.length})</span>
@@ -1800,7 +1786,7 @@ export default function AdminDashboard() {
                               <span>Lançada em {new Date(del.date + 'T00:00:00').toLocaleDateString('pt-BR')} às {del.time}</span>
                             </p>
                             {del.notes && (
-                              <p className="text-xs text-slate-500 bg-slate-50 border border-slate-100 rounded px-2 py-1 mt-1.5 italic">
+                              <p className="text-xs text-slate-500 bg-slate-50 border border-slate-100 rounded px-2 py-1.5 italic">
                                 Obs: {del.notes}
                               </p>
                             )}
@@ -1839,7 +1825,7 @@ export default function AdminDashboard() {
                   <button
                     onClick={() => {
                       setEditingDelivery(null);
-                      setDeliveryForm({ riderId: '', establishmentId: '', date: new Date().toISOString().split('T')[0], time: new Date().toTimeString().slice(0,5), value: '', orderNumber: '', notes: '' });
+                      setDeliveryForm({ riderId: '', establishmentId: '', date: db.getLocalDateString(), time: new Date().toTimeString().slice(0,5), value: '', orderNumber: '', notes: '' });
                       setShowDeliveryModal(true);
                     }}
                     className="flex items-center justify-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
@@ -1860,7 +1846,7 @@ export default function AdminDashboard() {
                       processedDeliveries.map(del => {
                         const rider = users.find(r => r.id === del.riderId);
                         const est = establishments.find(e => e.id === del.establishmentId);
-                        const isToday = del.date === new Date().toISOString().split('T')[0];
+                        const isToday = del.date === db.getLocalDateString();
 
                         return (
                           <div key={del.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/50">
@@ -1884,7 +1870,7 @@ export default function AdminDashboard() {
                                 Data: {new Date(del.date + 'T00:00:00').toLocaleDateString('pt-BR')} às {del.time}
                               </p>
                               {del.notes && (
-                                <p className="text-xs text-slate-500 bg-slate-50 border border-slate-100 rounded px-2 py-1 mt-1.5 italic">
+                                <p className="text-xs text-slate-500 bg-slate-50 border border-slate-100 rounded px-2 py-1.5 italic">
                                   Obs: {del.notes}
                                 </p>
                               )}
@@ -2068,7 +2054,7 @@ export default function AdminDashboard() {
           setScheduleForm({
             riderId,
             establishmentId: '',
-            date: new Date().toISOString().split('T')[0],
+            date: db.getLocalDateString(),
             shift: 'morning',
             startTime: '08:00',
             endTime: '12:00'

@@ -35,7 +35,7 @@ import { sendDeviceNotification, playNotificationSound } from '../utils/notifica
 // Dicionário de CEPs conhecidos para precisão absoluta e instantânea
 const KNOWN_CEPS: { [key: string]: { lat: number; lng: number } } = {
   '58433488': { lat: -7.2311, lng: -35.9245 }, // Rua Martinho Lutero, 32, Malvinas, Campina Grande - PB
-  '58039120': { lat: -7.1150, lng: -34.8230 }, // Tambaú, João Pessoa - PB
+  '58429900': { lat: -7.2150, lng: -35.9130 }, // Bodocongó, Campina Grande - PB
 };
 
 export default function EstablishmentDashboard() {
@@ -99,7 +99,7 @@ export default function EstablishmentDashboard() {
   // Helper robusto para verificar se uma escala pertence ao estabelecimento atual por nome ou ID
   const isScheduleForCurrentEst = (s: Schedule, currentEstName: string, matchingEstIds: string[], allEsts: Establishment[]) => {
     if (matchingEstIds.includes(s.establishmentId)) return true;
-    const destEst = allEsts.find(e => e.id === s.establishmentId);
+    const destEst = db.resolveEstablishment(s.establishmentId);
     if (destEst) {
       const destName = destEst.name.toLowerCase().trim();
       return destName === currentEstName || 
@@ -110,10 +110,66 @@ export default function EstablishmentDashboard() {
     return false;
   };
 
-  // Helper robusto para verificar se uma corrida pertence ao estabelecimento atual por nome ou ID
+  // Helper ultra-robusto para verificar se uma corrida pertence ao estabelecimento atual por nome, ID ou escala ativa do motoboy
   const isDeliveryForCurrentEst = (d: Delivery, currentEstName: string, matchingEstIds: string[], allEsts: Establishment[]) => {
+    // 1. Tentar por ID direto
     if (matchingEstIds.includes(d.establishmentId)) return true;
-    const destEst = allEsts.find(e => e.id === d.establishmentId);
+    
+    // 2. Tentar resolver o estabelecimento pelo ID gravado na corrida (com auto-cura)
+    let destEst = db.resolveEstablishment(d.establishmentId);
+    
+    // 3. Se não achar, tentar resolver pelo scheduleId da corrida
+    if (!destEst && d.scheduleId) {
+      const sch = db.getSchedules().find(s => s.id === d.scheduleId);
+      if (sch) {
+        destEst = db.resolveEstablishment(sch.establishmentId);
+      }
+    }
+    
+    // 4. Se ainda não achar, buscar QUALQUER escala do motoboy hoje e comparar o nome do estabelecimento por texto!
+    const riderOfDel = db.resolveUser(d.riderId);
+    const riderEmail = riderOfDel ? riderOfDel.email.toLowerCase() : '';
+
+    if (!destEst) {
+      const riderSchedulesToday = db.getSchedules().filter(s => {
+        if (s.date !== d.date) return false;
+        if (s.riderId === d.riderId) return true;
+        const riderOfSch = db.resolveUser(s.riderId);
+        return riderOfSch && riderOfSch.email.toLowerCase() === riderEmail;
+      });
+
+      const matchingSchedule = riderSchedulesToday.find(s => {
+        const estOfSch = db.resolveEstablishment(s.establishmentId);
+        if (estOfSch) {
+          const name = estOfSch.name.toLowerCase().trim();
+          return name === currentEstName || name.includes(currentEstName) || currentEstName.includes(name);
+        }
+        return false;
+      });
+      if (matchingSchedule) return true;
+    }
+
+    // 5. Fallback supremo: Se o motoboy que lançou a corrida está escalado HOJE neste estabelecimento (por nome),
+    // e a corrida foi lançada hoje, assume que a corrida é deste estabelecimento!
+    const riderSchedulesToday = db.getSchedules().filter(s => {
+      if (s.date !== d.date) return false;
+      if (s.riderId === d.riderId) return true;
+      const riderOfSch = db.resolveUser(s.riderId);
+      return riderOfSch && riderOfSch.email.toLowerCase() === riderEmail;
+    });
+
+    const isRiderScheduledHereToday = riderSchedulesToday.some(s => {
+      const estOfSch = db.resolveEstablishment(s.establishmentId);
+      if (estOfSch) {
+        const name = estOfSch.name.toLowerCase().trim();
+        return name === currentEstName || name.includes(currentEstName) || currentEstName.includes(name);
+      }
+      return false;
+    });
+    if (isRiderScheduledHereToday && d.date === db.getLocalDateString()) {
+      return true;
+    }
+
     if (destEst) {
       const destName = destEst.name.toLowerCase().trim();
       return destName === currentEstName || 
@@ -182,10 +238,15 @@ export default function EstablishmentDashboard() {
     setTodaySchedules(estSchedules);
 
     const allUsers = db.getUsers();
-    const scheduledIds = estSchedules.map(s => s.riderId);
     
-    // Mostra os motoboys que possuem escala ativa hoje para este estabelecimento
-    const riders = allUsers.filter(u => scheduledIds.includes(u.id));
+    // Mostra os motoboys que possuem escala ativa hoje para este estabelecimento (com fallback por e-mail)
+    const riders = allUsers.filter(u => 
+      estSchedules.some(s => {
+        if (s.riderId === u.id) return true;
+        const riderOfSch = db.resolveUser(s.riderId);
+        return riderOfSch && riderOfSch.email.toLowerCase() === u.email.toLowerCase();
+      })
+    );
     setScheduledRiders(riders);
 
     const allDeliveries = db.getDeliveries();
@@ -242,7 +303,7 @@ export default function EstablishmentDashboard() {
             // Verifica se a mensagem foi enviada por outra pessoa (não pelo Estabelecimento)
             const isMe = line.includes('- Estabelecimento') || line.includes(`(${user?.name})`);
             if (!isMe) {
-              const rider = db.getUsers().find(u => u.id === d.riderId);
+              const rider = db.resolveUser(d.riderId);
               const sender = line.includes('- Motoboy') ? 'Motoboy' : 'Cliente';
               const messageText = line.substring(line.indexOf(']: ') + 3);
               
@@ -292,7 +353,7 @@ export default function EstablishmentDashboard() {
           newLines.forEach(line => {
             const isMe = line.includes('- Estabelecimento') || line.includes(`(${user?.name})`);
             if (!isMe) {
-              const rider = db.getUsers().find(u => u.id === s.riderId);
+              const rider = db.resolveUser(s.riderId);
               const messageText = line.substring(line.indexOf(']: ') + 3);
               
               // 1. Notificação Nativa
@@ -377,10 +438,10 @@ export default function EstablishmentDashboard() {
       let finalLng = defaultLng;
       let geocoded = false;
 
-      // Regra de Ouro: Se for a Pizzaria Bella Italia, força as coordenadas exatas da Rua Martinho Lutero, 32, Malvinas
-      if (establishment.name.toLowerCase().includes('bella') || establishment.name.toLowerCase().includes('italia')) {
-        finalLat = -7.2311;
-        finalLng = -35.9245;
+      // Regra de Ouro: Se for a Hamburgueria Burgrill e o endereço for o padrão, força as coordenadas exatas de Bodocongó
+      if (establishment.name.toLowerCase().includes('burgrill') && establishment.address.street === 'Rua Aprígio Veloso') {
+        finalLat = -7.2150;
+        finalLng = -35.9130;
         geocoded = true;
       }
 
@@ -908,7 +969,7 @@ export default function EstablishmentDashboard() {
 
               <div className="divide-y divide-amber-100">
                 {pendingDeliveries.map(del => {
-                  const rider = db.getUsers().find(u => u.id === del.riderId);
+                  const rider = db.resolveUser(del.riderId);
                   return (
                     <div key={del.id} className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                       <div className="min-w-0 flex-1 pr-4">
@@ -1105,7 +1166,7 @@ export default function EstablishmentDashboard() {
                     </tr>
                   ) : (
                     processedDeliveries.map(del => {
-                      const rider = db.getUsers().find(u => u.id === del.riderId);
+                      const rider = db.resolveUser(del.riderId);
                       return (
                         <tr key={del.id} className="hover:bg-slate-50/50">
                           <td className="py-3 px-4">

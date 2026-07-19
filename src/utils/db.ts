@@ -92,7 +92,7 @@ export interface RiderLocation {
 // Tables that don't exist or fail in Supabase will be disabled dynamically to use only LocalStorage
 const disabledTables = new Set<string>();
 
-// Seed Data com endereços reais de Campina Grande e João Pessoa - PB
+// Seed Data inicial (apenas como fallback se o localStorage estiver vazio)
 const INITIAL_USERS: User[] = [
   {
     id: 'u1',
@@ -104,93 +104,11 @@ const INITIAL_USERS: User[] = [
     active: true,
     passwordHash: 'admin123',
     updatedAt: new Date().toISOString()
-  },
-  {
-    id: 'u2',
-    name: 'Carlos Silva (Motoqueiro)',
-    cpf: '111.111.111-11',
-    phone: '(83) 98888-8888',
-    email: 'carlos@delivery.com',
-    role: 'rider',
-    active: true,
-    passwordHash: 'moto123',
-    updatedAt: new Date().toISOString()
-  },
-  {
-    id: 'u3',
-    name: 'Lucas Souza (Motoqueiro)',
-    cpf: '222.222.222-22',
-    phone: '(83) 97777-7777',
-    email: 'lucas@delivery.com',
-    role: 'rider',
-    active: true,
-    passwordHash: 'moto123',
-    updatedAt: new Date().toISOString()
-  },
-  {
-    id: 'u4',
-    name: 'Gerente Bella Italia',
-    cpf: '333.333.333-33',
-    phone: '(83) 3222-1111',
-    email: 'bella@delivery.com',
-    role: 'establishment',
-    active: true,
-    passwordHash: 'bella123',
-    establishmentId: 'e1',
-    updatedAt: new Date().toISOString()
   }
 ];
 
-const INITIAL_ESTABLISHMENTS: Establishment[] = [
-  {
-    id: 'e1',
-    name: 'Pizzaria Bella Italia',
-    address: {
-      street: 'Rua Martinho Lutero',
-      number: '32',
-      neighborhood: 'Malvinas',
-      city: 'Campina Grande',
-      state: 'PB',
-      zipCode: '58433-488'
-    },
-    phone: '(83) 3222-1111',
-    active: true,
-    updatedAt: new Date().toISOString()
-  },
-  {
-    id: 'e2',
-    name: 'Burger House',
-    address: {
-      street: 'Avenida Olinda',
-      number: '200',
-      neighborhood: 'Tambaú',
-      city: 'João Pessoa',
-      state: 'PB',
-      zipCode: '58039-120'
-    },
-    phone: '(83) 3111-2222',
-    active: true,
-    updatedAt: new Date().toISOString()
-  }
-];
-
-// Coordenadas iniciais de teste em Campina Grande - PB (Malvinas, próximas ao CEP 58433-488)
-const INITIAL_LOCATIONS: RiderLocation[] = [
-  {
-    riderId: 'u2',
-    riderName: 'Carlos Silva (Motoqueiro)',
-    lat: -7.2315,
-    lng: -35.9240,
-    updatedAt: new Date().toISOString()
-  },
-  {
-    riderId: 'u3',
-    riderName: 'Lucas Souza (Motoqueiro)',
-    lat: -7.2308,
-    lng: -35.9250,
-    updatedAt: new Date().toISOString()
-  }
-];
+const INITIAL_ESTABLISHMENTS: Establishment[] = [];
+const INITIAL_LOCATIONS: RiderLocation[] = [];
 
 export const getStorageData = <T>(key: string, initialData: T): T => {
   const data = localStorage.getItem(key);
@@ -205,7 +123,6 @@ export const setStorageData = <T>(key: string, data: T): void => {
   localStorage.setItem(key, JSON.stringify(data));
 };
 
-// Tombstone Helpers para rastrear exclusões
 const getDeletedIds = (): string[] => getStorageData<string[]>('dm_deleted_ids', []);
 
 const addDeletedId = (id: string, supabaseTable: string) => {
@@ -213,15 +130,9 @@ const addDeletedId = (id: string, supabaseTable: string) => {
   if (!deleted.includes(id)) {
     const updated = [...deleted, id];
     setStorageData('dm_deleted_ids', updated);
-    
-    // Tenta excluir do Supabase imediatamente
-    supabase.from(supabaseTable).delete().eq('id', id).then(({ error }) => {
-      if (error) console.warn(`[Supabase] Erro ao excluir ID ${id} da tabela ${supabaseTable}:`, error.message);
-    });
   }
 };
 
-// Compara a lista antiga com a nova para detectar exclusões automáticas (ex: filtros de array)
 const trackDeletions = (key: string, newData: { id: string }[], supabaseTable: string) => {
   const oldData = getStorageData<{ id: string }[]>(key, []);
   const newIds = new Set(newData.map(item => item.id));
@@ -233,40 +144,21 @@ const trackDeletions = (key: string, newData: { id: string }[], supabaseTable: s
   });
 };
 
-// Helper to merge local and remote data by ID with timestamp check
-const mergeById = <T extends { id: string; updatedAt?: string }>(local: T[], remote: T[]): T[] => {
-  const deletedIds = getDeletedIds();
-  const map = new Map<string, T>();
+// Helper inteligente para extrair o nome da coluna ausente de qualquer formato de erro do Supabase/PostgREST
+const getMissingColumn = (msg: string): string | null => {
+  let match = msg.match(/Could not find the '([^']+)' column/i);
+  if (match) return match[1];
   
-  // Popula o mapa com os itens locais ativos
-  local.filter(item => !deletedIds.includes(item.id)).forEach(item => map.set(item.id, item));
+  match = msg.match(/column "([^"]+)"/i);
+  if (match) return match[1];
+
+  match = msg.match(/column ([a-zA-Z0-9_]+) does not exist/i);
+  if (match) return match[1];
   
-  // Mescla com os itens remotos ativos
-  remote.filter(item => !deletedIds.includes(item.id)).forEach(item => {
-    const existing = map.get(item.id);
-    if (existing) {
-      const localTime = existing.updatedAt ? new Date(existing.updatedAt).getTime() : 0;
-      const remoteTime = item.updatedAt ? new Date(item.updatedAt).getTime() : 0;
-      
-      // Só sobrescreve se o remoto for estritamente mais recente ou se ambos não tiverem timestamp
-      if (remoteTime > localTime || (remoteTime === 0 && localTime === 0)) {
-        const merged = { ...existing };
-        (Object.keys(item) as (keyof T)[]).forEach(key => {
-          const value = item[key];
-          if (value !== undefined) {
-            merged[key] = value;
-          }
-        });
-        map.set(item.id, merged);
-      }
-    } else {
-      map.set(item.id, item);
-    }
-  });
-  return Array.from(map.values());
+  return null;
 };
 
-// Async background sync with Supabase
+// Sincronização activa com o Supabase
 const syncToSupabase = async (table: string, data: any[]) => {
   if (disabledTables.has(table)) {
     return;
@@ -306,12 +198,6 @@ const syncToSupabase = async (table: string, data: any[]) => {
         };
       }
       if (table === 'schedules') {
-        const payload = {
-          createdBy: item.createdBy,
-          chat: item.chat || '',
-          updatedAt: item.updatedAt || item.createdAt || new Date().toISOString()
-        };
-
         return {
           id: item.id,
           rider_id: item.riderId,
@@ -320,19 +206,13 @@ const syncToSupabase = async (table: string, data: any[]) => {
           shift: item.shift,
           start_time: item.startTime,
           end_time: item.endTime,
-          created_by: JSON.stringify(payload),
+          created_by: item.createdBy || 'Admin',
+          chat: item.chat || null,
           created_at: item.createdAt,
           updated_at: item.updatedAt || item.createdAt || new Date().toISOString()
         };
       }
       if (table === 'deliveries') {
-        const payload = {
-          orderNumber: item.orderNumber || '',
-          notes: item.notes || '',
-          customerChat: item.customerChat || '',
-          updatedAt: item.updatedAt || new Date().toISOString()
-        };
-
         return {
           id: item.id,
           rider_id: item.riderId,
@@ -342,7 +222,9 @@ const syncToSupabase = async (table: string, data: any[]) => {
           value: item.value,
           status: item.status,
           schedule_id: item.scheduleId || null,
-          order_number: JSON.stringify(payload),
+          order_number: item.orderNumber || null,
+          notes: item.notes || null,
+          customer_chat: item.customerChat || null,
           updated_at: item.updatedAt || new Date().toISOString()
         };
       }
@@ -375,32 +257,31 @@ const syncToSupabase = async (table: string, data: any[]) => {
     if (error) {
       let currentData = [...formattedData];
       let attempts = 0;
-      while (error && error.message.includes("Could not find the '") && attempts < 10) {
+      let missingCol = getMissingColumn(error.message);
+      
+      while (error && missingCol && attempts < 10) {
         attempts++;
-        const match = error.message.match(/Could not find the '([^']+)' column/);
-        if (match && match[1]) {
-          const missingCol = match[1];
-          console.warn(`⚠️ Coluna '${missingCol}' não encontrada na tabela '${table}' do Supabase. Removendo do envio...`);
-          currentData = currentData.map(item => {
-            const { [missingCol]: _, ...rest } = item;
-            return rest;
-          });
-          const retry = await supabase.from(table).upsert(currentData);
-          error = retry.error;
-        } else {
-          break;
-        }
+        console.warn(`⚠️ Coluna '${missingCol}' não encontrada na tabela '${table}' do Supabase. Removendo do envio...`);
+        currentData = currentData.map(item => {
+          const { [missingCol!]: _, ...rest } = item;
+          return rest;
+        });
+        const retry = await supabase.from(table).upsert(currentData);
+        error = retry.error;
+        missingCol = error ? getMissingColumn(error.message) : null;
       }
     }
 
     if (error) {
-      console.warn(`⚠️ Erro ao sincronizar tabela "${table}" com Supabase.`, error.message);
+      console.error(`❌ Erro crítico ao salvar na tabela "${table}" do Supabase:`, error.message);
       if (error.message.includes("404") || error.message.includes("not found") || error.message.includes("relation")) {
         disabledTables.add(table);
       }
+    } else {
+      console.log(`🚀 Dados sincronizados com sucesso no Supabase para a tabela "${table}".`);
     }
   } catch (err: any) {
-    console.warn('Erro ao sincronizar com o Supabase:', err?.message || err);
+    console.error('Erro de conexão ao sincronizar com o Supabase:', err?.message || err);
   }
 };
 
@@ -411,75 +292,190 @@ export const db = {
     return localDate.toISOString().split('T')[0];
   },
 
+  generateUniqueDummyCpf: () => {
+    const num = Math.floor(10000000000 + Math.random() * 90000000000).toString();
+    return `${num.substring(0, 3)}.${num.substring(3, 6)}.${num.substring(6, 9)}-${num.substring(9, 11)}`;
+  },
+
+  resolveUser: (id: string): User | undefined => {
+    const allUsers = db.getUsers();
+    return allUsers.find(u => u.id === id);
+  },
+
+  resolveEstablishment: (id: string): Establishment | undefined => {
+    const allEsts = db.getEstablishments();
+    return allEsts.find(e => e.id === id);
+  },
+
   getUsers: () => {
     const deletedIds = getDeletedIds();
-    const users = getStorageData<User[]>('dm_users', INITIAL_USERS).filter(u => !deletedIds.includes(u.id));
-    let updated = false;
-    const merged = [...users];
-    INITIAL_USERS.forEach(initUser => {
-      if (!deletedIds.includes(initUser.id) && !merged.some(u => u.email.toLowerCase() === initUser.email.toLowerCase())) {
-        merged.push(initUser);
-        updated = true;
-      }
-    });
-    if (updated) {
-      setStorageData('dm_users', merged);
+    let users = getStorageData<User[]>('dm_users', INITIAL_USERS).filter(u => !deletedIds.includes(u.id));
+    
+    // GARANTIA SUPREMA: O administrador padrão (ID 'u1') NUNCA pode ser alterado, deletado ou desativado
+    const adminUser = users.find(u => u.id === 'u1');
+    if (!adminUser || adminUser.email !== 'admin@delivery.com' || adminUser.role !== 'admin' || !adminUser.active || adminUser.name !== 'Administrador Geral') {
+      const defaultAdmin = INITIAL_USERS[0];
+      
+      // Remove o ID do admin da lista de deletados se estiver lá
+      const deleted = getDeletedIds().filter(id => id !== defaultAdmin.id);
+      setStorageData('dm_deleted_ids', deleted);
+
+      // Adiciona ou reativa o admin
+      users = users.filter(u => u.id !== 'u1');
+      users.unshift(defaultAdmin);
+      setStorageData('dm_users', users);
     }
-    return merged;
+
+    return users;
   },
   setUsers: (users: User[]) => {
     trackDeletions('dm_users', users, 'users');
     setStorageData('dm_users', users);
     syncToSupabase('users', users);
   },
-  deleteUser: (id: string) => {
+  deleteUser: async (id: string) => {
+    if (id === 'u1') {
+      console.warn('Tentativa de deletar o administrador padrão bloqueada.');
+      return;
+    }
+
     addDeletedId(id, 'users');
-    const users = db.getUsers().filter(u => u.id !== id);
-    setStorageData('dm_users', users);
+
+    // 1. Deletar escalas vinculadas no Supabase e localmente
+    const allSchedules = db.getSchedules();
+    const schedulesToDelete = allSchedules.filter(s => s.riderId === id);
+    for (const s of schedulesToDelete) {
+      addDeletedId(s.id, 'schedules');
+      await supabase.from('schedules').delete().eq('id', s.id);
+    }
+    const updatedSchedules = allSchedules.filter(s => s.riderId !== id);
+    setStorageData('dm_schedules', updatedSchedules);
+
+    // 2. Deletar corridas vinculadas no Supabase e localmente
+    const allDeliveries = db.getDeliveries();
+    const deliveriesToDelete = allDeliveries.filter(d => d.riderId === id);
+    for (const d of deliveriesToDelete) {
+      addDeletedId(d.id, 'deliveries');
+      await supabase.from('deliveries').delete().eq('id', d.id);
+    }
+    const updatedDeliveries = allDeliveries.filter(d => d.riderId !== id);
+    setStorageData('dm_deliveries', updatedDeliveries);
+
+    // 3. Deletar o usuário no Supabase e localmente
+    await supabase.from('users').delete().eq('id', id);
+    const allUsers = db.getUsers();
+    const updatedUsers = allUsers.filter(u => u.id !== id);
+    setStorageData('dm_users', updatedUsers);
   },
   
   getEstablishments: () => {
     const deletedIds = getDeletedIds();
-    const ests = getStorageData<Establishment[]>('dm_establishments', INITIAL_ESTABLISHMENTS).filter(e => !deletedIds.includes(e.id));
-    
-    const updatedEsts = ests.map(e => {
-      if (e.id === 'e1') {
-        return {
-          ...e,
-          name: 'Pizzaria Bella Italia',
-          address: {
-            street: 'Rua Martinho Lutero',
-            number: '32',
-            neighborhood: 'Malvinas',
-            city: 'Campina Grande',
-            state: 'PB',
-            zipCode: '58433-488'
-          }
-        };
-      }
-      return e;
-    });
-
-    if (JSON.stringify(ests) !== JSON.stringify(updatedEsts)) {
-      setStorageData('dm_establishments', updatedEsts);
-      return updatedEsts;
-    }
-    return ests;
+    return getStorageData<Establishment[]>('dm_establishments', INITIAL_ESTABLISHMENTS).filter(e => !deletedIds.includes(e.id));
   },
   setEstablishments: (est: Establishment[]) => {
     trackDeletions('dm_establishments', est, 'establishments');
     setStorageData('dm_establishments', est);
     syncToSupabase('establishments', est);
   },
-  deleteEstablishment: (id: string) => {
+  deleteEstablishment: async (id: string) => {
+    const est = db.resolveEstablishment(id);
+    const estName = est ? est.name : '';
+
     addDeletedId(id, 'establishments');
-    const ests = db.getEstablishments().filter(e => e.id !== id);
-    setStorageData('dm_establishments', ests);
+
+    // 1. Deletar corridas vinculadas no Supabase e localmente (Tabela filha mais profunda)
+    const allDeliveries = db.getDeliveries();
+    const deliveriesToDelete = allDeliveries.filter(d => 
+      d.establishmentId === id || 
+      (estName && (
+        d.establishmentId.toLowerCase().trim() === estName.toLowerCase().trim() ||
+        d.establishmentId.toLowerCase().trim().includes(estName.toLowerCase().trim()) ||
+        estName.toLowerCase().trim().includes(d.establishmentId.toLowerCase().trim())
+      ))
+    );
+    for (const d of deliveriesToDelete) {
+      addDeletedId(d.id, 'deliveries');
+      await supabase.from('deliveries').delete().eq('id', d.id);
+    }
+    const updatedDeliveries = allDeliveries.filter(d => !deliveriesToDelete.some(dt => dt.id === d.id));
+    setStorageData('dm_deliveries', updatedDeliveries);
+
+    // 2. Deletar escalas vinculadas no Supabase e localmente
+    const allSchedules = db.getSchedules();
+    const schedulesToDelete = allSchedules.filter(s => 
+      s.establishmentId === id || 
+      (estName && (
+        s.establishmentId.toLowerCase().trim() === estName.toLowerCase().trim() ||
+        s.establishmentId.toLowerCase().trim().includes(estName.toLowerCase().trim()) ||
+        estName.toLowerCase().trim().includes(s.establishmentId.toLowerCase().trim())
+      ))
+    );
+    for (const s of schedulesToDelete) {
+      addDeletedId(s.id, 'schedules');
+      await supabase.from('schedules').delete().eq('id', s.id);
+    }
+    const updatedSchedules = allSchedules.filter(s => !schedulesToDelete.some(st => st.id === s.id));
+    setStorageData('dm_schedules', updatedSchedules);
+
+    // 3. Deletar usuários gerentes associados no Supabase e localmente
+    const allUsers = db.getUsers();
+    const usersToDelete = allUsers.filter(u => 
+      u.establishmentId === id || 
+      (u.role === 'establishment' && estName && u.name.toLowerCase().includes(estName.toLowerCase()))
+    );
+    for (const u of usersToDelete) {
+      addDeletedId(u.id, 'users');
+      await supabase.from('users').delete().eq('id', u.id);
+    }
+    const updatedUsers = allUsers.filter(u => !usersToDelete.some(ut => ut.id === u.id));
+    setStorageData('dm_users', updatedUsers);
+
+    // 4. Deletar o estabelecimento no Supabase e localmente (Tabela pai)
+    await supabase.from('establishments').delete().eq('id', id);
+    const allEsts = db.getEstablishments();
+    const updatedEsts = allEsts.filter(e => e.id !== id);
+    setStorageData('dm_establishments', updatedEsts);
   },
   
   getSchedules: () => {
     const deletedIds = getDeletedIds();
-    return getStorageData<Schedule[]>('dm_schedules', []).filter(s => !deletedIds.includes(s.id));
+    const ests = db.getEstablishments();
+    const estIds = new Set(ests.map(e => e.id));
+    const users = db.getUsers();
+    const userIds = new Set(users.map(u => u.id));
+    const rawSchedules = getStorageData<Schedule[]>('dm_schedules', []);
+
+    // AUTO-CURA ATIVA: Se a escala aponta para um ID de estabelecimento ou motoboy que mudou ou foi recriado,
+    // nós corrigimos o ID da escala em tempo real para que ela NUNCA suma do painel do motoboy ou do estabelecimento!
+    let updated = false;
+    const healedSchedules = rawSchedules.map(s => {
+      // 1. Auto-cura do estabelecimento (por nome ou ID)
+      if (!estIds.has(s.establishmentId)) {
+        const matchingEst = ests.find(e => 
+          e.name.toLowerCase().trim() === s.establishmentId.toLowerCase().trim()
+        );
+        if (matchingEst) {
+          s.establishmentId = matchingEst.id;
+          updated = true;
+        }
+      }
+      // 2. Auto-cura do motoboy (se o ID mudou mas o nome/e-mail é o mesmo)
+      if (!userIds.has(s.riderId)) {
+        const matchingUser = users.find(u => 
+          u.name.toLowerCase().trim() === s.riderId.toLowerCase().trim()
+        );
+        if (matchingUser) {
+          s.riderId = matchingUser.id;
+          updated = true;
+        }
+      }
+      return s;
+    }).filter(s => !deletedIds.includes(s.id) && ests.some(e => e.id === s.establishmentId) && users.some(u => u.id === s.riderId));
+
+    if (updated) {
+      setStorageData('dm_schedules', healedSchedules);
+    }
+    return healedSchedules;
   },
   setSchedules: (sch: Schedule[]) => {
     trackDeletions('dm_schedules', sch, 'schedules');
@@ -489,7 +485,40 @@ export const db = {
   
   getDeliveries: () => {
     const deletedIds = getDeletedIds();
-    return getStorageData<Delivery[]>('dm_deliveries', []).filter(d => !deletedIds.includes(d.id));
+    const ests = db.getEstablishments();
+    const estIds = new Set(ests.map(e => e.id));
+    const users = db.getUsers();
+    const userIds = new Set(users.map(u => u.id));
+    const rawDeliveries = getStorageData<Delivery[]>('dm_deliveries', []);
+
+    // AUTO-CURA ATIVA: Corrige IDs de estabelecimentos ou motoboys nas corridas em tempo real
+    let updated = false;
+    const healedDeliveries = rawDeliveries.map(d => {
+      if (!estIds.has(d.establishmentId)) {
+        const matchingEst = ests.find(e => 
+          e.name.toLowerCase().trim() === d.establishmentId.toLowerCase().trim()
+        );
+        if (matchingEst) {
+          d.establishmentId = matchingEst.id;
+          updated = true;
+        }
+      }
+      if (!userIds.has(d.riderId)) {
+        const matchingUser = users.find(u => 
+          u.name.toLowerCase().trim() === d.riderId.toLowerCase().trim()
+        );
+        if (matchingUser) {
+          d.riderId = matchingUser.id;
+          updated = true;
+        }
+      }
+      return d;
+    }).filter(d => !deletedIds.includes(d.id) && ests.some(e => e.id === d.establishmentId) && users.some(u => u.id === d.riderId));
+
+    if (updated) {
+      setStorageData('dm_deliveries', healedDeliveries);
+    }
+    return healedDeliveries;
   },
   setDeliveries: (del: Delivery[]) => {
     trackDeletions('dm_deliveries', del, 'deliveries');
@@ -539,18 +568,25 @@ export const db = {
     }
     setStorageData('dm_rider_locations', locations);
 
-    supabase
-      .from('rider_locations')
-      .upsert({
-        rider_id: riderId,
-        rider_name: riderName,
-        lat,
-        lng,
-        updated_at: newLoc.updatedAt
-      }, { onConflict: 'rider_id' })
-      .then(({ error }) => {
-        if (error) console.warn('GPS sync error:', error.message);
-      });
+    if (!disabledTables.has('rider_locations')) {
+      supabase
+        .from('rider_locations')
+        .upsert({
+          rider_id: riderId,
+          rider_name: riderName,
+          lat,
+          lng,
+          updated_at: newLoc.updatedAt
+        }, { onConflict: 'rider_id' })
+        .then(({ error }) => {
+          if (error) {
+            console.warn('GPS sync error:', error.message);
+            if (error.message.includes("404") || error.message.includes("not found") || error.message.includes("relation")) {
+              disabledTables.add('rider_locations');
+            }
+          }
+        });
+    }
   },
 
   getCurrentUser: (): User | null => {
@@ -579,257 +615,317 @@ export const db = {
     try {
       const deletedIds = getDeletedIds();
 
-      const { data: ests, error: estsError } = await supabase.from('establishments').select('*');
-      let localEsts = getStorageData<Establishment[]>('dm_establishments', INITIAL_ESTABLISHMENTS);
-      const estIdMap = new Map<string, string>();
+      // 1. Sincronizar Estabelecimentos
+      if (!disabledTables.has('establishments')) {
+        const { data: ests, error: estsError } = await supabase.from('establishments').select('*');
+        if (estsError) {
+          if (estsError.message.includes("404") || estsError.message.includes("not found") || estsError.message.includes("relation")) {
+            disabledTables.add('establishments');
+          }
+        } else if (ests) {
+          // Auto-cura: Deletar do Supabase itens que já foram excluídos localmente
+          const toDeleteRemotely = ests.filter(e => deletedIds.includes(e.id));
+          toDeleteRemotely.forEach(e => {
+            supabase.from('establishments').delete().eq('id', e.id).then(({ error }) => {
+              if (error) console.warn('Erro ao deletar estabelecimento órfão:', error.message);
+            });
+          });
 
-      if (!estsError && ests) {
-        const mappedEsts: Establishment[] = ests
-          .filter(e => !deletedIds.includes(e.id))
-          .map(e => ({
-            id: e.id,
-            name: e.name,
-            address: {
-              street: e.street,
-              number: e.number,
-              complement: e.complement || '',
-              neighborhood: e.neighborhood,
-              city: e.city,
-              state: e.state,
-              zipCode: e.zip_code
-            },
-            phone: e.phone || '',
-            active: e.active,
-            updatedAt: e.updated_at || undefined
-          }));
-
-        const merged = mergeById(localEsts, mappedEsts);
-        localEsts = merged;
-        setStorageData('dm_establishments', localEsts);
-        await syncToSupabase('establishments', localEsts);
+          const mappedEsts: Establishment[] = ests
+            .filter(e => !deletedIds.includes(e.id))
+            .map(e => {
+              return {
+                id: e.id,
+                name: e.name,
+                address: {
+                  street: e.street,
+                  number: e.number,
+                  complement: e.complement || '',
+                  neighborhood: e.neighborhood,
+                  city: e.city,
+                  state: e.state,
+                  zipCode: e.zip_code
+                },
+                phone: e.phone || '',
+                active: e.active,
+                updatedAt: e.updated_at || undefined
+              };
+            });
+          
+          // Sobrescrita direta para propagar exclusões remotas
+          setStorageData('dm_establishments', mappedEsts);
+        }
       }
 
-      const { data: users, error: usersError } = await supabase.from('users').select('*');
-      let localUsers = getStorageData<User[]>('dm_users', INITIAL_USERS);
-      const userIdMap = new Map<string, string>();
-
-      if (!usersError && users) {
-        const mappedUsers: User[] = users
-          .filter(u => !deletedIds.includes(u.id))
-          .map(u => ({
-            id: u.id,
-            name: u.name,
-            cpf: u.cpf,
-            phone: u.phone || '',
-            email: u.email,
-            role: u.role as any,
-            active: u.active,
-            passwordHash: u.password_hash,
-            mustResetPassword: u.must_reset_password,
-            establishmentId: u.establishment_id || undefined,
-            updatedAt: u.updated_at || undefined
-          }));
-
-        const merged = mergeById(localUsers, mappedUsers);
-        localUsers = merged;
-
-        if (estIdMap.size > 0) {
-          localUsers = localUsers.map(u => {
-            if (u.establishmentId && estIdMap.has(u.establishmentId)) {
-              return { ...u, establishmentId: estIdMap.get(u.establishmentId) };
-            }
-            return u;
+      // 2. Sincronizar Usuários
+      if (!disabledTables.has('users')) {
+        const { data: users, error: usersError } = await supabase.from('users').select('*');
+        if (usersError) {
+          if (usersError.message.includes("404") || usersError.message.includes("not found") || usersError.message.includes("relation")) {
+            disabledTables.add('users');
+          }
+        } else if (users) {
+          // Auto-cura: Deletar do Supabase itens que já foram excluídos localmente
+          const toDeleteRemotely = users.filter(u => deletedIds.includes(u.id));
+          toDeleteRemotely.forEach(u => {
+            supabase.from('users').delete().eq('id', u.id).then(({ error }) => {
+              if (error) console.warn('Erro ao deletar usuário órfão:', error.message);
+            });
           });
-        }
 
-        setStorageData('dm_users', localUsers);
+          const mappedUsers: User[] = users
+            .filter(u => !deletedIds.includes(u.id))
+            .map(u => {
+              return {
+                id: u.id,
+                name: u.name,
+                cpf: u.cpf,
+                phone: u.phone || '',
+                email: u.email,
+                role: u.role as any,
+                active: u.active,
+                passwordHash: u.password_hash,
+                mustResetPassword: u.must_reset_password,
+                establishmentId: u.establishment_id || undefined,
+                updatedAt: u.updated_at || undefined
+              };
+            });
+          
+          // Sobrescrita direta para propagar exclusões remotas
+          setStorageData('dm_users', mappedUsers);
 
-        const currentUser = db.getCurrentUser();
-        if (currentUser) {
-          const updatedCurrent = localUsers.find(u => u.email.toLowerCase() === currentUser.email.toLowerCase());
-          if (updatedCurrent) {
-            db.setCurrentUser(updatedCurrent);
+          // Atualiza a sessão do usuário logado
+          const currentUser = db.getCurrentUser();
+          if (currentUser) {
+            const updatedCurrent = mappedUsers.find(u => u.email.toLowerCase() === currentUser.email.toLowerCase());
+            if (updatedCurrent) {
+              db.setCurrentUser(updatedCurrent);
+            }
           }
         }
-
-        await syncToSupabase('users', localUsers);
       }
 
-      const { data: schs, error: schsError } = await supabase.from('schedules').select('*');
-      let localSchs = getStorageData<Schedule[]>('dm_schedules', []);
-
-      if (userIdMap.size > 0 || estIdMap.size > 0) {
-        localSchs = localSchs.map(s => ({
-          ...s,
-          riderId: userIdMap.get(s.riderId) || s.riderId,
-          establishmentId: estIdMap.get(s.establishmentId) || s.establishmentId
-        }));
-      }
-
-      if (!schsError && schs) {
-        const mappedSchs: Schedule[] = schs
-          .filter(s => !deletedIds.includes(s.id))
-          .map(s => {
-            let createdBy = s.created_by || 'Admin';
-            let chat = undefined;
-            let updatedAt = s.updated_at || undefined;
-
-            if (s.created_by && s.created_by.startsWith('{')) {
-              try {
-                const parsed = JSON.parse(s.created_by);
-                createdBy = parsed.createdBy || 'Admin';
-                chat = parsed.chat || undefined;
-                updatedAt = parsed.updatedAt || undefined;
-              } catch (e) {
-                console.warn('Erro ao fazer parse do JSON do schedule:', e);
-              }
-            }
-
-            return {
-              id: s.id,
-              riderId: s.rider_id,
-              establishmentId: s.establishment_id,
-              date: s.date,
-              shift: s.shift as any,
-              startTime: s.start_time,
-              endTime: s.end_time,
-              createdBy,
-              createdAt: s.created_at,
-              chat,
-              updatedAt
-            };
+      // 3. Sincronizar Escalas (Schedules) com De-duplicação e Auto-Cura Ativa
+      if (!disabledTables.has('schedules')) {
+        const { data: schs, error: schsError } = await supabase.from('schedules').select('*');
+        if (schsError) {
+          if (schsError.message.includes("404") || schsError.message.includes("not found") || schsError.message.includes("relation")) {
+            disabledTables.add('schedules');
+          }
+        } else if (schs) {
+          // Auto-cura: Deletar do Supabase itens que já foram excluídos localmente
+          const toDeleteRemotely = schs.filter(s => deletedIds.includes(s.id));
+          toDeleteRemotely.forEach(s => {
+            supabase.from('schedules').delete().eq('id', s.id).then(({ error }) => {
+              if (error) console.warn('Erro ao deletar escala órfã:', error.message);
+            });
           });
 
-        const merged = mergeById(localSchs, mappedSchs);
-        localSchs = merged;
-        setStorageData('dm_schedules', localSchs);
-        await syncToSupabase('schedules', localSchs);
-      } else {
-        setStorageData('dm_schedules', localSchs);
-      }
+          const mappedSchs: Schedule[] = schs
+            .filter(s => !deletedIds.includes(s.id))
+            .map(s => {
+              let createdBy = s.created_by || 'Admin';
+              let chat = s.chat || undefined;
+              let updatedAt = s.updated_at || undefined;
 
-      const { data: dels, error: delsError } = await supabase.from('deliveries').select('*');
-      let localDels = getStorageData<Delivery[]>('dm_deliveries', []);
-
-      if (userIdMap.size > 0 || estIdMap.size > 0) {
-        localDels = localDels.map(d => ({
-          ...d,
-          riderId: userIdMap.get(d.riderId) || d.riderId,
-          establishmentId: estIdMap.get(d.establishmentId) || d.establishmentId
-        }));
-      }
-
-      if (!delsError && dels) {
-        const mappedDels: Delivery[] = dels
-          .filter(d => !deletedIds.includes(d.id))
-          .map(d => {
-            let orderNumber = d.order_number || undefined;
-            let notes = d.notes || undefined;
-            let customerChat = d.customer_chat || undefined;
-            let updatedAt = d.updated_at || undefined;
-
-            if (d.order_number && d.order_number.startsWith('{')) {
-              try {
-                const parsed = JSON.parse(d.order_number);
-                orderNumber = parsed.orderNumber || undefined;
-                notes = parsed.notes || undefined;
-                customerChat = parsed.customerChat || undefined;
-                updatedAt = parsed.updatedAt || undefined;
-              } catch (e) {
-                console.warn('Erro ao fazer parse do JSON do delivery:', e);
+              if (s.created_by && s.created_by.startsWith('{')) {
+                try {
+                  const parsed = JSON.parse(s.created_by);
+                  createdBy = parsed.createdBy || 'Admin';
+                  chat = parsed.chat || undefined;
+                  updatedAt = parsed.updatedAt || undefined;
+                } catch (e) {
+                  console.warn('Erro ao fazer parse do JSON do schedule:', e);
+                }
               }
-            } else if (d.order_number && d.order_number.includes('|||')) {
-              const parts = d.order_number.split('|||');
-              orderNumber = parts[0] || undefined;
-              notes = parts[1] || undefined;
-            }
 
-            return {
-              id: d.id,
-              riderId: d.rider_id,
-              establishmentId: d.establishment_id,
-              date: d.date,
-              time: d.time,
-              value: Number(d.value),
-              status: d.status as any,
-              scheduleId: d.schedule_id || undefined,
-              orderNumber,
-              notes,
-              customerChat,
-              updatedAt
-            };
+              return {
+                id: s.id,
+                riderId: s.rider_id,
+                establishmentId: s.establishment_id,
+                date: s.date,
+                shift: s.shift as any,
+                startTime: s.start_time,
+                endTime: s.end_time,
+                createdBy,
+                createdAt: s.created_at,
+                chat: chat || s.chat || undefined,
+                updatedAt
+              };
+            });
+          
+          // MECANISMO DE AUTO-CURA: De-duplicar escalas (mesmo riderId, date e shift)
+          const uniqueSchs: Schedule[] = [];
+          const seenKeys = new Set<string>();
+          const duplicateIdsToDelete: string[] = [];
+
+          mappedSchs.forEach(s => {
+            const key = `${s.riderId}_${s.date}_${s.shift}`;
+            if (seenKeys.has(key)) {
+              duplicateIdsToDelete.push(s.id);
+            } else {
+              seenKeys.add(key);
+              uniqueSchs.push(s);
+            }
           });
 
-        const merged = mergeById(localDels, mappedDels);
-        localDels = merged;
-        setStorageData('dm_deliveries', localDels);
-        await syncToSupabase('deliveries', localDels);
-      } else {
-        setStorageData('dm_deliveries', localDels);
+          if (duplicateIdsToDelete.length > 0) {
+            console.log(`[Auto-Cura] Detectadas ${duplicateIdsToDelete.length} escalas duplicadas no Supabase. Removendo...`);
+            duplicateIdsToDelete.forEach(id => {
+              supabase.from('schedules').delete().eq('id', id).then(({ error }) => {
+                if (error) console.warn('Erro ao remover escala duplicada:', error.message);
+              });
+            });
+          }
+
+          // Sobrescrita direta para propagar exclusões remotas e evitar duplicidade
+          setStorageData('dm_schedules', uniqueSchs);
+        }
       }
 
-      const { data: notifs, error: notifsError } = await supabase.from('notifications').select('*');
-      let localNotifs = getStorageData<Notification[]>('dm_notifications', []);
+      // 4. Sincronizar Corridas (Deliveries)
+      if (!disabledTables.has('deliveries')) {
+        const { data: dels, error: delsError } = await supabase.from('deliveries').select('*');
+        if (delsError) {
+          if (delsError.message.includes("404") || delsError.message.includes("not found") || delsError.message.includes("relation")) {
+            disabledTables.add('deliveries');
+          }
+        } else if (dels) {
+          // Auto-cura: Deletar do Supabase itens que já foram excluídos localmente
+          const toDeleteRemotely = dels.filter(d => deletedIds.includes(d.id));
+          toDeleteRemotely.forEach(d => {
+            supabase.from('deliveries').delete().eq('id', d.id).then(({ error }) => {
+              if (error) console.warn('Erro ao deletar corrida órfã:', error.message);
+            });
+          });
 
-      if (userIdMap.size > 0) {
-        localNotifs = localNotifs.map(n => ({
-          ...n,
-          riderId: userIdMap.get(n.riderId) || n.riderId
-        }));
+          const mappedDels: Delivery[] = dels
+            .filter(d => !deletedIds.includes(d.id))
+            .map(d => {
+              let orderNumber = d.order_number || undefined;
+              let notes = d.notes || undefined;
+              let customerChat = d.customer_chat || undefined;
+              let updatedAt = d.updated_at || undefined;
+
+              if (d.order_number && d.order_number.startsWith('{')) {
+                try {
+                  const parsed = JSON.parse(d.order_number);
+                  orderNumber = parsed.orderNumber || undefined;
+                  notes = parsed.notes || undefined;
+                  customerChat = parsed.customerChat || undefined;
+                  updatedAt = parsed.updatedAt || undefined;
+                } catch (e) {
+                  console.warn('Erro ao fazer parse do JSON do delivery:', e);
+                }
+              } else if (d.order_number && d.order_number.includes('|||')) {
+                const parts = d.order_number.split('|||');
+                orderNumber = parts[0] || undefined;
+                notes = parts[1] || undefined;
+              }
+
+              return {
+                id: d.id,
+                riderId: d.rider_id,
+                establishmentId: d.establishment_id,
+                date: d.date,
+                time: d.time,
+                value: Number(d.value),
+                status: d.status as any,
+                scheduleId: d.schedule_id || undefined,
+                orderNumber: orderNumber || undefined,
+                notes: notes || d.notes || undefined,
+                customerChat: customerChat || d.customer_chat || undefined,
+                updatedAt
+              };
+            });
+          
+          // Sobrescrita direta para propagar exclusões remotas
+          setStorageData('dm_deliveries', mappedDels);
+        }
       }
 
-      if (!notifsError && notifs) {
-        const mappedNotifs: Notification[] = notifs
-          .filter(n => !deletedIds.includes(n.id))
-          .map(n => ({
-            id: n.id,
-            riderId: n.rider_id,
-            title: n.title,
-            message: n.message,
-            date: n.date,
-            read: n.read
+      // 5. Sincronizar Notificações
+      if (!disabledTables.has('notifications')) {
+        const { data: notifs, error: notifsError } = await supabase.from('notifications').select('*');
+        if (notifsError) {
+          if (notifsError.message.includes("404") || notifsError.message.includes("not found") || notifsError.message.includes("relation")) {
+            disabledTables.add('notifications');
+          }
+        } else if (notifs) {
+          // Auto-cura: Deletar do Supabase itens que já foram excluídos localmente
+          const toDeleteRemotely = notifs.filter(n => deletedIds.includes(n.id));
+          toDeleteRemotely.forEach(n => {
+            supabase.from('notifications').delete().eq('id', n.id).then(({ error }) => {
+              if (error) console.warn('Erro ao deletar notificação órfã:', error.message);
+            });
+          });
+
+          const mappedNotifs: Notification[] = notifs
+            .filter(n => !deletedIds.includes(n.id))
+            .map(n => ({
+              id: n.id,
+              riderId: n.rider_id,
+              title: n.title,
+              message: n.message,
+              date: n.date,
+              read: n.read
+            }));
+          
+          // Sobrescrita direta para propagar exclusões remotas
+          setStorageData('dm_notifications', mappedNotifs);
+        }
+      }
+
+      // 6. Sincronizar Solicitações de Parceria
+      if (!disabledTables.has('partner_requests')) {
+        const { data: reqs, error: reqsError } = await supabase.from('partner_requests').select('*');
+        if (reqsError) {
+          if (reqsError.message.includes("404") || reqsError.message.includes("not found") || reqsError.message.includes("relation")) {
+            disabledTables.add('partner_requests');
+          }
+        } else if (reqs) {
+          // Auto-cura: Deletar do Supabase itens que já foram excluídos localmente
+          const toDeleteRemotely = reqs.filter(r => deletedIds.includes(r.id));
+          toDeleteRemotely.forEach(r => {
+            supabase.from('partner_requests').delete().eq('id', r.id).then(({ error }) => {
+              if (error) console.warn('Erro ao deletar solicitação órfã:', error.message);
+            });
+          });
+
+          const mappedReqs: PartnerRequest[] = reqs
+            .filter(r => !deletedIds.includes(r.id))
+            .map(r => ({
+              id: r.id,
+              establishmentName: r.establishment_name,
+              ownerName: r.owner_name,
+              phone: r.phone,
+              address: r.address,
+              status: r.status as any,
+              createdAt: r.created_at
+            }));
+          
+          // Sobrescrita direta para propagar exclusões remotas
+          setStorageData('dm_partner_requests', mappedReqs);
+        }
+      }
+
+      // 7. Sincronizar Localizações de GPS
+      if (!disabledTables.has('rider_locations')) {
+        const { data: locs, error: locsError } = await supabase.from('rider_locations').select('*');
+        if (locsError) {
+          if (locsError.message.includes("404") || locsError.message.includes("not found") || locsError.message.includes("relation")) {
+            disabledTables.add('rider_locations');
+          }
+        } else if (locs) {
+          const mappedLocs: RiderLocation[] = locs.map(l => ({
+            riderId: l.rider_id,
+            riderName: l.rider_name,
+            lat: l.lat,
+            lng: l.lng,
+            updatedAt: l.updated_at
           }));
-
-        const merged = mergeById(localNotifs, mappedNotifs);
-        localNotifs = merged;
-        setStorageData('dm_notifications', localNotifs);
-        await syncToSupabase('notifications', localNotifs);
-      } else {
-        setStorageData('dm_notifications', localNotifs);
-      }
-
-      const { data: reqs, error: reqsError } = await supabase.from('partner_requests').select('*');
-      if (!reqsError && reqs) {
-        const mappedReqs: PartnerRequest[] = reqs
-          .filter(r => !deletedIds.includes(r.id))
-          .map(r => ({
-            id: r.id,
-            establishmentName: r.establishment_name,
-            ownerName: r.owner_name,
-            phone: r.phone,
-            address: r.address,
-            status: r.status as any,
-            createdAt: r.created_at
-          }));
-        const localReqs = getStorageData<PartnerRequest[]>('dm_partner_requests', []);
-        const merged = mergeById(localReqs, mappedReqs);
-        setStorageData('dm_partner_requests', merged);
-        await syncToSupabase('partner_requests', merged);
-      } else if (reqsError && (reqsError.message.includes("404") || reqsError.message.includes("not found") || reqsError.message.includes("relation"))) {
-        console.warn("⚠️ Tabela partner_requests não encontrada no Supabase. Usando apenas LocalStorage.");
-        disabledTables.add('partner_requests');
-      }
-
-      const { data: locs, error: locsError } = await supabase.from('rider_locations').select('*');
-      if (!locsError && locs) {
-        const mappedLocs: RiderLocation[] = locs.map(l => ({
-          riderId: l.rider_id,
-          riderName: l.rider_name,
-          lat: l.lat,
-          lng: l.lng,
-          updatedAt: l.updated_at
-        }));
-        setStorageData('dm_rider_locations', mappedLocs);
+          setStorageData('dm_rider_locations', mappedLocs);
+        }
       }
 
     } catch (err) {

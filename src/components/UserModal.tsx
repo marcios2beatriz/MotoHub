@@ -114,7 +114,7 @@ export default function UserModal({
                 <input
                   type="text"
                   required
-                  placeholder="Ex: Pizzaria Bella Italia"
+                  placeholder="Ex: Hamburgueria Burgrill"
                   value={userForm.establishmentName || ''}
                   onChange={(e) => setUserForm({ ...userForm, establishmentName: e.target.value })}
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
@@ -127,7 +127,7 @@ export default function UserModal({
                   <input
                     type="text"
                     required
-                    placeholder="Ex: Rua Martinho Lutero"
+                    placeholder="Ex: Rua Aprígio Veloso"
                     value={userForm.street || ''}
                     onChange={(e) => setUserForm({ ...userForm, street: e.target.value })}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
@@ -138,7 +138,7 @@ export default function UserModal({
                   <input
                     type="text"
                     required
-                    placeholder="Ex: 32"
+                    placeholder="Ex: 882"
                     value={userForm.number || ''}
                     onChange={(e) => setUserForm({ ...userForm, number: e.target.value })}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
@@ -152,7 +152,7 @@ export default function UserModal({
                   <input
                     type="text"
                     required
-                    placeholder="Ex: Malvinas"
+                    placeholder="Ex: Bodocongó"
                     value={userForm.neighborhood || ''}
                     onChange={(e) => setUserForm({ ...userForm, neighborhood: e.target.value })}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
@@ -163,7 +163,7 @@ export default function UserModal({
                   <input
                     type="text"
                     required
-                    placeholder="Ex: 58433-488"
+                    placeholder="Ex: 58429-900"
                     value={userForm.zipCode || ''}
                     onChange={(e) => setUserForm({ ...userForm, zipCode: e.target.value })}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"

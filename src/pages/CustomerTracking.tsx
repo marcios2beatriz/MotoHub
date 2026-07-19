@@ -11,7 +11,7 @@ import { sendDeviceNotification } from '../utils/notifications';
 // Dicionário de CEPs conhecidos para precisão absoluta e instantânea
 const KNOWN_CEPS: { [key: string]: { lat: number; lng: number } } = {
   '58433488': { lat: -7.2311, lng: -35.9245 }, // Rua Martinho Lutero, 32, Malvinas, Campina Grande - PB
-  '58039120': { lat: -7.1150, lng: -34.8230 }, // Tambaú, João Pessoa - PB
+  '58429900': { lat: -7.2150, lng: -35.9130 }, // Bodocongó, Campina Grande - PB
 };
 
 export default function CustomerTracking() {
@@ -148,7 +148,7 @@ export default function CustomerTracking() {
 
       const marker = L.marker([lat, lng], { icon: estIcon })
         .addTo(mapInstance)
-        .bindPopup(`<b>${establishment.name}</b><br/>Ponto de Partiva`);
+        .bindPopup(`<b>${establishment.name}</b><br/>Ponto de Partida`);
       
       estMarkerRef.current = marker;
       setEstCoords({ lat, lng });
@@ -162,10 +162,10 @@ export default function CustomerTracking() {
       let finalLng = defaultLng;
       let geocoded = false;
 
-      // Regra de Ouro: Se for a Pizzaria Bella Italia, força as coordenadas exatas da Rua Martinho Lutero, 32, Malvinas
-      if (establishment.name.toLowerCase().includes('bella') || establishment.name.toLowerCase().includes('italia')) {
-        finalLat = -7.2311;
-        finalLng = -35.9245;
+      // Regra de Ouro: Se for a Hamburgueria Burgrill e o endereço for o padrão, força as coordenadas exatas de Bodocongó
+      if (establishment.name.toLowerCase().includes('burgrill') && establishment.address.street === 'Rua Aprígio Veloso') {
+        finalLat = -7.2150;
+        finalLng = -35.9130;
         geocoded = true;
       }
 
