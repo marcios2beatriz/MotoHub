@@ -821,8 +821,8 @@ export default function RiderDashboard() {
                             <span className="absolute -top-1 -right-1 bg-indigo-600 text-white text-[8px] px-1 rounded-full">Est</span>
                           </button>
 
-                          {/* Botão Chat com Cliente */}
-                          {delivery.status === 'active' && (
+                          {/* Botão Chat com Cliente (Disponível para corridas Ativas e Pendentes) */}
+                          {(delivery.status === 'active' || delivery.status === 'pending') && (
                             <button
                               onClick={() => setCustomerChatDeliveryId(delivery.id)}
                               className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors relative"
