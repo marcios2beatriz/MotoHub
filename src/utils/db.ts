@@ -296,9 +296,10 @@ export const db = {
 
   // --- SUPABASE SYNCHRONIZATION ---
   async pullFromSupabase() {
+    // 1. Sincronizar Usuários
     try {
-      // 1. Sincronizar Usuários
-      const { data: usersData } = await supabase.from('users').select('*');
+      const { data: usersData, error } = await supabase.from('users').select('*');
+      if (error) throw error;
       if (usersData) {
         const localUsers = this.getUsers();
         const mappedUsers: User[] = usersData.map(u => ({
@@ -319,9 +320,14 @@ export const db = {
         const unsyncedLocal = localUsers.filter(u => !remoteIds.has(u.id));
         localStorage.setItem(KEYS.USERS, JSON.stringify([...mappedUsers, ...unsyncedLocal]));
       }
+    } catch (err) {
+      console.warn('Erro ao sincronizar tabela "users" do Supabase:', err);
+    }
 
-      // 2. Sincronizar Estabelecimentos com Parseamento Seguro de Endereço
-      const { data: estsData } = await supabase.from('establishments').select('*');
+    // 2. Sincronizar Estabelecimentos com Parseamento Seguro de Endereço
+    try {
+      const { data: estsData, error } = await supabase.from('establishments').select('*');
+      if (error) throw error;
       if (estsData) {
         const localEsts = this.getEstablishments();
         const mappedEsts: Establishment[] = estsData.map(e => {
@@ -358,9 +364,14 @@ export const db = {
         const unsyncedLocal = localEsts.filter(e => !remoteIds.has(e.id));
         localStorage.setItem(KEYS.ESTABLISHMENTS, JSON.stringify([...mappedEsts, ...unsyncedLocal]));
       }
+    } catch (err) {
+      console.warn('Erro ao sincronizar tabela "establishments" do Supabase:', err);
+    }
 
-      // 3. Sincronizar Escalas (Schedules) com Preservação de Dados Locais
-      const { data: schData } = await supabase.from('schedules').select('*');
+    // 3. Sincronizar Escalas (Schedules) com Preservação de Dados Locais
+    try {
+      const { data: schData, error } = await supabase.from('schedules').select('*');
+      if (error) throw error;
       if (schData) {
         const localSchedules = this.getSchedules();
         const mappedSchedules: Schedule[] = schData.map(s => {
@@ -383,9 +394,14 @@ export const db = {
         const unsyncedLocal = localSchedules.filter(s => !remoteIds.has(s.id));
         localStorage.setItem(KEYS.SCHEDULES, JSON.stringify([...mappedSchedules, ...unsyncedLocal]));
       }
+    } catch (err) {
+      console.warn('Erro ao sincronizar tabela "schedules" do Supabase:', err);
+    }
 
-      // 4. Sincronizar Corridas (Deliveries) com Lógica de Mesclagem Robusta
-      const { data: delData } = await supabase.from('deliveries').select('*');
+    // 4. Sincronizar Corridas (Deliveries) com Lógica de Mesclagem Robusta
+    try {
+      const { data: delData, error } = await supabase.from('deliveries').select('*');
+      if (error) throw error;
       if (delData) {
         const localDeliveries = this.getDeliveries();
         
@@ -458,9 +474,14 @@ export const db = {
         
         localStorage.setItem(KEYS.DELIVERIES, JSON.stringify([...mappedDeliveries, ...unsyncedLocal]));
       }
+    } catch (err) {
+      console.warn('Erro ao sincronizar tabela "deliveries" do Supabase:', err);
+    }
 
-      // 5. Sincronizar Solicitações de Parceria
-      const { data: reqsData } = await supabase.from('partner_requests').select('*');
+    // 5. Sincronizar Solicitações de Parceria
+    try {
+      const { data: reqsData, error } = await supabase.from('partner_requests').select('*');
+      if (error) throw error;
       if (reqsData) {
         const localReqs = this.getPartnerRequests();
         const mappedReqs: PartnerRequest[] = reqsData.map(r => ({
@@ -476,12 +497,12 @@ export const db = {
         const unsyncedLocal = localReqs.filter(r => !remoteIds.has(r.id));
         localStorage.setItem(KEYS.PARTNER_REQUESTS, JSON.stringify([...mappedReqs, ...unsyncedLocal]));
       }
-
-      // Dispara evento global para atualizar as telas em tempo real
-      window.dispatchEvent(new Event('db-sync-complete'));
     } catch (err) {
-      console.error('Erro ao sincronizar dados do Supabase:', err);
+      console.warn('Erro ao sincronizar tabela "partner_requests" do Supabase (pode não existir ainda):', err);
     }
+
+    // Dispara evento global para atualizar as telas em tempo real
+    window.dispatchEvent(new Event('db-sync-complete'));
   },
 
   async syncUsersToSupabase(users: User[]) {
