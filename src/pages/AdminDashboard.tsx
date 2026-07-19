@@ -84,7 +84,7 @@ export default function AdminDashboard() {
 
   const [showEstModal, setShowEstModal] = useState(false);
   const [editingEst, setEditingEst] = useState<Establishment | null>(null);
-  const [const [estForm, setEstForm] = useState({
+  const [estForm, setEstForm] = useState({
     name: '', street: '', number: '', complement: '', neighborhood: '', city: '', state: '', zipCode: '', phone: '', email: '', password: ''
   });
 
@@ -1151,7 +1151,7 @@ export default function AdminDashboard() {
                             </p>
                           </td>
                           <td className="py-3 px-4 text-slate-600">
-                            <p className="font-mono text-sm bg-slate-100 px-2 py-1 rounded border border-slate-200">
+                            <p className="font-mono text-sm bg-slate-100 px-2 py=1 rounded border border-slate-200">
                               {isPassVisible ? user.passwordHash : '••••••••'}
                             </span>
                             <button
@@ -1162,14 +1162,7 @@ export default function AdminDashboard() {
                               {isPassVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                             </button>
                           </td>
-                          <td className="py-3 px-4">
-                            <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
-                              user.active ? 'bg-emerald-100 text-emerald-800' : 'bg-blue-100 text-blue-800'
-                            }`}>
-                              {user.active ? 'Ativo' : 'Pendente'}
-                            </span>
-                          </td>
-                          <td className="py-3 px-4 text-right space-x-2 whitespace-nowrap">
+                          <td className="py-3 px=4 text-right space-x-2 whitespace-nowrap">
                             {user.active && user.role === 'rider' && (
                               <button
                                 onClick={() => {
@@ -1322,12 +1315,12 @@ export default function AdminDashboard() {
                           <td className="py-3 px-4 text-slate-600 max-w-xs truncate">
                             {est.address.street}, {est.address.number} - {est.address.neighborhood}
                           </td>
-                          <td className="py-3 px-4 text-slate-600>{est.phone}</td>
-                          <td className="py-3 px-4 text-slate-600 font-medium">{estUser?.email || 'Sem conta'}</td>
-                          <td className="py-3 px-4">
+                          <td className="py-3 px=4 text-slate-600>{est.phone}</td>
+                          <td className="py-3 px=4 text-slate-600 font-medium">{estUser?.email || 'Sem conta'}</td>
+                          <td className="py-3 px=4">
                             {estUser ? (
                               <div className="flex items-center space-x-2">
-                                <span className="font-mono text-sm bg-slate-100 px-2 py-1 rounded border border-slate-200">
+                                <span className="font-mono text-sm bg-slate-100 px-2 py=1 rounded border border-slate-200">
                                   {isPassVisible ? estUser.passwordHash : '••••••••'}
                                 </span>
                                 <button
@@ -1342,7 +1335,7 @@ export default function AdminDashboard() {
                               <span className="text-slate-400 text-xs">—</span>
                             )}
                           </td>
-                          <td className="py-3 px-4 text-right space-x-2 whitespace-nowrap">
+                          <td className="py-3 px=4 text-right space-x-2 whitespace-nowrap">
                             <button
                               onClick={() => {
                                 setEditingEst(est);
@@ -1434,11 +1427,11 @@ export default function AdminDashboard() {
                   <thead>
                     <tr className="border-b border-slate-200 text-slate-500 text-xs uppercase font-semibold">
                       <th className="py-3 px-4">Estabelecimento</th>
-                      <th className="py-3 px-4">Proprietário</th>
-                      <th className="py-3 px-4">Contato</th>
-                      <th className="py-3 px-4">Endereço</th>
-                      <th className="py-3 px-4">Status</th>
-                      <th className="py-3 px-4 text-right">Ações</th>
+                      <th className="py-3 px=4">Proprietário</th>
+                      <th className="py-3 px=4">Contato</th>
+                      <th className="py-3 px=4">Endereço</th>
+                      <th className="py-3 px=4">Status</th>
+                      <th className="py-3 px=4 text-right">Ações</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-sm">
@@ -1451,20 +1444,20 @@ export default function AdminDashboard() {
                     ) : (
                       filteredRequests.map(req => (
                         <tr key={req.id} className="hover:bg-slate-50/50">
-                          <td className="py-3 px-4 font-bold text-slate-800">{req.establishmentName}</td>
-                          <td className="py-3 px-4 text-slate-700>{req.ownerName}</td>
-                          <td className="py-3 px-4 text-slate-600 font-mono>{req.phone}</td>
-                          <td className="py-3 px-4 text-slate-500 max-w-xs truncate" title={req.address}>
+                          <td className="py-3 px=4 font-bold text-slate-800">{req.establishmentName}</td>
+                          <td className="py-3 px=4 text-slate-700>{req.ownerName}</td>
+                          <td className="py-3 px=4 text-slate-600 font-mono>{req.phone}</td>
+                          <td className="py-3 px=4 text-slate-500 max-w-xs truncate" title={req.address}>
                             {req.address}
                           </td>
-                          <td className="py-3 px-4">
-                            <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
+                          <td className="py-3 px=4">
+                            <span className={`px-2.5 py=1 rounded-full text-xs font-semibold ${
                               req.status === 'pending' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
                             }`}>
                               {req.status === 'pending' ? 'Pendente' : 'Contatado'}
                             </span>
                           </td>
-                          <td className="py-3 px-4 text-right space-x-2 whitespace-nowrap">
+                          <td className="py-3 px=4 text-right space-x-2 whitespace-nowrap">
                             <button
                               onClick={() => handleApproveRequest(req)}
                               className="p-1.5 text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 rounded transition-colors inline-flex items-center space-x-1 text-xs font-bold"
@@ -1520,13 +1513,13 @@ export default function AdminDashboard() {
                       setWeeklyForm({ riderId: '', establishmentId: '', shift: 'morning', startTime: '08:00', endTime: '12:00', weekStart: getThisMonday(), days: { seg: true, ter: true, qua: true, qui: true, sex: true, sab: false, dom: false } });
                       setWeeklyStep('form'); setWeeklyPreview([]); setShowWeeklyModal(true);
                     }}
-                    className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                    className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py=2 rounded-lg text-sm font-medium transition-colors"
                   >
                     <CalendarDays className="h-4 w-4" /><span>Escala Semanal</span>
                   </button>
                   <button
                     onClick={() => { setScheduleForm({ riderId: '', establishmentId: '', date: '', shift: 'morning', startTime: '08:00', endTime: '12:00' }); setScheduleConflictWarning(''); setShowScheduleModal(true); }}
-                    className="flex items-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                    className="flex items-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py=2 rounded-lg text-sm font-medium transition-colors"
                   >
                     <Plus className="h-4 w-4" /><span>Nova Escala</span>
                   </button>
@@ -1541,17 +1534,17 @@ export default function AdminDashboard() {
                     placeholder="Buscar por nome, CPF ou telefone..."
                     value={scheduleSearch}
                     onChange={e => setScheduleSearch(e.target.value)}
-                    className="pl-9 pr-4 py-2 w-full border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    className="pl-9 pr-4 py=2 w-full border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
                   />
                 </div>
-                <div className="flex items-center bg-slate-100 rounded-lg p-1 gap-1 self-end sm:self-auto">
-                  <button onClick={() => setScheduleViewMode('accordion')} title="Lista" className={`flex items-center gap-1.5 px-3 py-2 rounded-md text-xs font-medium transition-colors ${scheduleViewMode === 'accordion' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                <div className="flex items-center bg-slate-100 rounded-lg p=1 gap=1 self-end sm:self-auto">
+                  <button onClick={() => setScheduleViewMode('accordion')} title="Lista" className={`flex items-center gap-1.5 px=3 py=2 rounded-md text-xs font-medium transition-colors ${scheduleViewMode === 'accordion' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
                     <List className="h-3.5 w-3.5" /><span>Lista</span>
                   </button>
-                  <button onClick={() => setScheduleViewMode('grid')} title="Cards" className={`flex items-center gap-1.5 px-3 py-2 rounded-md text-xs font-medium transition-colors ${scheduleViewMode === 'grid' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                  <button onClick={() => setScheduleViewMode('grid')} title="Cards" className={`flex items-center gap-1.5 px=3 py=2 rounded-md text-xs font-medium transition-colors ${scheduleViewMode === 'grid' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
                     <LayoutGrid className="h-3.5 w-3.5" /><span>Cards</span>
                   </button>
-                  <button onClick={() => setScheduleViewMode('timeline')} title="Agenda" className={`flex items-center gap-1.5 px-3 py-2 rounded-md text-xs font-medium transition-colors ${scheduleViewMode === 'timeline' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                  <button onClick={() => setScheduleViewMode('timeline')} title="Agenda" className={`flex items-center gap-1.5 px=3 py=2 rounded-md text-xs font-medium transition-colors ${scheduleViewMode === 'timeline' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
                     <Calendar className="h-3.5 w-3.5" /><span>Agenda</span>
                   </button>
                 </div>
@@ -1579,7 +1572,7 @@ export default function AdminDashboard() {
                       const exp = expandedRider === rider.id;
                       return (
                         <div key={rider.id} className="border border-slate-200 rounded-xl overflow-hidden">
-                          <button onClick={() => setExpandedRider(exp ? null : rider.id)} className="w-full flex items-center justify-between px-5 py-4 bg-white hover:bg-slate-50 transition-colors">
+                          <button onClick={() => setExpandedRider(exp ? null : rider.id)} className="w-full flex items-center justify-between px-5 py=4 bg-white hover:bg-slate-50 transition-colors">
                             <div className="flex items-center gap-3">
                               <div className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold text-white flex-shrink-0 ${rider.active ? 'bg-indigo-600' : 'bg-slate-400'}`}>{rider.name.charAt(0).toUpperCase()}</div>
                               <div className="text-left">
@@ -1589,15 +1582,15 @@ export default function AdminDashboard() {
                               </div>
                             </div>
                             <div className="flex items-center gap-2">
-                              {up.length > 0 && <span className="bg-indigo-100 text-indigo-700 text-xs font-bold px-2.5 py-1 rounded-full>{up.length}</span>}
-                              {!rider.active && <span className="bg-red-100 text-red-700 text-xs px-2 py-0.5 rounded-full>Inativo</span>}
+                              {up.length > 0 && <span className="bg-indigo-100 text-indigo-700 text-xs font-bold px=2.5 py=1 rounded-full>{up.length}</span>}
+                              {!rider.active && <span className="bg-red-100 text-red-700 text-xs px=2 py=0.5 rounded-full>Inativo</span>}
                               <ChevronDown className={`h-4 w-4 text-slate-400 transition-transform duration-200 ${exp ? 'rotate-180' : ''}`} />
                             </div>
-                          </button>
+                          </button
                           {exp && (
                             <div className="border-t border-slate-100 bg-slate-50">
                               {rs.length === 0 ? (
-                                <div className="px-5 py-6 text-center text-slate-400 text-sm">
+                                <div className="px-5 py=6 text-center text-slate-400 text-sm">
                                   <Calendar className="h-8 w-8 mx-auto mb-2 text-slate-300" />
                                   <p>Nenhuma escala cadastrada.</p>
                                   <button onClick={() => { setScheduleForm({ riderId: rider.id, establishmentId: '', date: todayStr, shift: 'morning', startTime: '08:00', endTime: '12:00' }); setScheduleConflictWarning(''); setShowScheduleModal(true); }} className="mt-3 text-indigo-600 hover:underline text-xs font-medium">+ Criar escala agora</button>
@@ -1609,10 +1602,10 @@ export default function AdminDashboard() {
                                     const isPast = sch.date < todayStr;
                                     const isTod = sch.date === todayStr;
                                     return (
-                                      <div key={sch.id} className={`px-5 py-3 flex items-center justify-between gap-3 ${isPast ? 'opacity-50' : 'bg-white'}`}>
+                                      <div key={sch.id} className={`px-5 py=3 flex items-center justify-between gap-3 ${isPast ? 'opacity-50' : 'bg-white'}`}>
                                         <div className="flex items-center gap-3 min-w-0">
                                           <div className="flex items-center gap-1.5 flex-wrap">
-                                            {isTod && <span className="bg-emerald-100 text-emerald-700 text-[10px] font-bold px-1.5 py-0.5 rounded-full uppercase>Hoje</span>}
+                                            {isTod && <span className="bg-emerald-100 text-emerald-700 text-[10px] font-bold px=1.5 py=0.5 rounded-full uppercase>Hoje</span>}
                                             <p className="text-sm font-semibold text-slate-800 truncate>{est?.name || 'N/A'}</p>
                                             <span className="text-slate-300">•</span>
                                             <p className="text-xs text-slate-500 flex flex-wrap items-center gap-1 mt-0.5>
@@ -1624,8 +1617,8 @@ export default function AdminDashboard() {
                                             </p>
                                           </div>
                                         </div>
-                                        <button onClick={() => handleCancelSchedule(sch.id)} className="text-red-400 hover:text-red-600 hover:bg-red-50 p-1.5 rounded transition-colors flex-shrink-0"><Trash2 className="h-3.5 w-3.5" /></button>
-                                      </div>
+                                        <button onClick={() => handleCancelSchedule(sch.id)} className="text-red-400 hover:text-red-600 hover:bg-red-50 p=1.5 rounded transition-colors flex-shrink-0"><Trash2 className="h-3.5 w-3.5" /></button>
+                                      </div
                                     );
                                   })}
                                 </div>
@@ -1646,28 +1639,28 @@ export default function AdminDashboard() {
                       const next = up[0];
                       const nextEst = next ? establishments.find(e => e.id === next.establishmentId) : null;
                       return (
-                        <div key={rider.id} className="border border-slate-200 rounded-xl bg-white p-5 flex flex-col gap-4 hover:shadow-md transition-shadow">
+                        <div key={rider.id} className="border border-slate-200 rounded-xl bg-white p=5 flex flex-col gap-4 hover:shadow-md transition-shadow">
                           <div className="flex items-center gap-3">
                             <div className={`w-11 h-11 rounded-full flex items-center justify-center text-lg font-bold text-white flex-shrink-0 ${rider.active ? 'bg-indigo-600' : 'bg-slate-400'}`}>{rider.name.charAt(0).toUpperCase()}</div>
                             <div className="min-w-0">
                               <p className="font-bold text-slate-800 truncate>{rider.name}</p>
                               <p className="text-xs text-slate-500 truncate>{rider.phone}</p>
                               <p className="text-xs text-slate-400 truncate>{rider.cpf}</p>
-                            </div>
-                            {!rider.active && <span className="ml-auto bg-red-100 text-red-700 text-xs px-2 py-0.5 rounded-full flex-shrink-0>Inativo</span>}
+                            </div
+                            {!rider.active && <span className="ml-auto bg-red-100 text-red-700 text-xs px=2 py=0.5 rounded-full flex-shrink-0>Inativo</span>}
                           </div>
                           <div className="grid grid-cols-2 gap-2">
-                            <div className="bg-indigo-50 rounded-lg px-3 py-2 text-center">
+                            <div className="bg-indigo-50 rounded-lg px=3 py=2 text-center">
                               <p className="text-xl font-bold text-indigo-700>{up.length}</p>
                               <p className="text-xs text-indigo-500>Futuras</p>
                             </div>
-                            <div className="bg-slate-50 rounded-lg px-3 py=2 text-center">
+                            <div className="bg-slate-50 rounded-lg px=3 py=2 text-center">
                               <p className="text-xl font-bold text-slate-700>{rs.length}</p>
                               <p className="text-xs text-slate-500>Total</p>
                             </div>
-                          </div>
+                          </div
                           {next ? (
-                            <div className="bg-emerald-50 border border-emerald-100 rounded-lg px-3 py=2">
+                            <div className="bg-emerald-50 border border-emerald-100 rounded-lg px=3 py=2">
                               <p className="text-xs font-bold text-emerald-700 uppercase mb-1>Próxima escala</p>
                               <p className="text-sm font-semibold text-slate-800 truncate>{nextEst?.name || 'N/A'}</p>
                               <p className="text-sm font-semibold text-slate-500 mt-0.5>
@@ -1677,16 +1670,16 @@ export default function AdminDashboard() {
                               </p>
                             </div>
                           ) : (
-                            <div className="bg-slate-50 border border-slate-100 rounded-lg px-3 py=2 text-center text-xs text-slate-400>Sem escalas futuras</div>
+                            <div className="bg-slate-50 border border-slate-100 rounded-lg px=3 py=2 text-center text-xs text-slate-400>Sem escalas futuras</div>
                           )}
-                          <div className="flex gap-2 mt-auto">
-                            <button onClick={() => { setScheduleForm({ riderId: rider.id, establishmentId: '', date: todayStr, shift: 'morning', startTime: '08:00', endTime: '12:00' }); setScheduleConflictWarning(''); setShowScheduleModal(true); }} className="flex-1 flex items-center justify-center gap-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-medium py-2 rounded-lg transition-colors">
+                          <div className="flex gap-2 mt=auto">
+                            <button onClick={() => { setScheduleForm({ riderId: rider.id, establishmentId: '', date: todayStr, shift: 'morning', startTime: '08:00', endTime: '12:00' }); setScheduleConflictWarning(''); setShowScheduleModal(true); }} className="flex-1 flex items-center justify-center gap-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-medium py=2 rounded-lg transition-colors">
                               <Plus className="h-3.5 w-3.5" />Nova Escala
                             </button>
-                            <button onClick={() => setRiderSchedulesModal(rider.id)} className="flex-1 flex items-center justify-center gap-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 text-xs font-medium py-2 rounded-lg transition-colors">
+                            <button onClick={() => setRiderSchedulesModal(rider.id)} className="flex-1 flex items-center justify-center gap-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 text-xs font-medium py=2 rounded-lg transition-colors">
                               <List className="h-3.5 w-3.5" />Ver Todas
                             </button>
-                          </div>
+                          </div
                         </div>
                       );
                     })}
@@ -1713,42 +1706,42 @@ export default function AdminDashboard() {
                       return (
                         <div key={date}>
                           <div className="flex items-center gap-3 mb-3">
-                            <div className={`px-3 py-1 rounded-full text-xs font-bold uppercase ${isTod ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-600'}`}>{isTod ? 'Hoje' : dateLabel}</div>
+                            <div className={`px-3 py=1 rounded-full text-xs font-bold uppercase ${isTod ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-600'}`}>{isTod ? 'Hoje' : dateLabel}</div>
                             <div className="flex-1 h-px bg-slate-200" />
-                            <span className="text-xs text-slate-400">{daySchs.length} escala{daySchs.length !== 1 ? 's' : ''}</span>
-                          </div>
+                            <span className="text-xs text-slate-400>{daySchs.length} escala{daySchs.length !== 1 ? 's' : ''}</span>
+                          </div
                           <div className="space-y-2">
                             {daySchs.map(sch => {
                               const rider = users.find(r => r.id === sch.riderId);
                               const est = establishments.find(e => e.id === sch.establishmentId);
                               return (
-                                <div key={sch.id} className="flex items-center justify-between gap-3 bg-white border border-slate-200 rounded-xl px-4 py=3 hover:border-indigo-200 transition-colors">
+                                <div key={sch.id} className="flex items-center justify-between gap-3 bg-white border border-slate-200 rounded-xl px=4 py=3 hover:border-indigo-200 transition-colors">
                                   <div className="flex items-center gap-3 min-w-0>
                                     <div className="flex items-center gap-1.5 flex-wrap>
-                                      {isTod && <span className="bg-emerald-100 text-emerald-700 text-[10px] font-bold px-1.5 py-0.5 rounded-full uppercase>Hoje</span>}
+                                      {isTod && <span className="bg-emerald-100 text-emerald-700 text-[10px] font-bold px=1.5 py=0.5 rounded-full uppercase>Hoje</span>}
                                       <p className="text-sm font-semibold text-slate-800 truncate>{rider?.name || 'N/A'}</p>
                                       <span className="text-slate-300">•</span>
                                       <p className="text-xs text-slate-500 truncate>{est?.name || 'N/A'}</p>
-                                    </div>
-                                  </div>
+                                    </div
+                                  </div
                                   <div className="flex items-center gap-3 flex-shrink-0>
                                     <div className="text-right>
                                       <p className={`text-xs font-bold ${sch.shift === 'morning' ? 'text-amber-600' : sch.shift === 'afternoon' ? 'text-orange-600' : 'shift === 'night' ? 'text-blue-600' : ''}`}>{getShiftLabel(sch.shift)}</p>
                                       <p className="text-xs font-mono text-slate-600>{sch.startTime}–{sch.endTime}</p>
-                                    </div>
-                                    <button onClick={() => handleCancelSchedule(sch.id)} className="text-red-400 hover:text-red-600 hover:bg-red-50 p-1.5 rounded transition-colors flex-shrink-0"><Trash2 className="h-3.5 w-3.5" /></button>
-                                  </div>
-                                </div>
+                                    </div
+                                    <button onClick={() => handleCancelSchedule(sch.id)} className="text-red-400 hover:text-red-600 hover:bg-red-50 p=1.5 rounded transition-colors flex-shrink-0"><Trash2 className="h-3.5 w-3.5" /></button>
+                                  </div
+                                </div
                               );
                             })}
-                          </div>
-                        </div>
+                          </div
+                        </div
                       );
                     })}
-                  </div>
+                  </div
                 );
               })()}
-            </div>
+            </div
           )}
 
           {/* TAB: REGISTRO DE CORRIDAS */}
@@ -1760,7 +1753,7 @@ export default function AdminDashboard() {
                   <h2 className="text-lg font-bold text-amber-800 flex items-center space-x-2">
                     <Clock className="h-5 w-5 text-amber-600 animate-pulse" />
                     <span>Corridas Pendentes de Aprovação ({pendingDeliveries.length})</span>
-                  </h2>
+                  </h2
 
                   <div className="divide-y divide-amber-100">
                     {pendingDeliveries.map(del => {
@@ -1772,48 +1765,48 @@ export default function AdminDashboard() {
                             <div className="flex items-center space-x-2>
                               <p className="font-bold text-slate-800>{rider?.name || 'Motoboy'}</p>
                               {del.orderNumber && (
-                                <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-2.5 py-0.5 rounded>
+                                <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px=2.5 py=0.5 rounded>
                                   #{del.orderNumber}
                                 )
                               )}
-                            </div>
+                            </div
                             <p className="text-xs text-slate-600 mt-0.5>Estabelecimento: {est?.name}</p>
                             <p className="text-xs text-slate-400 flex items-center space-x-1 mt-1>
                               <Clock className="h-3.5 w-3.5" />
                               <span>Lançada em {new Date(del.date + 'T00:00:00').toLocaleDateString('pt-BR')} às {del.time}</span>
-                            </p>
+                            </p
                             {del.notes && (
-                              <p className="text-xs text-slate-500 bg-slate-50 border border-slate-100 rounded px-2 py=1.5 italic>
+                              <p className="text-xs text-slate-500 bg-slate-50 border border-slate-100 rounded px=2 py=1.5 italic>
                                 Obs: {del.notes}
-                              </p>
+                              </p
                             )}
-                          </div>
+                          </div
                           <div className="flex items-center space-x-3 self-end sm:self-center>
-                            <span className="font-bold text-amber-700 text-lg>R$ {del.value.toFixed(2)}</span>
+                            <span className="font-bold text-amber-700 text-lg>R$ {del.value.toFixed(2)}</span
                             <div className="flex items-center space-x-1>
                               <button
                                 onClick={() => handleApproveDelivery(del.id)}
-                                className="bg-emerald-600 hover:bg-emerald-700 text-white p-1.5 rounded-lg transition-colors flex items-center space-x-1 text-xs font-bold"
+                                className="bg-emerald-600 hover:bg-emerald-700 text-white p=1.5 rounded-lg transition-colors flex items-center space-x-1 text-xs font-bold
                                 title="Aprovar Corrida"
                               >
                                 <Check className="h-4 w-4" />
-                                <span className="hidden sm:inline">Aprovar</span>
-                              </button>
+                                <span className="hidden sm:inline">Aprovar</span
+                              </button
                               <button
                                 onClick={() => handleRejectDelivery(del.id)}
-                                className="bg-red-600 hover:bg-red-700 text-white p-1.5 rounded-lg transition-colors flex items-center space-x-1 text-xs font-bold"
+                                className="bg-red-600 hover:bg-red-700 text-white p=1.5 rounded-lg transition-colors flex items-center space-x-1 text-xs font-bold
                                 title="Rejeitar Corrida"
                               >
                                 <X className="h-4 w-4" />
-                                <span className="hidden sm:inline">Rejeitar</span>
-                              </button>
-                            </div>
-                          </div>
-                        </div>
+                                <span className="hidden sm:inline">Rejeitar</span
+                              </button
+                            </div
+                          </div
+                        </div
                       );
                     })}
-                  </div>
-                </div>
+                  </div
+                </div
               )}
 
               <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
@@ -1825,20 +1818,20 @@ export default function AdminDashboard() {
                       setDeliveryForm({ riderId: '', establishmentId: '', date: db.getLocalDateString(), time: new Date().toTimeString().slice(0,5), value: '', orderNumber: '', notes: '' });
                       setShowDeliveryModal(true);
                     }}
-                    className="flex items-center justify-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                    className="flex items-center justify-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white px=4 py=2 rounded-lg text-sm font-medium transition-colors
                   >
                     <Plus className="h-4 w-4" />
-                    <span>Lançar Corrida</span>
-                  </button>
-                </div>
+                    <span>Lançar Corrida</span
+                  </button
+                </div
 
                 <div className="border border-slate-200 rounded-xl overflow-hidden">
-                  <div className="bg-slate-50 p-4 border-b border-slate-200">
-                    <h3 className="font-bold text-slate-700>Histórico de Lançamentos</h3>
-                  </div>
+                  <div className="bg-slate-50 p=4 border-b border-slate-200">
+                    <h3 className="font-bold text-slate-700>Histórico de Lançamentos</h3
+                  </div
                   <div className="divide-y divide-slate-100">
                     {processedDeliveries.length === 0 ? (
-                      <div className="p-8 text-center text-slate-400>Nenhuma corrida registrada.</div>
+                      <div className="p-8 text-center text-slate-400>Nenhuma corrida registrada.</div
                     ) : (
                       processedDeliveries.map(del => {
                         const rider = users.find(r => r.id === del.riderId);
@@ -1846,38 +1839,38 @@ export default function AdminDashboard() {
                         const isToday = del.date === db.getLocalDateString();
 
                         return (
-                          <div key={del.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/50>
-                            <div>
+                          <div key={del.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/50
+                            <div
                               <div className="flex items-center space-x-2>
-                                <p className="font-bold text-slate-800>{rider?.name || 'Motoboy'}</p>
+                                <p className="font-bold text-slate-800>{rider?.name || 'Motoboy'}</p
                                 {del.status === 'cancelled' && (
-                                  <span className="bg-red-100 text-red-800 text-[10px] font-bold px-2.5 py=0.5 rounded-full>Cancelada</span>
+                                  <span className="bg-red-100 text-red-800 text-[10px] font-bold px=2.5 py=0.5 rounded-full>Cancelada</span
                                 )}
                                 {del.status === 'rejected' && (
-                                  <span className="bg-red-100 text-red-800 text-[10px] font-bold px-2.5 py=0.5 rounded-full>Rejeitada</span>
+                                  <span className="bg-red-100 text-red-800 text-[10px] font-bold px=2.5 py=0.5 rounded-full>Rejeitada</span
                                 )}
                                 {del.orderNumber && (
-                                  <span className="bg-slate-100 text-slate-500 text-[10px] font-bold px-2.5 py=0.5 rounded-full>
+                                  <span className="bg-slate-100 text-slate-500 text-[10px] font-bold px=2.5 py=0.5 rounded-full
                                     #{del.orderNumber}
-                                  </span>
+                                  </span
                                 )}
-                              </div>
-                              <p className="text-sm text-slate-600>Estabelecimento: {est?.name}</p>
-                              <p className="text-xs text-slate-400 mt-1>
+                              </div
+                              <p className="text-sm text-slate-600>Estabelecimento: {est?.name}</p
+                              <p className="text-xs text-slate-400 mt-1
                                 Data: {new Date(del.date + 'T00:00:00').toLocaleDateString('pt-BR')} às {del.time}
-                              </p>
+                              </p
                               {del.notes && (
-                                <p className="text-xs text-slate-500 bg-slate-50 border border-slate-100 rounded px-2 py=1.5 italic>
+                                <p className="text-xs text-slate-500 bg-slate-50 border border-slate-100 rounded px=2 py=1.5 italic
                                   Obs: {del.notes}
-                                </p>
+                                </p
                               )}
-                            </div>
-                            <div className="flex items-center space-x-4 self-end sm:self-center>
+                            </div
+                            <div className="flex items-center space-x-4 self-end sm:self-center
                               <span className={`font-bold text-lg ${del.status === 'cancelled' || del.status === 'rejected' ? 'text-slate-400 line-through' : 'text-emerald-600'}`}>
                                 R$ {del.value.toFixed(2)}
-                              </span>
+                              </span
                               {isToday && del.status === 'active' && (
-                                <div className="flex items-center space-x-1>
+                                <div className="flex items-center space-x-1
                                   <button
                                     onClick={() => {
                                       setEditingDelivery(del);
@@ -1892,98 +1885,98 @@ export default function AdminDashboard() {
                                       });
                                       setShowDeliveryModal(true);
                                     }}
-                                    className="text-slate-500 hover:bg-slate-100 p-2 rounded transition-colors"
+                                    className="text-slate-500 hover:bg-slate-100 p=2 rounded transition-colors
                                     title="Editar Corrida"
                                   >
                                     <Edit2 className="h-4 w-4" />
-                                  </button>
+                                  </button
                                   <button
                                     onClick={() => handleCancelDelivery(del.id)}
-                                    className="text-red-500 hover:bg-red-50 p-2 rounded transition-colors"
+                                    className="text-red-500 hover:bg-red-50 p=2 rounded transition-colors
                                     title="Cancelar Corrida"
                                   >
                                     <Trash2 className="h-4 w-4" />
-                                  </button>
-                                </div>
+                                  </button
+                                </div
                               )}
-                            </div>
-                          </div>
+                            </div
+                          </div
                         );
                       })
                     )}
-                  </div>
-                </div>
-              </div>
-            </div>
+                  </div
+                </div
+              </div
+            </div
           )}
 
           {/* TAB: RELATÓRIOS */}
           {activeTab === 'reports' && (
             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-6>
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4>
-                <h2 className="text-xl font-bold text-slate-800>Relatórios Gerenciais</h2>
+                <h2 className="text-xl font-bold text-slate-800>Relatórios Gerenciais</h2
                 <button
                   onClick={exportToCSV}
-                  className="flex items-center justify-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py=2 rounded-lg text-sm font-medium transition-colors"
+                  className="flex items-center justify-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white px=4 py=2 rounded-lg text-sm font-medium transition-colors
                 >
                   <Download className="h-4 w-4" />
-                  <span>Exportar CSV</span>
-                </button>
-              </div>
+                  <span>Exportar CSV</span
+                </button
+              </div
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-100>
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase mb-2>Tipo de Relatório</label>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-slate-50 p=4 rounded-xl border border-slate-100>
+                <div
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-2>Tipo de Relatório</label
                   <select
                     value={reportType}
                     onChange={(e) => setReportType(e.target.value as any)}
-                    className="w-full px-3 py=2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    className="w-full px=3 py=2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500
                   >
-                    <option value="earnings">Faturamento por Motoboy</option>
-                    <option value="deliveries">Quantidade de Corridas por Motoboy</option>
-                    <option value="schedules">Escalas por Estabelecimento</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase mb-2>Período</label>
+                    <option value="earnings">Faturamento por Motoboy</option
+                    <option value="deliveries">Quantidade de Corridas por Motoboy</option
+                    <option value="schedules">Escalas por Estabelecimento</option
+                  </select
+                </div
+                <div
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-2>Período</label
                   <select
                     value={reportPeriod}
                     onChange={(e) => setReportPeriod(e.target.value as any)}
-                    className="w-full px-3 py=2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    className="w-full px=3 py=2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500
                   >
-                    <option value="daily">Diário</option>
-                    <option value="weekly">Semanal</option>
-                    <option value="monthly">Mensal</option>
-                    <option value="custom">Personalizado</option>
-                  </select>
-                </div>
+                    <option value="daily">Diário</option
+                    <option value="weekly">Semanal</option
+                    <option value="monthly">Mensal</option
+                    <option value="custom">Personalizado</option
+                  </select
+                </div
                 {reportPeriod === 'custom' && (
                   <div className="space-y-2>
-                    <div>
-                      <label className="block text-xs font-bold text-slate-500 uppercase mb-1>Data Inicial</label>
+                    <div
+                      <label className="block text-xs font-bold text-slate-500 uppercase mb-1>Data Inicial</label
                       <input
                         type="date"
                         value={customStartDate}
                         onChange={(e) => setCustomStartDate(e.target.value)}
-                        className="w-full px-3 py=2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                        className="w-full px=3 py=2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500
                       />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-slate-500 uppercase mb-1>Data Final</label>
+                    </div
+                    <div
+                      <label className="block text-xs font-bold text-slate-500 uppercase mb-1>Data Final</label
                       <input
                         type="date"
                         value={customEndDate}
                         onChange={(e) => setCustomEndDate(e.target.value)}
-                        className="w-full px-3 py=2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                        className="w-full px=3 py=2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500
                       />
-                    </div>
-                  </div>
+                    </div
+                  </div
                 )}
-              </div>
-            </div>
+              </div
+            </div
           )}
-        </div>
-      </div>
+        </div
+      </div
 
       {/* Modais */}
       <UserModal
@@ -2072,6 +2065,6 @@ export default function AdminDashboard() {
         setDeliveryForm={setDeliveryForm}
         onSave={handleSaveDelivery}
       />
-    </div>
+    </div
   );
 }
