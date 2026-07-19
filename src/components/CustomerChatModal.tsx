@@ -31,11 +31,11 @@ export default function CustomerChatModal({
 
   if (!isOpen || !delivery) return null;
 
-  // Calcula se o chat já expirou (10 horas desde o lançamento da corrida)
+  // Calcula se o chat já expirou (1 hora e 30 minutos desde o lançamento da corrida)
   const deliveryDateTime = new Date(`${delivery.date}T${delivery.time}:00`);
   const timeDifferenceMs = Date.now() - deliveryDateTime.getTime();
-  const tenHoursInMs = 10 * 60 * 60 * 1000;
-  const isExpired = timeDifferenceMs > tenHoursInMs;
+  const ninetyMinutesInMs = 90 * 60 * 1000; // 1h 30m
+  const isExpired = timeDifferenceMs > ninetyMinutesInMs;
 
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
