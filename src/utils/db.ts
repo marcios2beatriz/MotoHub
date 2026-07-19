@@ -270,6 +270,7 @@ export const db = {
       // 1. Sincronizar Usuários
       const { data: usersData } = await supabase.from('users').select('*');
       if (usersData) {
+        const localUsers = this.getUsers();
         const mappedUsers: User[] = usersData.map(u => ({
           id: u.id,
           name: u.name,
@@ -284,12 +285,15 @@ export const db = {
           establishmentId: u.establishment_id || undefined,
           updatedAt: u.updated_at
         }));
-        localStorage.setItem(KEYS.USERS, JSON.stringify(mappedUsers));
+        const remoteIds = new Set(mappedUsers.map(u => u.id));
+        const unsyncedLocal = localUsers.filter(u => !remoteIds.has(u.id));
+        localStorage.setItem(KEYS.USERS, JSON.stringify([...mappedUsers, ...unsyncedLocal]));
       }
 
       // 2. Sincronizar Estabelecimentos
       const { data: estsData } = await supabase.from('establishments').select('*');
       if (estsData) {
+        const localEsts = this.getEstablishments();
         const mappedEsts: Establishment[] = estsData.map(e => ({
           id: e.id,
           name: e.name,
@@ -300,10 +304,12 @@ export const db = {
           createdAt: e.created_at,
           updatedAt: e.updated_at
         }));
-        localStorage.setItem(KEYS.ESTABLISHMENTS, JSON.stringify(mappedEsts));
+        const remoteIds = new Set(mappedEsts.map(e => e.id));
+        const unsyncedLocal = localEsts.filter(e => !remoteIds.has(e.id));
+        localStorage.setItem(KEYS.ESTABLISHMENTS, JSON.stringify([...mappedEsts, ...unsyncedLocal]));
       }
 
-      // 3. Sincronizar Escalas (Schedules)
+      // 3. Sincronizar Escalas (Schedules) com Preservação de Dados Locais
       const { data: schData } = await supabase.from('schedules').select('*');
       if (schData) {
         const localSchedules = this.getSchedules();
@@ -312,7 +318,7 @@ export const db = {
           return {
             id: s.id,
             riderId: s.rider_id,
-            establishmentId: s.establishment_id, // Corrigido de establishment_id para establishmentId
+            establishmentId: s.establishment_id,
             date: s.date,
             shift: s.shift,
             startTime: s.start_time,
@@ -323,7 +329,9 @@ export const db = {
             updatedAt: s.updated_at
           };
         });
-        localStorage.setItem(KEYS.SCHEDULES, JSON.stringify(mappedSchedules));
+        const remoteIds = new Set(mappedSchedules.map(s => s.id));
+        const unsyncedLocal = localSchedules.filter(s => !remoteIds.has(s.id));
+        localStorage.setItem(KEYS.SCHEDULES, JSON.stringify([...mappedSchedules, ...unsyncedLocal]));
       }
 
       // 4. Sincronizar Corridas (Deliveries) com Lógica de Mesclagem Robusta
@@ -404,6 +412,7 @@ export const db = {
       // 5. Sincronizar Solicitações de Parceria
       const { data: reqsData } = await supabase.from('partner_requests').select('*');
       if (reqsData) {
+        const localReqs = this.getPartnerRequests();
         const mappedReqs: PartnerRequest[] = reqsData.map(r => ({
           id: r.id,
           establishmentName: r.establishment_name,
@@ -413,7 +422,9 @@ export const db = {
           status: r.status,
           createdAt: r.created_at
         }));
-        localStorage.setItem(KEYS.PARTNER_REQUESTS, JSON.stringify(mappedReqs));
+        const remoteIds = new Set(mappedReqs.map(r => r.id));
+        const unsyncedLocal = localReqs.filter(r => !remoteIds.has(r.id));
+        localStorage.setItem(KEYS.PARTNER_REQUESTS, JSON.stringify([...mappedReqs, ...unsyncedLocal]));
       }
 
       // Dispara evento global para atualizar as telas em tempo real
