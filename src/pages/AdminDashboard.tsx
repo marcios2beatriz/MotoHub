@@ -25,6 +25,7 @@ import {
   Building2,
   CheckCircle2,
   UserCheck,
+  UserPlus,
   Eye,
   EyeOff,
   TrendingUp,
@@ -40,6 +41,14 @@ import DeliveryModal from '../components/DeliveryModal';
 
 const DAY_KEYS = ['seg', 'ter', 'qua', 'qui', 'sex', 'sab', 'dom'] as const;
 const DAY_LABELS = ['Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado', 'Domingo'];
+
+const getThisMonday = () => {
+  const today = new Date();
+  const day = today.getDay();
+  const diff = today.getDate() - day + (day === 0 ? -6 : 1);
+  const monday = new Date(today.setDate(diff));
+  return monday.toISOString().split('T')[0];
+};
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
