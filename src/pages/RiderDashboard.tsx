@@ -822,7 +822,7 @@ export default function RiderDashboard() {
                           </button>
 
                           {/* Botão Chat com Cliente */}
-                          {delivery.status === 'active' && (
+                          {(delivery.status === 'active' || delivery.status === 'pending') && (
                             <button
                               onClick={() => setCustomerChatDeliveryId(delivery.id)}
                               className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors relative"
@@ -1251,7 +1251,7 @@ export default function RiderDashboard() {
                   onClick={() => { setShowLaunchModal(false); setEditingDelivery(null); }}
                   className="px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50"
                 >
-                  Cancelar
+                  -- Cancelar
                 </button>
                 <button
                   type="submit"
