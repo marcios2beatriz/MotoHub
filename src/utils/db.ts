@@ -302,20 +302,23 @@ export const db = {
       if (error) throw error;
       if (usersData) {
         const localUsers = this.getUsers();
-        const mappedUsers: User[] = usersData.map(u => ({
-          id: u.id,
-          name: u.name,
-          email: u.email,
-          role: u.role,
-          active: u.active,
-          createdAt: u.created_at,
-          phone: u.phone || '',
-          cpf: u.cpf || '',
-          passwordHash: u.password_hash || '',
-          mustResetPassword: u.must_reset_password || false,
-          establishmentId: u.establishment_id || undefined,
-          updatedAt: u.updated_at
-        }));
+        const mappedUsers: User[] = usersData.map(u => {
+          const local = localUsers.find(l => l.id === u.id);
+          return {
+            id: u.id,
+            name: u.name,
+            email: u.email,
+            role: u.role,
+            active: u.active,
+            createdAt: u.created_at,
+            phone: u.phone || local?.phone || '',
+            cpf: u.cpf || local?.cpf || '',
+            passwordHash: u.password_hash || local?.passwordHash || '',
+            mustResetPassword: u.must_reset_password !== undefined ? u.must_reset_password : (local?.mustResetPassword || false),
+            establishmentId: u.establishment_id || local?.establishmentId || undefined,
+            updatedAt: u.updated_at
+          };
+        });
         const remoteIds = new Set(mappedUsers.map(u => u.id));
         const unsyncedLocal = localUsers.filter(u => !remoteIds.has(u.id));
         localStorage.setItem(KEYS.USERS, JSON.stringify([...mappedUsers, ...unsyncedLocal]));
@@ -349,12 +352,21 @@ export const db = {
               }
             }
           }
+
+          // --- REGRA DE PRESERVAÇÃO DE ENDEREÇO LOCAL ---
+          // Se o endereço retornado do Supabase estiver vazio/incompleto, mas tivermos um endereço local válido, preservamos o local.
+          const local = localEsts.find(l => l.id === e.id);
+          const isRemoteAddressEmpty = !parsedAddress.street && !parsedAddress.neighborhood;
+          if (isRemoteAddressEmpty && local && local.address && local.address.street) {
+            parsedAddress = { ...local.address };
+          }
+
           return {
             id: e.id,
             name: e.name,
-            email: e.email,
+            email: e.email || local?.email,
             active: e.active,
-            phone: e.phone || '',
+            phone: e.phone || local?.phone || '',
             address: parsedAddress,
             createdAt: e.created_at,
             updatedAt: e.updated_at
@@ -506,9 +518,10 @@ export const db = {
   },
 
   async syncUsersToSupabase(users: User[]) {
-    try {
-      for (const u of users) {
-        await supabase.from('users').upsert({
+    for (const u of users) {
+      try {
+        // Tentativa 1: Payload completo com todas as colunas customizadas
+        const { error } = await supabase.from('users').upsert({
           id: u.id,
           name: u.name,
           email: u.email,
@@ -522,28 +535,108 @@ export const db = {
           created_at: u.createdAt || new Date().toISOString(),
           updated_at: new Date().toISOString()
         });
+        if (!error) continue;
+
+        console.warn(`Primeira tentativa de sincronizar usuário ${u.id} falhou:`, error.message);
+
+        // Tentativa 2: Omitir colunas que podem não existir no schema remoto (como must_reset_password e password_hash)
+        const { error: error2 } = await supabase.from('users').upsert({
+          id: u.id,
+          name: u.name,
+          email: u.email,
+          role: u.role,
+          active: u.active,
+          phone: u.phone,
+          cpf: u.cpf,
+          establishment_id: u.establishmentId || null,
+          created_at: u.createdAt || new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        });
+        if (!error2) continue;
+
+        console.warn(`Segunda tentativa de sincronizar usuário ${u.id} falhou:`, error2.message);
+
+        // Tentativa 3: Apenas colunas essenciais garantidas
+        const { error: error3 } = await supabase.from('users').upsert({
+          id: u.id,
+          name: u.name,
+          email: u.email,
+          role: u.role,
+          active: u.active,
+          phone: u.phone,
+          created_at: u.createdAt || new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        });
+        if (error3) {
+          console.error(`Todas as tentativas de sincronizar o usuário ${u.id} falharam:`, error3);
+        }
+      } catch (e) {
+        console.error(`Exceção ao sincronizar usuário ${u.id}:`, e);
       }
-    } catch (e) {
-      console.error('Erro ao sincronizar usuários com Supabase:', e);
     }
   },
 
   async syncEstablishmentsToSupabase(ests: Establishment[]) {
-    try {
-      for (const e of ests) {
-        await supabase.from('establishments').upsert({
+    for (const e of ests) {
+      try {
+        // Tentativa 1: Enviar endereço como objeto JSON (ideal para colunas jsonb) e incluir email
+        const { error } = await supabase.from('establishments').upsert({
           id: e.id,
           name: e.name,
-          email: e.email || '',
+          email: e.email || undefined,
           active: e.active,
           phone: e.phone || '',
-          address: JSON.stringify(e.address), // Garante que o endereço seja stringificado para compatibilidade total com colunas text/jsonb
+          address: e.address, // Objeto direto
           created_at: e.createdAt || new Date().toISOString(),
           updated_at: new Date().toISOString()
         });
+        if (!error) continue;
+
+        console.warn(`Primeira tentativa de sincronizar estabelecimento ${e.id} falhou:`, error.message);
+
+        // Tentativa 2: Enviar endereço stringificado (para colunas text) e incluir email
+        const { error: error2 } = await supabase.from('establishments').upsert({
+          id: e.id,
+          name: e.name,
+          email: e.email || undefined,
+          active: e.active,
+          phone: e.phone || '',
+          address: JSON.stringify(e.address), // Stringificado
+          created_at: e.createdAt || new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        });
+        if (!error2) continue;
+
+        console.warn(`Segunda tentativa de sincronizar estabelecimento ${e.id} falhou:`, error2.message);
+
+        // Tentativa 3: Omitir coluna 'email' (pode não existir na tabela) e enviar endereço como objeto
+        const { error: error3 } = await supabase.from('establishments').upsert({
+          id: e.id,
+          name: e.name,
+          active: e.active,
+          phone: e.phone || '',
+          address: e.address,
+          created_at: e.createdAt || new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        });
+        if (!error3) continue;
+
+        // Tentativa 4: Omitir coluna 'email' e enviar endereço stringificado
+        const { error: error4 } = await supabase.from('establishments').upsert({
+          id: e.id,
+          name: e.name,
+          active: e.active,
+          phone: e.phone || '',
+          address: JSON.stringify(e.address),
+          created_at: e.createdAt || new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        });
+        if (error4) {
+          console.error(`Todas as tentativas de sincronizar o estabelecimento ${e.id} falharam:`, error4);
+        }
+      } catch (err) {
+        console.error(`Exceção ao sincronizar estabelecimento ${e.id}:`, err);
       }
-    } catch (err) {
-      console.error('Erro ao sincronizar estabelecimentos com Supabase:', err);
     }
   },
 
