@@ -42,12 +42,12 @@ export default function CustomerTracking() {
     const currentDelivery = allDeliveries.find(d => d.id === deliveryId);
     
     if (currentDelivery) {
-      // Verificar expiração de 2h (120 minutos)
+      // Verificar expiração de 1h 30m (90 minutos)
       const deliveryDateTime = new Date(`${currentDelivery.date}T${currentDelivery.time}:00`);
       const timeDifferenceMs = Date.now() - deliveryDateTime.getTime();
-      const twoHoursInMs = 120 * 60 * 1000; // 2h
+      const ninetyMinutesInMs = 90 * 60 * 1000; // 1h 30m
       
-      if (timeDifferenceMs > twoHoursInMs) {
+      if (timeDifferenceMs > ninetyMinutesInMs) {
         setIsExpired(true);
         setLoading(false);
         return;
@@ -307,7 +307,7 @@ export default function CustomerTracking() {
         }
       }
 
-      geocode();
+      initMap(finalLat, finalLng);
     };
 
     geocode();
@@ -413,7 +413,7 @@ export default function CustomerTracking() {
         <Clock className="h-12 w-12 text-red-500 mb-3 animate-pulse" />
         <h2 className="text-lg font-bold text-slate-800">Link de Acompanhamento Expirado</h2>
         <p className="text-sm text-slate-500 mt-1 max-w-xs">
-          Este link de rastreamento expirou por limite de tempo (limite de 2 horas desde o início da entrega).
+          Este link de rastreamento expirou por limite de tempo (limite de 1 hora e 30 minutos desde o início da entrega).
         </p>
         <button onClick={() => navigate('/')} className="mt-4 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium">
           Voltar ao Início
