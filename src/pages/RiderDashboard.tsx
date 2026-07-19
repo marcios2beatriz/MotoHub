@@ -95,7 +95,7 @@ export default function RiderDashboard() {
   const loadData = () => {
     if (!user) return;
     const allUsers = db.getUsers();
-    const freshUser = allUsers.find(u => u.email.toLowerCase() === user.email.toLowerCase()) || user;
+    const freshUser = allUsers.find(u => u.id === user.id) || user;
     
     // Filtro ultra-robusto por ID ou e-mail do motoboy para evitar sumiço por divergência de IDs
     const allSchedules = db.getSchedules().filter(s => {
@@ -130,6 +130,13 @@ export default function RiderDashboard() {
       return;
     }
     loadData();
+
+    // Sincronização periódica a cada 5 segundos para receber mensagens e atualizações em tempo real
+    const interval = setInterval(() => {
+      db.pullFromSupabase().then(() => loadData());
+    }, 5000);
+
+    return () => clearInterval(interval);
   }, [user, navigate, activeTab]);
 
   // Monitoramento de novas mensagens no chat com Estabelecimento
@@ -1117,7 +1124,7 @@ export default function RiderDashboard() {
                             </p>
                             <p className="text-sm text-slate-500 flex flex-wrap items-center gap-1.5 mt-0.5">
                               <Clock className="h-3.5 w-3.5 text-slate-400" />
-                              <span className={`font-medium ${schedule.shift === 'morning' ? 'text-amber-600' : schedule.shift === 'afternoon' ? 'text-orange-600' : 'text-blue-600'}`}>
+                              <span className={`font-medium ${schedule.shift === 'morning' ? 'text-amber-600' : schedule.shift === 'afternoon' ? 'text-orange-600' : schedule.shift === 'night' ? 'text-blue-600' : ''}`}>
                                 {getShiftLabel(schedule.shift)}
                               </span>
                               <span className="text-slate-300">•</span>
