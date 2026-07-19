@@ -11,7 +11,7 @@ export interface User {
   email: string;
   role: 'admin' | 'establishment' | 'rider';
   active: boolean;
-  createdAt?: string; // Tornou-se opcional para evitar erros de compilação
+  createdAt?: string;
   phone: string;
   cpf: string;
   passwordHash: string;
@@ -35,7 +35,7 @@ export interface Establishment {
     state: string;
     zipCode: string;
   };
-  createdAt?: string; // Tornou-se opcional para evitar erros de compilação
+  createdAt?: string;
   updatedAt?: string;
 }
 
@@ -225,6 +225,36 @@ export const db = {
       await supabase.from('establishments').delete().eq('id', id);
     } catch (e) {
       console.error('Erro ao deletar estabelecimento do Supabase:', e);
+    }
+  },
+
+  async deleteSchedule(id: string) {
+    const schedules = this.getSchedules().filter(s => s.id !== id);
+    localStorage.setItem(KEYS.SCHEDULES, JSON.stringify(schedules));
+    try {
+      await supabase.from('schedules').delete().eq('id', id);
+    } catch (e) {
+      console.error('Erro ao deletar escala do Supabase:', e);
+    }
+  },
+
+  async deletePartnerRequest(id: string) {
+    const requests = this.getPartnerRequests().filter(r => r.id !== id);
+    localStorage.setItem(KEYS.PARTNER_REQUESTS, JSON.stringify(requests));
+    try {
+      await supabase.from('partner_requests').delete().eq('id', id);
+    } catch (e) {
+      console.error('Erro ao deletar solicitação de parceria do Supabase:', e);
+    }
+  },
+
+  async deleteDelivery(id: string) {
+    const deliveries = this.getDeliveries().filter(d => d.id !== id);
+    localStorage.setItem(KEYS.DELIVERIES, JSON.stringify(deliveries));
+    try {
+      await supabase.from('deliveries').delete().eq('id', id);
+    } catch (e) {
+      console.error('Erro ao deletar corrida do Supabase:', e);
     }
   },
 
