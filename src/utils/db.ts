@@ -177,7 +177,7 @@ const syncToSupabase = async (table: string, data: any[]) => {
           active: item.active,
           password_hash: item.passwordHash,
           must_reset_password: item.mustResetPassword || false,
-          establishment_id: item.establishmentId || null,
+          establishment_id: item.establishment_id || null,
           updated_at: item.updatedAt || new Date().toISOString()
         };
       }
@@ -811,7 +811,7 @@ export const db = {
           });
           
           const remoteIds = new Set(uniqueSchs.map(s => s.id));
-          const localOnly = localSchs.filter(l => !remoteIds.includes(l.id) && !deletedIds.includes(l.id));
+          const localOnly = localSchs.filter(l => !remoteIds.has(l.id) && !deletedIds.includes(l.id));
           
           setStorageData('dm_schedules', [...mergedSchs, ...localOnly]);
         }
@@ -904,7 +904,7 @@ export const db = {
           
           // Add any local deliveries that are not in remote yet (and not deleted)
           const remoteIds = new Set(mappedDels.map(d => d.id));
-          const localOnly = localDels.filter(l => !remoteIds.includes(l.id) && !deletedIds.includes(l.id));
+          const localOnly = localDels.filter(l => !remoteIds.has(l.id) && !deletedIds.includes(l.id));
           
           setStorageData('dm_deliveries', [...mergedDels, ...localOnly]);
         }
