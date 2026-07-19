@@ -38,11 +38,13 @@ export default function DeliveryNotesModal({
   const timeDifferenceMs = Date.now() - deliveryDateTime.getTime();
   const tenHoursInMs = 10 * 60 * 60 * 1000;
   const isExpired = timeDifferenceMs > tenHoursInMs;
+  const isRejected = delivery.status === 'rejected';
+  const isBlocked = isExpired || isRejected;
 
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
-    if (isExpired) {
-      alert('Este chat já expirou e não aceita mais novas mensagens.');
+    if (isBlocked) {
+      alert(isRejected ? 'Esta corrida foi rejeitada. O chat está desativado.' : 'Este chat já expirou e não aceita mais novas mensagens.');
       return;
     }
     if (!newMessage.trim()) return;
@@ -64,6 +66,18 @@ export default function DeliveryNotesModal({
 
   const messages = delivery.notes ? delivery.notes.split('\n') : [];
 
+  // Extrai a justificativa de rejeição de forma amigável
+  const getRejectionJustification = () => {
+    if (!delivery.notes) return 'Não especificado';
+    if (delivery.notes.includes('Rejeitado:')) {
+      return delivery.notes.split('Rejeitado:').pop()?.trim() || 'Não especificado';
+    }
+    if (delivery.notes.includes('Motivo da rejeição:')) {
+      return delivery.notes.split('Motivo da rejeição:').pop()?.trim() || 'Não especificado';
+    }
+    return delivery.notes;
+  };
+
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
       <div className="bg-white rounded-xl max-w-md w-full p-6 space-y-4 shadow-xl flex flex-col max-h-[80vh]">
@@ -80,8 +94,20 @@ export default function DeliveryNotesModal({
           </button>
         </div>
 
+        {/* Alerta de Rejeição */}
+        {isRejected && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-start gap-2 text-red-800 text-xs">
+            <AlertCircle className="h-4 w-4 text-red-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="font-bold">Corrida Rejeitada</p>
+              <p className="mt-0.5 font-medium">Justificativa: {getRejectionJustification()}</p>
+              <p className="mt-1 text-[10px] text-red-500">O chat foi desativado permanentemente para esta corrida.</p>
+            </div>
+          </div>
+        )}
+
         {/* Alerta de Expiração */}
-        {isExpired && (
+        {isExpired && !isRejected && (
           <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-start gap-2 text-amber-800 text-xs">
             <AlertCircle className="h-4 w-4 text-amber-600 flex-shrink-0 mt-0.5" />
             <div>
@@ -137,15 +163,15 @@ export default function DeliveryNotesModal({
         <form onSubmit={handleSend} className="flex gap-2 pt-2 border-t border-slate-100">
           <input
             type="text"
-            disabled={isExpired}
-            placeholder={isExpired ? "Chat bloqueado por expiração" : "Digite uma observação ou aviso..."}
+            disabled={isBlocked}
+            placeholder={isRejected ? "Chat bloqueado por rejeição" : isExpired ? "Chat bloqueado por expiração" : "Digite uma observação ou aviso..."}
             value={newMessage}
             onChange={(e) => setNewMessage(e.target.value)}
             className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
           />
           <button
             type="submit"
-            disabled={isExpired}
+            disabled={isBlocked}
             className="bg-indigo-600 hover:bg-indigo-700 text-white p-2 rounded-lg transition-colors flex items-center justify-center disabled:bg-slate-300 disabled:cursor-not-allowed"
           >
             <Send className="h-4 w-4" />

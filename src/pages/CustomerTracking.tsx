@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { db, Delivery, User, Establishment, RiderLocation } from '../utils/db';
-import { Bike, MapPin, Clock, ShieldCheck, RefreshCw, MessageSquare, Navigation } from 'lucide-react';
+import { Bike, MapPin, Clock, ShieldCheck, RefreshCw, MessageSquare, Navigation, AlertCircle } from 'lucide-react';
 import L from 'leaflet';
 import CustomerChatModal from '../components/CustomerChatModal';
 import { sendDeviceNotification } from '../utils/notifications';
@@ -42,12 +42,12 @@ export default function CustomerTracking() {
     const currentDelivery = allDeliveries.find(d => d.id === deliveryId);
     
     if (currentDelivery) {
-      // Verificar expiração de 1h 30m (90 minutos)
+      // Verificar expiração de 2 horas (120 minutos)
       const deliveryDateTime = new Date(`${currentDelivery.date}T${currentDelivery.time}:00`);
       const timeDifferenceMs = Date.now() - deliveryDateTime.getTime();
-      const ninetyMinutesInMs = 90 * 60 * 1000; // 1h 30m
+      const twoHoursInMs = 120 * 60 * 1000; // 2h
       
-      if (timeDifferenceMs > ninetyMinutesInMs) {
+      if (timeDifferenceMs > twoHoursInMs) {
         setIsExpired(true);
         setLoading(false);
         return;
@@ -307,10 +307,7 @@ export default function CustomerTracking() {
         }
       }
 
-      initMap(finalLat, finalLng);
-    };
-
-    geocode();
+      geocode();
   }, [establishment?.id]);
 
   // Atualização do Marcador do Motoboy e Ajuste de Zoom Inteligente
@@ -413,7 +410,7 @@ export default function CustomerTracking() {
         <Clock className="h-12 w-12 text-red-500 mb-3 animate-pulse" />
         <h2 className="text-lg font-bold text-slate-800">Link de Acompanhamento Expirado</h2>
         <p className="text-sm text-slate-500 mt-1 max-w-xs">
-          Este link de rastreamento expirou por limite de tempo (limite de 1 hora e 30 minutos desde o início da entrega).
+          Este link de rastreamento expirou por limite de tempo (limite de 2 horas desde o início da entrega).
         </p>
         <button onClick={() => navigate('/')} className="mt-4 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium">
           Voltar ao Início
@@ -476,14 +473,39 @@ export default function CustomerTracking() {
             <div>
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Status do Pedido</span>
               <h3 className="text-base font-extrabold text-slate-800 flex items-center gap-1.5 mt-0.5">
-                <span className="relative flex h-2.5 w-2.5">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
-                </span>
-                {delivery.status === 'active' ? 'Saiu para Entrega' : 'Aguardando Envio'}
+                {delivery.status === 'rejected' ? (
+                  <>
+                    <span className="h-2.5 w-2.5 rounded-full bg-red-500" />
+                    <span className="text-red-600">Corrida Rejeitada</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="relative flex h-2.5 w-2.5">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                    </span>
+                    <span>{delivery.status === 'active' ? 'Saiu para Entrega' : 'Aguardando Envio'}</span>
+                  </>
+                )}
               </h3>
             </div>
           </div>
+
+          {/* Rejection Justification */}
+          {delivery.status === 'rejected' && (
+            <div className="bg-red-50 border border-red-100 rounded-xl p-3 text-xs text-red-800 font-medium flex items-start gap-2">
+              <AlertCircle className="h-4 w-4 text-red-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <strong>Motivo da Rejeição:</strong> {
+                  delivery.notes?.includes('Rejeitado:') 
+                    ? delivery.notes.split('Rejeitado:').pop()?.trim() 
+                    : delivery.notes?.includes('Motivo da rejeição:')
+                    ? delivery.notes.split('Motivo da rejeição:').pop()?.trim()
+                    : delivery.notes || 'Não especificado'
+                }
+              </div>
+            </div>
+          )}
 
           {/* Rider Info */}
           {rider && (
