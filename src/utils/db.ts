@@ -166,7 +166,10 @@ const mergeChatStrings = (localChat: string | undefined, remoteChat: string | un
   const localLines = localChat.split('\n').map(l => l.trim()).filter(Boolean);
   const remoteLines = remoteChat.split('\n').map(l => l.trim()).filter(Boolean);
 
-  const allLines = new Set([...localLines, ...remoteLines]);
+  const allLines = new Set<string>();
+  localLines.forEach(line => allLines.add(line));
+  remoteLines.forEach(line => allLines.add(line));
+  
   return Array.from(allLines).join('\n');
 };
 
@@ -218,7 +221,11 @@ const syncToSupabase = async (table: string, data: any[]) => {
           shift: item.shift,
           start_time: item.startTime,
           end_time: item.endTime,
-          created_by: item.createdBy || 'Admin',
+          created_by: JSON.stringify({
+            createdBy: item.createdBy || 'Admin',
+            chat: item.chat || null,
+            updatedAt: item.updatedAt || item.createdAt || new Date().toISOString()
+          }),
           chat: item.chat || null,
           created_at: item.createdAt,
           updated_at: item.updatedAt || item.createdAt || new Date().toISOString()
@@ -234,7 +241,12 @@ const syncToSupabase = async (table: string, data: any[]) => {
           value: item.value,
           status: item.status,
           schedule_id: item.scheduleId || null,
-          order_number: item.orderNumber || null,
+          order_number: JSON.stringify({
+            orderNumber: item.orderNumber || null,
+            notes: item.notes || null,
+            customerChat: item.customerChat || null,
+            updatedAt: item.updatedAt || new Date().toISOString()
+          }),
           notes: item.notes || null,
           customer_chat: item.customerChat || null,
           updated_at: item.updatedAt || new Date().toISOString()
