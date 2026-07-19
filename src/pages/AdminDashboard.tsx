@@ -204,13 +204,13 @@ export default function AdminDashboard() {
         const updatedEsts = allEsts.map(e => e.id === existingEst.id ? {
           ...e,
           address: {
-            street: userForm.street || e.address.street,
-            number: userForm.number || e.address.number,
-            complement: e.address.complement || '',
-            neighborhood: userForm.neighborhood || e.address.neighborhood,
-            city: userForm.city || e.address.city,
-            state: userForm.state || e.address.state,
-            zipCode: userForm.zipCode || e.address.zipCode
+            street: userForm.street || e.address?.street || '',
+            number: userForm.number || e.address?.number || '',
+            complement: e.address?.complement || '',
+            neighborhood: userForm.neighborhood || e.address?.neighborhood || '',
+            city: userForm.city || e.address?.city || '',
+            state: userForm.state || e.address?.state || '',
+            zipCode: userForm.zipCode || e.address?.zipCode || ''
           },
           updatedAt: nowStr
         } : e);
@@ -1419,12 +1419,12 @@ export default function AdminDashboard() {
                                   password: '',
                                   establishmentId: user.establishmentId || '',
                                   establishmentName: est ? est.name : '',
-                                  zipCode: est ? est.address.zipCode : '',
-                                  street: est ? est.address.street : '',
-                                  number: est ? est.address.number : '',
-                                  neighborhood: est ? est.address.neighborhood : '',
-                                  city: est ? est.address.city : '',
-                                  state: est ? est.address.state : ''
+                                  zipCode: est ? est.address?.zipCode || '' : '',
+                                  street: est ? est.address?.street || '' : '',
+                                  number: est ? est.address?.number || '' : '',
+                                  neighborhood: est ? est.address?.neighborhood || '' : '',
+                                  city: est ? est.address?.city || '' : '',
+                                  state: est ? est.address?.state || '' : ''
                                 });
                                 setShowUserModal(true);
                               }}
@@ -1534,7 +1534,7 @@ export default function AdminDashboard() {
                         <tr key={est.id} className="hover:bg-slate-50/50">
                           <td className="py-3 px-4 font-medium text-slate-800">{est.name}</td>
                           <td className="py-3 px-4 text-slate-600 max-w-xs truncate">
-                            {est.address.street}, {est.address.number} - {est.address.neighborhood}
+                            {est.address?.street || 'Sem rua'}, {est.address?.number || 'S/N'} - {est.address?.neighborhood || 'Sem bairro'}
                           </td>
                           <td className="py-3 px-4 text-slate-600">{est.phone}</td>
                           <td className="py-3 px-4 text-slate-600 font-medium">{estUser?.email || 'Sem conta'}</td>
@@ -1562,13 +1562,13 @@ export default function AdminDashboard() {
                                 setEditingEst(est);
                                 setEstForm({
                                   name: est.name,
-                                  street: est.address.street,
-                                  number: est.address.number,
-                                  complement: est.address.complement || '',
-                                  neighborhood: est.address.neighborhood,
-                                  city: est.address.city,
-                                  state: est.address.state,
-                                  zipCode: est.address.zipCode,
+                                  street: est.address?.street || '',
+                                  number: est.address?.number || '',
+                                  complement: est.address?.complement || '',
+                                  neighborhood: est.address?.neighborhood || '',
+                                  city: est.address?.city || '',
+                                  state: est.address?.state || '',
+                                  zipCode: est.address?.zipCode || '',
                                   phone: est.phone || '',
                                   email: estUser ? estUser.email : '',
                                   password: ''
