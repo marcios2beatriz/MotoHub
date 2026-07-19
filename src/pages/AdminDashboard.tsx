@@ -280,7 +280,159 @@ export default function AdminDashboard() {
   };
 
   const toggleUserStatus = (id: string) => {
-    const allUsers = async (id: string) => {
+    const allUsers = db.getUsers();
+    const updated = allUsers.map(u => u.id === id ? { ...u, active: !u.active, updatedAt: new Date().toISOString() } : u);
+    db.setUsers(updated);
+    loadData();
+  };
+
+  const handleApproveRider = (id: string) => {
+    const allUsers = db.getUsers();
+    const allEsts = db.getEstablishments();
+    
+    const userToApprove = allUsers.find(u => u.id === id);
+    if (!userToApprove) return;
+
+    // Ativar Usuário
+    const updatedUsers = allUsers.map(u => u.id === id ? { ...u, active: true, updatedAt: new Date().toISOString() } : u);
+    db.setUsers(updatedUsers);
+
+    // Se for gerente, ativar também o estabelecimento vinculado
+    if (userToApprove.role === 'establishment' && userToApprove.establishmentId) {
+      const updatedEsts = allEsts.map(e => e.id === userToApprove.establishmentId ? { ...e, active: true, updatedAt: new Date().toISOString() } : e);
+      db.setEstablishments(updatedEsts);
+    }
+    
+    if (userToApprove.role === 'rider') {
+      const allNotif = db.getNotifications();
+      const newNotif: Notification = {
+        id: 'n_' + Date.now(),
+        riderId: userToApprove.id,
+        title: '🎉 Cadastro Aprovado!',
+        message: 'Seu cadastro foi aprovado! Você já pode acessar o sistema com seu e-mail e senha.',
+        date: new Date().toISOString(),
+        read: false
+      };
+      db.setNotifications([...allNotif, newNotif]);
+    }
+    
+    loadData();
+    alert('Usuário aprovado e ativado com sucesso!');
+  };
+
+  // --- GESTÃO DE ESTABELECIMENTOS ---
+  const handleSaveEst = (e: React.FormEvent) => {
+    e.preventDefault();
+    const allEst = db.getEstablishments();
+    const allUsers = db.getUsers();
+
+    const duplicateName = allEst.find(es => es.name.toLowerCase() === estForm.name.toLowerCase() && (!editingEst || es.id !== editingEst.id));
+    if (duplicateName) {
+      alert('Erro: Já existe um estabelecimento com este nome.');
+      return;
+    }
+
+    const duplicateEmail = allUsers.find(u => u.email.toLowerCase() === estForm.email.toLowerCase() && (!editingEst || u.establishmentId !== editingEst.id));
+    if (duplicateEmail) {
+      alert('Erro: E-mail já cadastrado para outro usuário.');
+      return;
+    }
+
+    const estId = editingEst ? editingEst.id : 'e_' + Date.now();
+    const nowStr = new Date().toISOString();
+
+    if (editingEst) {
+      // Atualizar Estabelecimento
+      const updated = allEst.map(es => es.id === editingEst.id ? {
+        ...es,
+        name: estForm.name,
+        phone: estForm.phone,
+        address: {
+          street: estForm.street,
+          number: estForm.number,
+          complement: estForm.complement || '',
+          neighborhood: estForm.neighborhood,
+          city: estForm.city,
+          state: estForm.state,
+          zipCode: estForm.zipCode
+        },
+        updatedAt: nowStr
+      } : es);
+      db.setEstablishments(updated);
+
+      // Verificar se já existe um usuário gerente para este estabelecimento
+      const hasManager = allUsers.some(u => u.establishmentId === editingEst.id);
+
+      if (hasManager) {
+        // Atualizar Usuário correspondente existente
+        const updatedUsers = allUsers.map(u => u.establishmentId === editingEst.id ? {
+          ...u,
+          name: 'Gerente ' + estForm.name,
+          email: estForm.email,
+          passwordHash: estForm.password || u.passwordHash,
+          phone: estForm.phone,
+          updatedAt: nowStr
+        } : u);
+        db.setUsers(updatedUsers);
+      } else if (estForm.email) {
+        // Criar um novo Usuário gerente caso não existisse antes
+        const newEstUser: User = {
+          id: 'u_' + Date.now(),
+          name: 'Gerente ' + estForm.name,
+          cpf: db.generateUniqueDummyCpf(),
+          phone: estForm.phone,
+          email: estForm.email,
+          role: 'establishment',
+          active: true,
+          passwordHash: estForm.password || 'bella123',
+          establishmentId: editingEst.id,
+          updatedAt: nowStr
+        };
+        db.setUsers([...allUsers, newEstUser]);
+      }
+    } else {
+      // Criar Estabelecimento
+      const newEst: Establishment = {
+        id: estId,
+        name: estForm.name,
+        phone: estForm.phone,
+        active: true,
+        address: {
+          street: estForm.street,
+          number: estForm.number,
+          complement: estForm.complement || '',
+          neighborhood: estForm.neighborhood,
+          city: estForm.city,
+          state: estForm.state,
+          zipCode: estForm.zipCode
+        },
+        updatedAt: nowStr
+      };
+      db.setEstablishments([...allEst, newEst]);
+
+      // Criar Usuário correspondente (Obrigatório!)
+      const newEstUser: User = {
+        id: 'u_' + Date.now(),
+        name: 'Gerente ' + estForm.name,
+        cpf: db.generateUniqueDummyCpf(),
+        phone: estForm.phone,
+        email: estForm.email || `${estForm.name.toLowerCase().replace(/\s+/g, '')}@delivery.com`,
+        role: 'establishment',
+        active: true,
+        passwordHash: estForm.password || 'bella123',
+        establishmentId: estId,
+        updatedAt: nowStr
+      };
+      db.setUsers([...allUsers, newEstUser]);
+    }
+
+    setShowEstModal(false);
+    setEditingEst(null);
+    setEstForm({ name: '', street: '', number: '', complement: '', neighborhood: '', city: '', state: '', zipCode: '', phone: '', email: '', password: '' });
+    loadData();
+  };
+
+  const handleDeleteEst = async (id: string) => {
     if (confirm('Deseja realmente excluir este estabelecimento definitivamente? Todos os gerentes vinculados perderão o acesso.')) {
       await db.deleteEstablishment(id);
       loadData();
@@ -1091,8 +1243,8 @@ export default function AdminDashboard() {
                             >
                               <Trash2 className="h-4 w-4" />
                             </button
-                          </td
-                        </tr
+                          </td>
+                        </tr>
                       );
                     })}
                   </tbody>
@@ -1188,7 +1340,7 @@ export default function AdminDashboard() {
                         </button
                         <button
                           onClick={() => handleDeleteEst(est.id)}
-                          className="p-1.5 text-red-500 hover:bg-red-50 rounded transition-colors inline-flex
+                          className="p-1.5 text-red-500 hover:bg-red-500 rounded transition-colors inline-flex
                         >
                           <Trash2 className="h-4 w-4" />
                         </button
@@ -1262,7 +1414,7 @@ export default function AdminDashboard() {
                             </button
                             <button
                               onClick={() => handleDeleteEst(est.id)}
-                              className="p-1.5 text-red-500 hover:bg-red-50 rounded transition-colors inline-flex
+                              className="p-1.5 text-red-500 hover:bg-red-500 rounded transition-colors inline-flex
                             >
                               <Trash2 className="h-4 w-4" />
                             </button
@@ -1273,7 +1425,7 @@ export default function AdminDashboard() {
                   </tbody>
                 </table>
               </div>
-            </div>
+            </div
           )}
 
           {/* TAB: SOLICITAÇÕES DE PARCERIA */}
@@ -1430,10 +1582,10 @@ export default function AdminDashboard() {
                   <button onClick={() => setScheduleViewMode('accordion')} title="Lista" className={`flex items-center gap-1.5 px=3 py=2 rounded-md text-xs font-medium transition-colors ${scheduleViewMode === 'accordion' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
                     <List className="h-3.5 w-3.5" /><span>Lista</span
                   </button
-                  <button onClick={() => setScheduleViewMode('grid')} title="Cards" className={`flex items-center gap-1.5 px=3 py=2 rounded-md text-xs font-medium transition-colors ${scheduleViewMode === 'grid' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                  <button onClick={() => setScheduleViewMode('grid')} title="Cards" className={`flex items-center gap-1.5 px=3 py=2 rounded-md text-xs font-medium transition-colors ${scheduleViewMode === 'grid' ? 'bg-white text-indico-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
                     <LayoutGrid className="h-3.5 w-3.5" /><span>Cards</span
                   </button
-                  <button onClick={() => setScheduleViewMode('timeline')} title="Agenda" className={`flex items-center gap-1.5 px=3 py=2 rounded-md text-xs font-medium transition-colors ${scheduleViewMode === 'timeline' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                  <button onClick={() => setScheduleViewMode('timeline')} title="Agenda" className={`flex items-center gap-1.5 px=3 py=2 rounded-md text-xs font-medium transition-colors ${scheduleViewMode === 'timeline' ? 'bg-white text-indico-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
                     <Calendar className="h-3.5 w-3.5" /><span>Agenda</span
                   </button
                 </div
@@ -1441,7 +1593,7 @@ export default function AdminDashboard() {
 
               {(() => {
                 const todayStr = db.getLocalDateString();
-                const q = scheduleSearch.toLowerCase();
+                const q = searchSearch.toLowerCase();
                 const riders = users.filter(u => u.role === 'rider');
                 const filteredList = riders.filter(r =>
                   r.name.toLowerCase().includes(q) || r.cpf.includes(q) || r.phone.includes(q)
