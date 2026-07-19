@@ -214,6 +214,7 @@ export default function AdminDashboard() {
           id: newEstId,
           name: userForm.establishmentName,
           phone: userForm.phone || '',
+          phone: userForm.phone || '',
           active: true,
           address: {
             street: userForm.street || 'A definir',
@@ -279,159 +280,7 @@ export default function AdminDashboard() {
   };
 
   const toggleUserStatus = (id: string) => {
-    const allUsers = db.getUsers();
-    const updated = allUsers.map(u => u.id === id ? { ...u, active: !u.active, updatedAt: new Date().toISOString() } : u);
-    db.setUsers(updated);
-    loadData();
-  };
-
-  const handleApproveRider = (id: string) => {
-    const allUsers = db.getUsers();
-    const allEsts = db.getEstablishments();
-    
-    const userToApprove = allUsers.find(u => u.id === id);
-    if (!userToApprove) return;
-
-    // Ativar Usuário
-    const updatedUsers = allUsers.map(u => u.id === id ? { ...u, active: true, updatedAt: new Date().toISOString() } : u);
-    db.setUsers(updatedUsers);
-
-    // Se for gerente, ativar também o estabelecimento vinculado
-    if (userToApprove.role === 'establishment' && userToApprove.establishmentId) {
-      const updatedEsts = allEsts.map(e => e.id === userToApprove.establishmentId ? { ...e, active: true, updatedAt: new Date().toISOString() } : e);
-      db.setEstablishments(updatedEsts);
-    }
-    
-    if (userToApprove.role === 'rider') {
-      const allNotif = db.getNotifications();
-      const newNotif: Notification = {
-        id: 'n_' + Date.now(),
-        riderId: userToApprove.id,
-        title: '🎉 Cadastro Aprovado!',
-        message: 'Seu cadastro foi aprovado! Você já pode acessar o sistema com seu e-mail e senha.',
-        date: new Date().toISOString(),
-        read: false
-      };
-      db.setNotifications([...allNotif, newNotif]);
-    }
-    
-    loadData();
-    alert('Usuário aprovado e ativado com sucesso!');
-  };
-
-  // --- GESTÃO DE ESTABELECIMENTOS ---
-  const handleSaveEst = (e: React.FormEvent) => {
-    e.preventDefault();
-    const allEst = db.getEstablishments();
-    const allUsers = db.getUsers();
-
-    const duplicateName = allEst.find(es => es.name.toLowerCase() === estForm.name.toLowerCase() && (!editingEst || es.id !== editingEst.id));
-    if (duplicateName) {
-      alert('Erro: Já existe um estabelecimento com este nome.');
-      return;
-    }
-
-    const duplicateEmail = allUsers.find(u => u.email.toLowerCase() === estForm.email.toLowerCase() && (!editingEst || u.establishmentId !== editingEst.id));
-    if (duplicateEmail) {
-      alert('Erro: E-mail já cadastrado para outro usuário.');
-      return;
-    }
-
-    const estId = editingEst ? editingEst.id : 'e_' + Date.now();
-    const nowStr = new Date().toISOString();
-
-    if (editingEst) {
-      // Atualizar Estabelecimento
-      const updated = allEst.map(es => es.id === editingEst.id ? {
-        ...es,
-        name: estForm.name,
-        phone: estForm.phone,
-        address: {
-          street: estForm.street,
-          number: estForm.number,
-          complement: estForm.complement || '',
-          neighborhood: estForm.neighborhood,
-          city: estForm.city,
-          state: estForm.state,
-          zipCode: estForm.zipCode
-        },
-        updatedAt: nowStr
-      } : es);
-      db.setEstablishments(updated);
-
-      // Verificar se já existe um usuário gerente para este estabelecimento
-      const hasManager = allUsers.some(u => u.establishmentId === editingEst.id);
-
-      if (hasManager) {
-        // Atualizar Usuário correspondente existente
-        const updatedUsers = allUsers.map(u => u.establishmentId === editingEst.id ? {
-          ...u,
-          name: 'Gerente ' + estForm.name,
-          email: estForm.email,
-          passwordHash: estForm.password || u.passwordHash,
-          phone: estForm.phone,
-          updatedAt: nowStr
-        } : u);
-        db.setUsers(updatedUsers);
-      } else if (estForm.email) {
-        // Criar um novo Usuário gerente caso não existisse antes
-        const newEstUser: User = {
-          id: 'u_' + Date.now(),
-          name: 'Gerente ' + estForm.name,
-          cpf: db.generateUniqueDummyCpf(),
-          phone: estForm.phone,
-          email: estForm.email,
-          role: 'establishment',
-          active: true,
-          passwordHash: estForm.password || 'bella123',
-          establishmentId: editingEst.id,
-          updatedAt: nowStr
-        };
-        db.setUsers([...allUsers, newEstUser]);
-      }
-    } else {
-      // Criar Estabelecimento
-      const newEst: Establishment = {
-        id: estId,
-        name: estForm.name,
-        phone: estForm.phone,
-        active: true,
-        address: {
-          street: estForm.street,
-          number: estForm.number,
-          complement: estForm.complement || '',
-          neighborhood: estForm.neighborhood,
-          city: estForm.city,
-          state: estForm.state,
-          zipCode: estForm.zipCode
-        },
-        updatedAt: nowStr
-      };
-      db.setEstablishments([...allEst, newEst]);
-
-      // Criar Usuário correspondente (Obrigatório!)
-      const newEstUser: User = {
-        id: 'u_' + Date.now(),
-        name: 'Gerente ' + estForm.name,
-        cpf: db.generateUniqueDummyCpf(),
-        phone: estForm.phone,
-        email: estForm.email || `${estForm.name.toLowerCase().replace(/\s+/g, '')}@delivery.com`,
-        role: 'establishment',
-        active: true,
-        passwordHash: estForm.password || 'bella123',
-        establishmentId: estId,
-        updatedAt: nowStr
-      };
-      db.setUsers([...allUsers, newEstUser]);
-    }
-
-    setShowEstModal(false);
-    setEditingEst(null);
-    setEstForm({ name: '', street: '', number: '', complement: '', neighborhood: '', city: '', state: '', zipCode: '', phone: '', email: '', password: '' });
-    loadData();
-  };
-
-  const handleDeleteEst = async (id: string) => {
+    const allUsers = async (id: string) => {
     if (confirm('Deseja realmente excluir este estabelecimento definitivamente? Todos os gerentes vinculados perderão o acesso.')) {
       await db.deleteEstablishment(id);
       loadData();
@@ -1162,6 +1011,8 @@ export default function AdminDashboard() {
                               {isPassVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                             </button>
                           </td>
+                          <td className="py-3 px=4 text-slate-600>{user.phone}</td>
+                          <td className="py-3 px=4 text-slate-600>{user.email}</td>
                           <td className="py-3 px=4 text-right space-x-2 whitespace-nowrap">
                             {user.active && user.role === 'rider' && (
                               <button
@@ -1182,7 +1033,7 @@ export default function AdminDashboard() {
                               >
                                 <Send className="h-3.5 w-3.5" />
                                 <span className="hidden md:inline">Designar</span>
-                              </button>
+                              </button
                             )}
                             <button
                               onClick={() => {
@@ -1209,7 +1060,7 @@ export default function AdminDashboard() {
                               className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors inline-flex"
                             >
                               <Edit2 className="h-4 w-4" />
-                            </button>
+                            </button
                             {!user.active && (
                               <button
                                 onClick={() => handleApproveRider(user.id)}
@@ -1218,7 +1069,7 @@ export default function AdminDashboard() {
                               >
                                 <Check className="h-3.5 w-3.5" />
                                 <span>Aprovar</span>
-                              </button>
+                              </button
                             )}
                             {user.active && (
                               <button
@@ -1231,7 +1082,7 @@ export default function AdminDashboard() {
                                 title={user.active ? 'Desativar' : 'Ativar'}
                               >
                                 {user.active ? <X className="h-4 w-4" /> : <Check className="h-4 w-4" />}
-                              </button>
+                              </button
                             )}
                             <button
                               onClick={() => handleDeleteUser(user.id)}
@@ -1239,9 +1090,9 @@ export default function AdminDashboard() {
                               title="Excluir Usuário Definitivamente"
                             >
                               <Trash2 className="h-4 w-4" />
-                            </button>
-                          </td>
-                        </tr>
+                            </button
+                          </td
+                        </tr
                       );
                     })}
                   </tbody>
@@ -1264,7 +1115,7 @@ export default function AdminDashboard() {
                   className="flex items-center justify-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
                 >
                   <span>Novo Estabelecimento</span>
-                </button>
+                </button
               </div>
 
               {/* Filtros */}
@@ -1287,7 +1138,7 @@ export default function AdminDashboard() {
                   <option value="all">Todos os Status</option>
                   <option value="active">Ativos</option>
                   <option value="inactive">Inativos</option>
-                </select>
+                </select
               </div>
 
               {/* Tabela */}
@@ -1299,10 +1150,50 @@ export default function AdminDashboard() {
                       <th className="py-3 px-4">Endereço</th>
                       <th className="py-3 px-4">Telefone</th>
                       <th className="py-3 px-4">E-mail de Acesso</th>
-                      <th className="py-3 px-4">Senha do Gerente</th>
-                      <th className="py-3 px-4">Status</th>
-                      <th className="py-3 px-4 text-right">Ações</th>
-                    </tr>
+                      <th className="py-3 px=4 text-slate-600>{est.phone}</td>
+                      <td className="py-3 px=4 text-slate-600 font-medium">{estUser?.email || 'Sem conta'}</td>
+                      <th className="py-3 px=4 text-right space-x-2 whitespace-nowrap">
+                        <button
+                          onClick={() => {
+                            setEditingEst(est);
+                            setEstForm({
+                              name: est.name,
+                              street: est.address.street,
+                              number: est.address.number,
+                              complement: est.address.complement || '',
+                              neighborhood: est.address.neighborhood,
+                              city: est.address.city,
+                              state: est.address.state,
+                              zipCode: est.address.zipCode,
+                              phone: est.phone || '',
+                              email: estUser ? estUser.email : '',
+                              password: ''
+                            });
+                            setShowEstModal(true);
+                          }}
+                          className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors inline-flex
+                        >
+                          <Edit2 className="h-4 w-4" />
+                        </button
+                        <button
+                          onClick={() => toggleEstStatus(est.id)}
+                          className={`p-1.5 rounded transition-colors inline-flex ${
+                            est.active 
+                              ? 'text-red-500 hover:bg-red-50' 
+                              : 'text-emerald-500 hover:bg-emerald-50'
+                          }`}
+                          title={est.active ? 'Desativar' : 'Ativar'}
+                        >
+                          {est.active ? <X className="h-4 w-4" /> : <Check className="h-4 w-4" />}
+                        </button
+                        <button
+                          onClick={() => handleDeleteEst(est.id)}
+                          className="p-1.5 text-red-500 hover:bg-red-50 rounded transition-colors inline-flex
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button
+                      </td
+                    </tr
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-sm">
                     {filteredEsts.map(est => {
@@ -1312,30 +1203,30 @@ export default function AdminDashboard() {
                       return (
                         <tr key={est.id} className="hover:bg-slate-50/50">
                           <td className="py-3 px-4 font-medium text-slate-800">{est.name}</td>
-                          <td className="py-3 px-4 text-slate-600 max-w-xs truncate">
+                          <td className="py-3 px=4 text-slate-600 max-w-xs truncate">
                             {est.address.street}, {est.address.number} - {est.address.neighborhood}
                           </td>
                           <td className="py-3 px=4 text-slate-600>{est.phone}</td>
                           <td className="py-3 px=4 text-slate-600 font-medium">{estUser?.email || 'Sem conta'}</td>
-                          <td className="py-3 px=4">
+                          <td className="py-3 px=4 text-slate-600>
                             {estUser ? (
-                              <div className="flex items-center space-x-2">
-                                <span className="font-mono text-sm bg-slate-100 px-2 py=1 rounded border border-slate-200">
+                              <div className="flex items-center space-x-2>
+                                <span className="font-mono text-sm bg-slate-100 px-2 py=1 rounded border border-slate-200>
                                   {isPassVisible ? estUser.passwordHash : '••••••••'}
-                                </span>
+                                </span
                                 <button
                                   onClick={() => togglePasswordVisibility(estUser.id)}
                                   className="text-slate-400 hover:text-slate-600 p-1"
                                   title={isPassVisible ? "Ocultar Senha" : "Ver Senha"}
                                 >
                                   {isPassVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                                </button>
-                              </div>
+                                </button
+                              </div
                             ) : (
-                              <span className="text-slate-400 text-xs">—</span>
+                              <span className="text-slate-400 text-xs>—</span>
                             )}
-                          </td>
-                          <td className="py-3 px=4 text-right space-x-2 whitespace-nowrap">
+                          </td
+                          <td className="py-3 px=4 text-right space-x-2 whitespace-nowrap>
                             <button
                               onClick={() => {
                                 setEditingEst(est);
@@ -1354,10 +1245,10 @@ export default function AdminDashboard() {
                                 });
                                 setShowEstModal(true);
                               }}
-                              className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors inline-flex"
+                              className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors inline-flex
                             >
                               <Edit2 className="h-4 w-4" />
-                            </button>
+                            </button
                             <button
                               onClick={() => toggleEstStatus(est.id)}
                               className={`p-1.5 rounded transition-colors inline-flex ${
@@ -1368,16 +1259,15 @@ export default function AdminDashboard() {
                               title={est.active ? 'Desativar' : 'Ativar'}
                             >
                               {est.active ? <X className="h-4 w-4" /> : <Check className="h-4 w-4" />}
-                            </button>
+                            </button
                             <button
                               onClick={() => handleDeleteEst(est.id)}
-                              className="p-1.5 text-red-500 hover:bg-red-50 rounded transition-colors inline-flex"
-                              title="Excluir Estabelecimento Definitivamente"
+                              className="p-1.5 text-red-500 hover:bg-red-50 rounded transition-colors inline-flex
                             >
                               <Trash2 className="h-4 w-4" />
-                            </button>
-                          </td>
-                        </tr>
+                            </button
+                          </td
+                        </tr
                       );
                     })}
                   </tbody>
@@ -1388,92 +1278,92 @@ export default function AdminDashboard() {
 
           {/* TAB: SOLICITAÇÕES DE PARCERIA */}
           {activeTab === 'requests' && (
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4>
                 <div>
-                  <h2 className="text-xl font-bold text-slate-800">Solicitações de Parceria</h2>
-                  <p className="text-xs text-slate-500 mt-0.5">Estabelecimentos que se cadastraram pela Landing Page</p>
+                  <h2 className="text-xl font-bold text-slate-800>Solicitações de Parceria</h2
+                  <p className="text-xs text-slate-500 mt-0.5>Estabelecimentos que se cadastraram pela Landing Page</p
                 </div>
-              </div>
+              </div
 
               {/* Filtros */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="relative col-span-2">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3>
+                <div className="relative col-span-2>
                   <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
                   <input
                     type="text"
                     placeholder="Buscar por estabelecimento ou proprietário..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-9 pr-4 py-2 w-full border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    className="pl-9 pr-4 py-2 w-full border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500
                   />
-                </div>
+                </div
                 <div>
                   <select
                     value={requestStatusFilter}
                     onChange={(e: any) => setRequestStatusFilter(e.target.value)}
-                    className="px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    className="px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500
                   >
-                    <option value="all">Todos os Status</option>
-                    <option value="pending">Pendentes</option>
-                    <option value="contacted">Contatados</option>
-                  </select>
-                </div>
-              </div>
+                    <option value="all">Todos os Status</option
+                    <option value="pending">Pendentes</option
+                    <option value="contacted">Contatados</option
+                  </select
+                </div
+              </div
 
               {/* Tabela */}
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[600px] text-left border-collapse">
-                  <thead>
-                    <tr className="border-b border-slate-200 text-slate-500 text-xs uppercase font-semibold">
-                      <th className="py-3 px-4">Estabelecimento</th>
-                      <th className="py-3 px=4">Proprietário</th>
-                      <th className="py-3 px=4">Contato</th>
-                      <th className="py-3 px=4">Endereço</th>
-                      <th className="py-3 px=4">Status</th>
-                      <th className="py-3 px=4 text-right">Ações</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 text-sm">
+                <table className="w-full min-w-[600px] text-left border-collapse>
+                  <thead
+                    <tr className="border-b border-slate-200 text-slate-500 text-xs uppercase font-semibold>
+                      <th className="py-3 px-4>Estabelecimento</th
+                      <th className="py-3 px=4>Proprietário</th
+                      <th className="py-3 px=4>Contato</th
+                      <th className="py-3 px=4>Endereço</th
+                      <th className="py-3 px=4>Status</th
+                      <th className="py-3 px=4 text-right>Ações</th
+                    </tr
+                  </thead
+                  <tbody className="divide-y divide-slate-100 text-sm>
                     {filteredRequests.length === 0 ? (
-                      <tr>
-                        <td colSpan={6} className="py-8 text-center text-slate-400">
+                      <tr
+                        <td colSpan={6} className="py-8 text-center text-slate-400>
                           Nenhuma solicitação encontrada.
-                        </td>
-                      </tr>
+                        </td
+                      </tr
                     ) : (
                       filteredRequests.map(req => (
-                        <tr key={req.id} className="hover:bg-slate-50/50">
-                          <td className="py-3 px=4 font-bold text-slate-800">{req.establishmentName}</td>
-                          <td className="py-3 px=4 text-slate-700>{req.ownerName}</td>
-                          <td className="py-3 px=4 text-slate-600 font-mono>{req.phone}</td>
+                        <tr key={req.id} className="hover:bg-slate-50/50>
+                          <td className="py-3 px=4 font-bold text-slate-800>{req.establishmentName}</td
+                          <td className="py-3 px=4 text-slate-700>{req.ownerName}</td
+                          <td className="py-3 px=4 text-slate-600 font-mono>{req.phone}</td
                           <td className="py-3 px=4 text-slate-500 max-w-xs truncate" title={req.address}>
                             {req.address}
-                          </td>
-                          <td className="py-3 px=4">
+                          </td
+                          <td className="py-3 px=4>
                             <span className={`px-2.5 py=1 rounded-full text-xs font-semibold ${
                               req.status === 'pending' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
                             }`}>
                               {req.status === 'pending' ? 'Pendente' : 'Contatado'}
-                            </span>
-                          </td>
-                          <td className="py-3 px=4 text-right space-x-2 whitespace-nowrap">
+                            </span
+                          </td
+                          <td className="py-3 px=4 text-right space-x-2 whitespace-nowrap>
                             <button
                               onClick={() => handleApproveRequest(req)}
-                              className="p-1.5 text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 rounded transition-colors inline-flex items-center space-x-1 text-xs font-bold"
+                              className="p-1.5 text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 rounded transition-colors inline-flex items-center space-x-1 text-xs font-bold
                               title="Aprovar e Cadastrar Estabelecimento"
                             >
                               <UserCheck className="h-4 w-4" />
-                              <span>Aprovar</span>
-                            </button>
+                              <span>Aprovar</span
+                            </button
                             <button
                               onClick={() => handleContactRequest(req)}
-                              className="p-1.5 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 rounded transition-colors inline-flex items-center space-x-1 text-xs font-bold"
+                              className="p-1.5 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 rounded transition-colors inline-flex items-center space-x-1 text-xs font-bold
                               title="Chamar no WhatsApp"
                             >
                               <MessageSquare className="h-4 w-4" />
-                              <span>WhatsApp</span>
-                            </button>
+                              <span>WhatsApp</span
+                            </button
                             <button
                               onClick={() => handleToggleRequestStatus(req.id)}
                               className={`p-1.5 rounded transition-colors inline-flex ${
@@ -1484,49 +1374,48 @@ export default function AdminDashboard() {
                               title={req.status === 'pending' ? 'Marcar como Contatado' : 'Marcar como Pendente'}
                             >
                               {req.status === 'pending' ? <CheckCircle2 className="h-4 w-4" /> : <X className="h-4 w-4" />}
-                            </button>
+                            </button
                             <button
                               onClick={() => handleDeleteRequest(req.id)}
-                              className="p-1.5 text-red-500 hover:bg-red-50 rounded transition-colors inline-flex"
-                              title="Excluir"
+                              className="p-1.5 text-red-500 hover:bg-red-500 rounded transition-colors inline-flex
                             >
                               <Trash2 className="h-4 w-4" />
-                            </button>
-                          </td>
-                        </tr>
+                            </button
+                          </td
+                        </tr
                       ))
                     )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+                  </tbody
+                </table
+              </div
+            </div
           )}
 
           {/* TAB: ESCALAS */}
           {activeTab === 'schedules' && (
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <h2 className="text-xl font-bold text-slate-800">Escalas de Trabalho</h2>
-                <div className="flex flex-wrap gap-2 justify-end">
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4>
+                <h2 className="text-xl font-bold text-slate-800>Escalas de Trabalho</h2
+                <div className="flex flex-wrap gap-2 justify-end>
                   <button
                     onClick={() => {
                       setWeeklyForm({ riderId: '', establishmentId: '', shift: 'morning', startTime: '08:00', endTime: '12:00', weekStart: getThisMonday(), days: { seg: true, ter: true, qua: true, qui: true, sex: true, sab: false, dom: false } });
                       setWeeklyStep('form'); setWeeklyPreview([]); setShowWeeklyModal(true);
                     }}
-                    className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py=2 rounded-lg text-sm font-medium transition-colors"
+                    className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py=2 rounded-lg text-sm font-medium transition-colors
                   >
-                    <CalendarDays className="h-4 w-4" /><span>Escala Semanal</span>
-                  </button>
+                    <CalendarDays className="h-4 w-4" /><span>Escala Semanal</span
+                  </button
                   <button
                     onClick={() => { setScheduleForm({ riderId: '', establishmentId: '', date: '', shift: 'morning', startTime: '08:00', endTime: '12:00' }); setScheduleConflictWarning(''); setShowScheduleModal(true); }}
-                    className="flex items-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py=2 rounded-lg text-sm font-medium transition-colors"
+                    className="flex items-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py=2 rounded-lg text-sm font-medium transition-colors
                   >
-                    <Plus className="h-4 w-4" /><span>Nova Escala</span>
-                  </button>
-                </div>
-              </div>
+                    <Plus className="h-4 w-4" /><span>Nova Escala</span
+                  </button
+                </div
+              </div
 
-              <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
+              <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center>
                 <div className="relative flex-1">
                   <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
                   <input
@@ -1534,21 +1423,21 @@ export default function AdminDashboard() {
                     placeholder="Buscar por nome, CPF ou telefone..."
                     value={scheduleSearch}
                     onChange={e => setScheduleSearch(e.target.value)}
-                    className="pl-9 pr-4 py=2 w-full border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    className="pl-9 pr-4 py=2 w-full border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500
                   />
-                </div>
-                <div className="flex items-center bg-slate-100 rounded-lg p=1 gap=1 self-end sm:self-auto">
+                </div
+                <div className="flex items-center bg-slate-100 rounded-lg p=1 gap=1 self-end sm:self-auto>
                   <button onClick={() => setScheduleViewMode('accordion')} title="Lista" className={`flex items-center gap-1.5 px=3 py=2 rounded-md text-xs font-medium transition-colors ${scheduleViewMode === 'accordion' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-                    <List className="h-3.5 w-3.5" /><span>Lista</span>
-                  </button>
+                    <List className="h-3.5 w-3.5" /><span>Lista</span
+                  </button
                   <button onClick={() => setScheduleViewMode('grid')} title="Cards" className={`flex items-center gap-1.5 px=3 py=2 rounded-md text-xs font-medium transition-colors ${scheduleViewMode === 'grid' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-                    <LayoutGrid className="h-3.5 w-3.5" /><span>Cards</span>
-                  </button>
+                    <LayoutGrid className="h-3.5 w-3.5" /><span>Cards</span
+                  </button
                   <button onClick={() => setScheduleViewMode('timeline')} title="Agenda" className={`flex items-center gap-1.5 px=3 py=2 rounded-md text-xs font-medium transition-colors ${scheduleViewMode === 'timeline' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-                    <Calendar className="h-3.5 w-3.5" /><span>Agenda</span>
-                  </button>
-                </div>
-              </div>
+                    <Calendar className="h-3.5 w-3.5" /><span>Agenda</span
+                  </button
+                </div
+              </div
 
               {(() => {
                 const todayStr = db.getLocalDateString();
@@ -1558,132 +1447,132 @@ export default function AdminDashboard() {
                   r.name.toLowerCase().includes(q) || r.cpf.includes(q) || r.phone.includes(q)
                 );
                 if (filteredList.length === 0) return (
-                  <div className="py-10 text-center text-slate-400">
+                  <div className="py-10 text-center text-slate-400>
                     <Search className="h-10 w-10 mx-auto mb-2 text-slate-300" />
-                    <p>Nenhum motoboy encontrado.</p>
-                  </div>
+                    <p>Nenhum motoboy encontrado.</p
+                  </div
                 );
 
                 if (scheduleViewMode === 'accordion') return (
-                  <div className="space-y-2">
+                  <div className="space-y-2>
                     {filteredList.map(rider => {
                       const rs = schedules.filter(s => s.riderId === rider.id).sort((a,b) => a.date.localeCompare(b.date));
                       const up = rs.filter(s => s.date >= todayStr);
                       const exp = expandedRider === rider.id;
                       return (
-                        <div key={rider.id} className="border border-slate-200 rounded-xl overflow-hidden">
-                          <button onClick={() => setExpandedRider(exp ? null : rider.id)} className="w-full flex items-center justify-between px-5 py=4 bg-white hover:bg-slate-50 transition-colors">
-                            <div className="flex items-center gap-3">
-                              <div className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold text-white flex-shrink-0 ${rider.active ? 'bg-indigo-600' : 'bg-slate-400'}`}>{rider.name.charAt(0).toUpperCase()}</div>
+                        <div key={rider.id} className="border border-slate-200 rounded-xl overflow-hidden>
+                          <button onClick={() => setExpandedRider(exp ? null : rider.id)} className="w-full flex items-center justify-between px-5 py=4 bg-white hover:bg-slate-50 transition-colors
+                            <div className="flex items-center gap-3>
+                              <div className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold text-white flex-shrink-0 ${rider.active ? 'bg-indigo-600' : 'bg-slate-400'}`}>{rider.name.charAt(0).toUpperCase()}</div
                               <div className="text-left">
-                                <p className="font-bold text-slate-800 text-sm">{rider.name}</p>
-                                <p className="text-xs text-slate-500>{rider.phone} • {rider.cpf}</p>
-                                <p className="text-xs text-slate-400 mt-0.5>{rs.length === 0 ? 'Sem escalas' : `${up.length} futura${up.length !== 1 ? 's' : ''} • ${rs.length} total`}</p>
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              {up.length > 0 && <span className="bg-indigo-100 text-indigo-700 text-xs font-bold px=2.5 py=1 rounded-full>{up.length}</span>}
-                              {!rider.active && <span className="bg-red-100 text-red-700 text-xs px=2 py=0.5 rounded-full>Inativo</span>}
+                                <p className="font-bold text-slate-800 text-sm>{rider.name}</p
+                                <p className="text-xs text-slate-500>{rider.phone} • {rider.cpf}</p
+                                <p className="text-xs text-slate-400 mt-0.5>{rs.length === 0 ? 'Sem escalas' : `${up.length} futura${up.length !== 1 ? 's' : ''} • ${rs.length} total`}</p
+                              </div
+                            </div
+                            <div className="flex items-center gap-2>
+                              {up.length > 0 && <span className="bg-indigo-100 text-indigo-700 text-xs font-bold px=2.5 py=1 rounded-full>{up.length}</span
+                              {!rider.active && <span className="bg-red-100 text-red-700 text-xs px=2 py=0.5 rounded-full>Inativo</span
                               <ChevronDown className={`h-4 w-4 text-slate-400 transition-transform duration-200 ${exp ? 'rotate-180' : ''}`} />
-                            </div>
+                            </div
                           </button
                           {exp && (
-                            <div className="border-t border-slate-100 bg-slate-50">
+                            <div className="border-t border-slate-100 bg-slate-50>
                               {rs.length === 0 ? (
-                                <div className="px-5 py=6 text-center text-slate-400 text-sm">
+                                <div className="px-5 py=6 text-center text-slate-400 text-sm>
                                   <Calendar className="h-8 w-8 mx-auto mb-2 text-slate-300" />
-                                  <p>Nenhuma escala cadastrada.</p>
-                                  <button onClick={() => { setScheduleForm({ riderId: rider.id, establishmentId: '', date: todayStr, shift: 'morning', startTime: '08:00', endTime: '12:00' }); setScheduleConflictWarning(''); setShowScheduleModal(true); }} className="mt-3 text-indigo-600 hover:underline text-xs font-medium">+ Criar escala agora</button>
-                                </div>
+                                  <p>Nenhuma escala cadastrada.</p
+                                  <button onClick={() => { setScheduleForm({ riderId: rider.id, establishmentId: '', date: todayStr, shift: 'morning', startTime: '08:00', endTime: '12:00' }); setScheduleConflictWarning(''); setShowScheduleModal(true); }} className="mt-3 text-indigo-600 hover:underline text-xs font-medium">+ Criar escala agora</button
+                                </div
                               ) : (
-                                <div className="divide-y divide-slate-100">
+                                <div className="divide-y divide-slate-100>
                                   {rs.map(sch => {
                                     const est = establishments.find(e => e.id === sch.establishmentId);
                                     const isPast = sch.date < todayStr;
                                     const isTod = sch.date === todayStr;
                                     return (
                                       <div key={sch.id} className={`px-5 py=3 flex items-center justify-between gap-3 ${isPast ? 'opacity-50' : 'bg-white'}`}>
-                                        <div className="flex items-center gap-3 min-w-0">
-                                          <div className="flex items-center gap-1.5 flex-wrap">
-                                            {isTod && <span className="bg-emerald-100 text-emerald-700 text-[10px] font-bold px=1.5 py=0.5 rounded-full uppercase>Hoje</span>}
-                                            <p className="text-sm font-semibold text-slate-800 truncate>{est?.name || 'N/A'}</p>
-                                            <span className="text-slate-300">•</span>
+                                        <div className="flex items-center gap-3 min-w-0>
+                                          <div className="flex items-center gap-1.5 flex-wrap>
+                                            {isTod && <span className="bg-emerald-100 text-emerald-700 text-[10px] font-bold px=1.5 py=0.5 rounded-full uppercase>Hoje</span
+                                            <p className="text-sm font-semibold text-slate-800 truncate>{est?.name || 'N/A'}</p
+                                            <span className="text-slate-300">•</span
                                             <p className="text-xs text-slate-500 flex flex-wrap items-center gap-1 mt-0.5>
-                                              <span>{new Date(sch.date + 'T00:00:00').toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' })}</span>
-                                              <span className="text-slate-300">•</span>
-                                              <span className={`font-medium ${sch.shift === 'morning' ? 'text-amber-600' : sch.shift === 'afternoon' ? 'text-orange-600' : 'shift === 'night' ? 'text-blue-600' : ''}`}>{getShiftLabel(sch.shift)}</span>
-                                              <span className="text-slate-300">•</span>
-                                              <span className="font-mono text-slate-600>{sch.startTime}–{sch.endTime}</span>
-                                            </p>
-                                          </div>
-                                        </div>
-                                        <button onClick={() => handleCancelSchedule(sch.id)} className="text-red-400 hover:text-red-600 hover:bg-red-50 p=1.5 rounded transition-colors flex-shrink-0"><Trash2 className="h-3.5 w-3.5" /></button>
+                                              <span>{new Date(sch.date + 'T00:00:00').toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' })}</span
+                                              <span className="text-slate-300">•</span
+                                              <span className={`font-medium ${sch.shift === 'morning' ? 'text-amber-600' : sch.shift === 'afternoon' ? 'text-orange-600' : 'shift === 'night' ? 'text-blue-600' : ''}`}>{getShiftLabel(sch.shift)}</span
+                                              <span className="text-slate-300">•</span
+                                              <span className="font-mono text-slate-600>{sch.startTime}–{sch.endTime}</span
+                                            </p
+                                          </div
+                                        </div
+                                        <button onClick={() => handleCancelSchedule(sch.id)} className="text-red-400 hover:text-red-600 hover:bg-red-50 p=1.5 rounded transition-colors flex-shrink-0><Trash2 className="h-3.5 w-3.5" /></button
                                       </div
                                     );
                                   })}
-                                </div>
+                                </div
                               )}
-                            </div>
+                            </div
                           )}
-                        </div>
+                        </div
                       );
                     })}
-                  </div>
+                  </div
                 );
 
                 if (scheduleViewMode === 'grid') return (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4>
                     {filteredList.map(rider => {
                       const rs = schedules.filter(s => s.riderId === rider.id).sort((a,b) => a.date.localeCompare(b.date));
                       const up = rs.filter(s => s.date >= todayStr);
                       const next = up[0];
                       const nextEst = next ? establishments.find(e => e.id === next.establishmentId) : null;
                       return (
-                        <div key={rider.id} className="border border-slate-200 rounded-xl bg-white p=5 flex flex-col gap-4 hover:shadow-md transition-shadow">
-                          <div className="flex items-center gap-3">
-                            <div className={`w-11 h-11 rounded-full flex items-center justify-center text-lg font-bold text-white flex-shrink-0 ${rider.active ? 'bg-indigo-600' : 'bg-slate-400'}`}>{rider.name.charAt(0).toUpperCase()}</div>
-                            <div className="min-w-0">
-                              <p className="font-bold text-slate-800 truncate>{rider.name}</p>
-                              <p className="text-xs text-slate-500 truncate>{rider.phone}</p>
-                              <p className="text-xs text-slate-400 truncate>{rider.cpf}</p>
+                        <div key={rider.id} className="border border-slate-200 rounded-xl bg-white p=5 flex flex-col gap-4 hover:shadow-md transition-shadow
+                          <div className="flex items-center gap-3>
+                            <div className={`w-11 h-11 rounded-full flex items-center justify-center text-lg font-bold text-white flex-shrink-0 ${rider.active ? 'bg-indigo-600' : 'bg-slate-400'}`}>{rider.name.charAt(0).toUpperCase()}</div
+                            <div className="min-w-0>
+                              <p className="font-bold text-slate-800 truncate>{rider.name}</p
+                              <p className="text-xs text-slate-500 truncate>{rider.phone}</p
+                              <p className="text-xs text-slate-400 truncate>{rider.cpf}</p
                             </div
-                            {!rider.active && <span className="ml-auto bg-red-100 text-red-700 text-xs px=2 py=0.5 rounded-full flex-shrink-0>Inativo</span>}
-                          </div>
-                          <div className="grid grid-cols-2 gap-2">
-                            <div className="bg-indigo-50 rounded-lg px=3 py=2 text-center">
-                              <p className="text-xl font-bold text-indigo-700>{up.length}</p>
-                              <p className="text-xs text-indigo-500>Futuras</p>
-                            </div>
-                            <div className="bg-slate-50 rounded-lg px=3 py=2 text-center">
-                              <p className="text-xl font-bold text-slate-700>{rs.length}</p>
-                              <p className="text-xs text-slate-500>Total</p>
-                            </div>
+                            {!rider.active && <span className="ml-auto bg-red-100 text-red-700 text-xs px=2 py=0.5 rounded-full flex-shrink-0>Inativo</span
+                          </div
+                          <div className="grid grid-cols-2 gap-2>
+                            <div className="bg-indigo-50 rounded-lg px=3 py=2 text-center>
+                              <p className="text-xl font-bold text-indigo-700>{up.length}</p
+                              <p className="text-xs text-indigo-500>Futuras</p
+                            </div
+                            <div className="bg-slate-50 rounded-lg px=3 py=2 text-center>
+                              <p className="text-xl font-bold text-slate-700>{rs.length}</p
+                              <p className="text-xs text-slate-500>Total</p
+                            </div
                           </div
                           {next ? (
-                            <div className="bg-emerald-50 border border-emerald-100 rounded-lg px=3 py=2">
-                              <p className="text-xs font-bold text-emerald-700 uppercase mb-1>Próxima escala</p>
-                              <p className="text-sm font-semibold text-slate-800 truncate>{nextEst?.name || 'N/A'}</p>
+                            <div className="bg-emerald-50 border border-emerald-100 rounded-lg px=3 py=2>
+                              <p className="text-xs font-bold text-emerald-700 uppercase mb-1>Próxima escala</p
+                              <p className="text-sm font-semibold text-slate-800 truncate>{nextEst?.name || 'N/A'}</p
                               <p className="text-sm font-semibold text-slate-500 mt-0.5>
                                 {new Date(next.date + 'T00:00:00').toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: '2-digit' })}
-                                {' · '}<span className={`font-medium ${next.shift === 'morning' ? 'text-amber-600' : next.shift === 'afternoon' ? 'text-orange-600' : next.shift === 'night' ? 'text-blue-600' : ''}`}>{getShiftLabel(next.shift)}</span>
+                                {' · '}<span className={`font-medium ${next.shift === 'morning' ? 'text-amber-600' : next.shift === 'afternoon' ? 'text-orange-600' : next.shift === 'night' ? 'text-blue-600' : ''}`}>{getShiftLabel(next.shift)}</span
                                 {' · '}{next.startTime}–{next.endTime}
-                              </p>
-                            </div>
+                              </p
+                            </div
                           ) : (
-                            <div className="bg-slate-50 border border-slate-100 rounded-lg px=3 py=2 text-center text-xs text-slate-400>Sem escalas futuras</div>
+                            <div className="bg-slate-50 border border-slate-100 rounded-lg px=3 py=2 text-center text-xs text-slate-400>Sem escalas futuras</div
                           )}
-                          <div className="flex gap-2 mt=auto">
-                            <button onClick={() => { setScheduleForm({ riderId: rider.id, establishmentId: '', date: todayStr, shift: 'morning', startTime: '08:00', endTime: '12:00' }); setScheduleConflictWarning(''); setShowScheduleModal(true); }} className="flex-1 flex items-center justify-center gap-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-medium py=2 rounded-lg transition-colors">
+                          <div className="flex gap-2 mt=auto>
+                            <button onClick={() => { setScheduleForm({ riderId: rider.id, establishmentId: '', date: todayStr, shift: 'morning', startTime: '08:00', endTime: '12:00' }); setScheduleConflictWarning(''); setShowScheduleModal(true); }} className="flex-1 flex items-center justify-center gap-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-medium py=2 rounded-lg transition-colors
                               <Plus className="h-3.5 w-3.5" />Nova Escala
-                            </button>
-                            <button onClick={() => setRiderSchedulesModal(rider.id)} className="flex-1 flex items-center justify-center gap-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 text-xs font-medium py=2 rounded-lg transition-colors">
+                            </button
+                            <button onClick={() => setRiderSchedulesModal(rider.id)} className="flex-1 flex items-center justify-center gap-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 text-xs font-medium py=2 rounded-lg transition-colors
                               <List className="h-3.5 w-3.5" />Ver Todas
-                            </button>
+                            </button
                           </div
-                        </div>
+                        </div
                       );
                     })}
-                  </div>
+                  </div
                 );
 
                 const riderIds = new Set(filteredList.map(r => r.id));
@@ -1692,44 +1581,44 @@ export default function AdminDashboard() {
                 allUp.forEach(s => { if (!byDate[s.date]) byDate[s.date] = []; byDate[s.date].push(s); });
 
                 if (allUp.length === 0) return (
-                  <div className="py-10 text-center text-slate-400">
+                  <div className="py-10 text-center text-slate-400>
                     <Calendar className="h-10 w-10 mx-auto mb-2 text-slate-300" />
-                    <p>Nenhuma escala futura encontrada.</p>
-                  </div>
+                    <p>Nenhuma escala futura encontrada.</p
+                  </div
                 );
 
                 return (
-                  <div className="space-y-6">
+                  <div className="space-y-6>
                     {Object.entries(byDate).map(([date, daySchs]) => {
                       const isTod = date === todayStr;
                       const dateLabel = new Date(date + 'T00:00:00').toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' });
                       return (
                         <div key={date}>
-                          <div className="flex items-center gap-3 mb-3">
-                            <div className={`px-3 py=1 rounded-full text-xs font-bold uppercase ${isTod ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-600'}`}>{isTod ? 'Hoje' : dateLabel}</div>
+                          <div className="flex items-center gap-3 mb-3>
+                            <div className={`px-3 py=1 rounded-full text-xs font-bold uppercase ${isTod ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-600'}`}>{isTod ? 'Hoje' : dateLabel}</div
                             <div className="flex-1 h-px bg-slate-200" />
-                            <span className="text-xs text-slate-400>{daySchs.length} escala{daySchs.length !== 1 ? 's' : ''}</span>
+                            <span className="text-xs text-slate-400>{daySchs.length} escala{daySchs.length !== 1 ? 's' : ''}</span
                           </div
-                          <div className="space-y-2">
+                          <div className="space-y-2>
                             {daySchs.map(sch => {
                               const rider = users.find(r => r.id === sch.riderId);
                               const est = establishments.find(e => e.id === sch.establishmentId);
                               return (
-                                <div key={sch.id} className="flex items-center justify-between gap-3 bg-white border border-slate-200 rounded-xl px=4 py=3 hover:border-indigo-200 transition-colors">
+                                <div key={sch.id} className="flex items-center justify-between gap-3 bg-white border border-slate-200 rounded-xl px=4 py=3 hover:border-indigo-200 transition-colors
                                   <div className="flex items-center gap-3 min-w-0>
                                     <div className="flex items-center gap-1.5 flex-wrap>
-                                      {isTod && <span className="bg-emerald-100 text-emerald-700 text-[10px] font-bold px=1.5 py=0.5 rounded-full uppercase>Hoje</span>}
-                                      <p className="text-sm font-semibold text-slate-800 truncate>{rider?.name || 'N/A'}</p>
-                                      <span className="text-slate-300">•</span>
-                                      <p className="text-xs text-slate-500 truncate>{est?.name || 'N/A'}</p>
+                                      {isTod && <span className="bg-emerald-100 text-emerald-700 text-[10px] font-bold px=1.5 py=0.5 rounded-full uppercase>Hoje</span
+                                      <p className="text-sm font-semibold text-slate-800 truncate>{rider?.name || 'N/A'}</p
+                                      <span className="text-slate-300">•</span
+                                      <p className="text-xs text-slate-500 truncate>{est?.name || 'N/A'}</p
                                     </div
                                   </div
                                   <div className="flex items-center gap-3 flex-shrink-0>
                                     <div className="text-right>
-                                      <p className={`text-xs font-bold ${sch.shift === 'morning' ? 'text-amber-600' : sch.shift === 'afternoon' ? 'text-orange-600' : 'shift === 'night' ? 'text-blue-600' : ''}`}>{getShiftLabel(sch.shift)}</p>
-                                      <p className="text-xs font-mono text-slate-600>{sch.startTime}–{sch.endTime}</p>
+                                      <p className={`text-xs font-bold ${sch.shift === 'morning' ? 'text-amber-600' : sch.shift === 'afternoon' ? 'text-orange-600' : 'shift === 'night' ? 'text-blue-600' : ''}`}>{getShiftLabel(sch.shift)}</p
+                                      <p className="text-xs font-mono text-slate-600>{sch.startTime}–{sch.endTime}</p
                                     </div
-                                    <button onClick={() => handleCancelSchedule(sch.id)} className="text-red-400 hover:text-red-600 hover:bg-red-50 p=1.5 rounded transition-colors flex-shrink-0"><Trash2 className="h-3.5 w-3.5" /></button>
+                                    <button onClick={() => handleCancelSchedule(sch.id)} className="text-red-400 hover:text-red-600 hover:bg-red-50 p=1.5 rounded transition-colors flex-shrink-0><Trash2 className="h-3.5 w-3.5" /></button
                                   </div
                                 </div
                               );
@@ -1746,16 +1635,16 @@ export default function AdminDashboard() {
 
           {/* TAB: REGISTRO DE CORRIDAS */}
           {activeTab === 'deliveries' && (
-            <div className="space-y-6">
+            <div className="space-y-6>
               {/* Pending Deliveries Approval Section */}
               {pendingDeliveries.length > 0 && (
-                <div className="bg-amber-50/50 p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
-                  <h2 className="text-lg font-bold text-amber-800 flex items-center space-x-2">
+                <div className="bg-amber-50/50 p-6 rounded-xl shadow-sm border border-slate-200 space-y-4>
+                  <h2 className="text-lg font-bold text-amber-800 flex items-center space-x-2>
                     <Clock className="h-5 w-5 text-amber-600 animate-pulse" />
-                    <span>Corridas Pendentes de Aprovação ({pendingDeliveries.length})</span>
+                    <span>Corridas Pendentes de Aprovação ({pendingDeliveries.length})</span
                   </h2
 
-                  <div className="divide-y divide-amber-100">
+                  <div className="divide-y divide-amber-100>
                     {pendingDeliveries.map(del => {
                       const rider = users.find(r => r.id === del.riderId);
                       const est = establishments.find(e => e.id === del.establishmentId);
@@ -1763,17 +1652,17 @@ export default function AdminDashboard() {
                         <div key={del.id} className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3>
                           <div>
                             <div className="flex items-center space-x-2>
-                              <p className="font-bold text-slate-800>{rider?.name || 'Motoboy'}</p>
+                              <p className="font-bold text-slate-800>{rider?.name || 'Motoboy'}</p
                               {del.orderNumber && (
-                                <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px=2.5 py=0.5 rounded>
+                                <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px=2.5 py=0.5 rounded
                                   #{del.orderNumber}
                                 )
                               )}
                             </div
-                            <p className="text-xs text-slate-600 mt-0.5>Estabelecimento: {est?.name}</p>
+                            <p className="text-xs text-slate-600 mt-0.5>Estabelecimento: {est?.name}</p
                             <p className="text-xs text-slate-400 flex items-center space-x-1 mt-1>
                               <Clock className="h-3.5 w-3.5" />
-                              <span>Lançada em {new Date(del.date + 'T00:00:00').toLocaleDateString('pt-BR')} às {del.time}</span>
+                              <span>Lançada em {new Date(del.date + 'T00:00:00').toLocaleDateString('pt-BR')} às {del.time}</span
                             </p
                             {del.notes && (
                               <p className="text-xs text-slate-500 bg-slate-50 border border-slate-100 rounded px=2 py=1.5 italic>
@@ -1809,27 +1698,27 @@ export default function AdminDashboard() {
                 </div
               )}
 
-              <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <h2 className="text-xl font-bold text-slate-800">Registro de Corridas</h2>
+              <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4>
+                  <h2 className="text-xl font-bold text-slate-800>Registro de Corridas</h2
                   <button
                     onClick={() => {
                       setEditingDelivery(null);
                       setDeliveryForm({ riderId: '', establishmentId: '', date: db.getLocalDateString(), time: new Date().toTimeString().slice(0,5), value: '', orderNumber: '', notes: '' });
                       setShowDeliveryModal(true);
                     }}
-                    className="flex items-center justify-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white px=4 py=2 rounded-lg text-sm font-medium transition-colors
+                    className="flex items-center justify-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white px=0.4 py=2 rounded-lg text-sm font-medium transition-colors
                   >
                     <Plus className="h-4 w-4" />
                     <span>Lançar Corrida</span
                   </button
                 </div
 
-                <div className="border border-slate-200 rounded-xl overflow-hidden">
-                  <div className="bg-slate-50 p=4 border-b border-slate-200">
+                <div className="border border-slate-200 rounded-xl overflow-hidden>
+                  <div className="bg-slate-50 p=4 border-b border-slate-200>
                     <h3 className="font-bold text-slate-700>Histórico de Lançamentos</h3
                   </div
-                  <div className="divide-y divide-slate-100">
+                  <div className="divide-y divide-slate-100>
                     {processedDeliveries.length === 0 ? (
                       <div className="p-8 text-center text-slate-400>Nenhuma corrida registrada.</div
                     ) : (
@@ -1930,7 +1819,7 @@ export default function AdminDashboard() {
                   <select
                     value={reportType}
                     onChange={(e) => setReportType(e.target.value as any)}
-                    className="w-full px=3 py=2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500
+                    className="w-full px-3 py=2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500
                   >
                     <option value="earnings">Faturamento por Motoboy</option
                     <option value="deliveries">Quantidade de Corridas por Motoboy</option
@@ -1942,7 +1831,7 @@ export default function AdminDashboard() {
                   <select
                     value={reportPeriod}
                     onChange={(e) => setReportPeriod(e.target.value as any)}
-                    className="w-full px=3 py=2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500
+                    className="w-full px-3 py=2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500
                   >
                     <option value="daily">Diário</option
                     <option value="weekly">Semanal</option
@@ -1958,7 +1847,7 @@ export default function AdminDashboard() {
                         type="date"
                         value={customStartDate}
                         onChange={(e) => setCustomStartDate(e.target.value)}
-                        className="w-full px=3 py=2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500
+                        className="w-full px-3 py=2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500
                       />
                     </div
                     <div
@@ -1967,7 +1856,7 @@ export default function AdminDashboard() {
                         type="date"
                         value={customEndDate}
                         onChange={(e) => setCustomEndDate(e.target.value)}
-                        className="w-full px=3 py=2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500
+                        className="w-full px-3 py=2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500
                       />
                     </div
                   </div
