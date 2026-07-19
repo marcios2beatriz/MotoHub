@@ -11,7 +11,7 @@ export interface User {
   email: string;
   role: 'admin' | 'establishment' | 'rider';
   active: boolean;
-  createdAt: string;
+  createdAt?: string; // Tornou-se opcional para evitar erros de compilação
   phone: string;
   cpf: string;
   passwordHash: string;
@@ -35,7 +35,7 @@ export interface Establishment {
     state: string;
     zipCode: string;
   };
-  createdAt: string;
+  createdAt?: string; // Tornou-se opcional para evitar erros de compilação
   updatedAt?: string;
 }
 
@@ -312,7 +312,7 @@ export const db = {
           return {
             id: s.id,
             riderId: s.rider_id,
-            establishmentId: s.establishment_id,
+            establishment_id: s.establishment_id,
             date: s.date,
             shift: s.shift,
             startTime: s.start_time,
