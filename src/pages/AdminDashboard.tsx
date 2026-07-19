@@ -26,7 +26,14 @@ import {
   CheckCircle2,
   UserCheck,
   Eye,
-  EyeOff
+  EyeOff,
+  TrendingUp,
+  DollarSign,
+  AlertTriangle,
+  CheckSquare,
+  UserPlus,
+  MapPin,
+  ShieldAlert
 } from 'lucide-react';
 
 // Importando os modais modulares
@@ -44,7 +51,7 @@ const DAY_LABELS = ['Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-fei
 export default function AdminDashboard() {
   const navigate = useNavigate();
   const [adminUser, setAdminUser] = useState(db.getCurrentUser());
-  const [activeTab, setActiveTab] = useState<'users' | 'establishments' | 'schedules' | 'deliveries' | 'reports' | 'requests'>('users');
+  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'establishments' | 'requests' | 'schedules' | 'deliveries' | 'finance' | 'reports'>('overview');
 
   // Listas de dados
   const [users, setUsers] = useState<User[]>([]);
@@ -652,7 +659,8 @@ export default function AdminDashboard() {
         scheduleId: activeSchedule?.id,
         orderNumber: deliveryForm.orderNumber.trim() || undefined,
         notes: deliveryForm.notes.trim() || undefined,
-        updatedAt: nowStr
+        updatedAt: nowStr,
+        paid: false
       };
       db.setDeliveries([...deliveries, newDelivery]);
     }
@@ -804,6 +812,25 @@ export default function AdminDashboard() {
     }
   };
 
+  // --- FECHAMENTO FINANCEIRO ---
+  const handleSettleRiderDeliveries = (riderId: string) => {
+    if (confirm('Deseja realmente dar baixa e marcar todas as corridas ativas deste motoboy como pagas?')) {
+      const updated = deliveries.map(d => d.riderId === riderId && d.status === 'active' ? { ...d, paid: true, updatedAt: new Date().toISOString() } : d);
+      db.setDeliveries(updated);
+      loadData();
+      alert('Baixa realizada com sucesso! O saldo do motoboy foi zerado.');
+    }
+  };
+
+  const handleSettleEstDeliveries = (estId: string) => {
+    if (confirm('Deseja realmente dar baixa e marcar todas as corridas ativas deste estabelecimento como pagas?')) {
+      const updated = deliveries.map(d => d.establishmentId === estId && d.status === 'active' ? { ...d, paid: true, updatedAt: new Date().toISOString() } : d);
+      db.setDeliveries(updated);
+      loadData();
+      alert('Baixa realizada com sucesso! O saldo do estabelecimento foi zerado.');
+    }
+  };
+
   // --- RELATÓRIOS E EXPORTAÇÃO ---
   const getFilteredReportData = () => {
     let start = new Date();
@@ -944,9 +971,16 @@ export default function AdminDashboard() {
   });
 
   const pendingRequestsCount = partnerRequests.filter(r => r.status === 'pending').length;
-
+  const pendingRidersCount = users.filter(u => u.role === 'rider' && !u.active).length;
   const pendingDeliveries = deliveries.filter(d => d.status === 'pending');
   const processedDeliveries = deliveries.filter(d => d.status !== 'pending');
+
+  // --- CÁLCULOS DE VISÃO GERAL ---
+  const todayStr = db.getLocalDateString();
+  const activeDeliveriesToday = deliveries.filter(d => d.date === todayStr && d.status === 'active');
+  const totalRevenueToday = activeDeliveriesToday.reduce((sum, d) => sum + d.value, 0);
+  const activeRidersCount = users.filter(u => u.role === 'rider' && u.active).length;
+  const activeEstsCount = establishments.filter(e => e.active).length;
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
@@ -977,11 +1011,13 @@ export default function AdminDashboard() {
         <div className="lg:hidden border-t border-slate-700 overflow-x-auto">
           <div className="flex min-w-max">
             {[
+              { tab: 'overview', icon: <TrendingUp className="h-4 w-4" />, label: 'Visão Geral' },
               { tab: 'users', icon: <Users className="h-4 w-4" />, label: 'Usuários' },
               { tab: 'establishments', icon: <Store className="h-4 w-4" />, label: 'Estabelec.' },
               { tab: 'requests', icon: <Building2 className="h-4 w-4" />, label: `Solicitações (${pendingRequestsCount})` },
               { tab: 'schedules', icon: <Calendar className="h-4 w-4" />, label: 'Escalas' },
               { tab: 'deliveries', icon: <Bike className="h-4 w-4" />, label: 'Corridas' },
+              { tab: 'finance', icon: <DollarSign className="h-4 w-4" />, label: 'Fechamento' },
               { tab: 'reports', icon: <BarChart3 className="h-4 w-4" />, label: 'Relatórios' },
             ].map(({ tab, icon, label }) => (
               <button
@@ -1003,6 +1039,15 @@ export default function AdminDashboard() {
       <div className="max-w-7xl w-full mx-auto px-3 sm:px-4 py-4 sm:py-6 flex-1 grid grid-cols-1 lg:grid-cols-5 gap-4 sm:gap-6">
         {/* Sidebar Navigation — desktop only */}
         <div className="hidden lg:block lg:col-span-1 bg-white p-4 rounded-xl shadow-sm border border-slate-200 h-fit space-y-1">
+          <button
+            onClick={() => { setActiveTab('overview'); }}
+            className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
+              activeTab === 'overview' ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-50'
+            }`}
+          >
+            <TrendingUp className="h-5 w-5" />
+            <span>Visão Geral</span>
+          </button>
           <button
             onClick={() => { setActiveTab('users'); setSearchQuery(''); setStatusFilter('all'); setRoleFilter('all'); }}
             className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
@@ -1056,6 +1101,15 @@ export default function AdminDashboard() {
             <span>Registrar Corridas</span>
           </button>
           <button
+            onClick={() => { setActiveTab('finance'); }}
+            className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
+              activeTab === 'finance' ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-50'
+            }`}
+          >
+            <DollarSign className="h-5 w-5" />
+            <span>Fechamento</span>
+          </button>
+          <button
             onClick={() => { setActiveTab('reports'); }}
             className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
               activeTab === 'reports' ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-50'
@@ -1068,6 +1122,161 @@ export default function AdminDashboard() {
 
         {/* Content Area */}
         <div className="lg:col-span-4 space-y-4 sm:space-y-6">
+          
+          {/* TAB: VISÃO GERAL */}
+          {activeTab === 'overview' && (
+            <div className="space-y-6">
+              {/* Cards de Métricas */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-4">
+                  <div className="p-3 bg-indigo-100 text-indigo-600 rounded-lg">
+                    <DollarSign className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-500 font-medium uppercase">Faturamento Hoje</p>
+                    <p className="text-2xl font-bold text-slate-800">R$ {totalRevenueToday.toFixed(2)}</p>
+                  </div>
+                </div>
+
+                <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-4">
+                  <div className="p-3 bg-emerald-100 text-emerald-600 rounded-lg">
+                    <Bike className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-500 font-medium uppercase">Corridas Hoje</p>
+                    <p className="text-2xl font-bold text-slate-800">{activeDeliveriesToday.length}</p>
+                  </div>
+                </div>
+
+                <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-4">
+                  <div className="p-3 bg-blue-100 text-blue-600 rounded-lg">
+                    <Users className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-500 font-medium uppercase">Motoboys Ativos</p>
+                    <p className="text-2xl font-bold text-slate-800">{activeRidersCount}</p>
+                  </div>
+                </div>
+
+                <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-4">
+                  <div className="p-3 bg-purple-100 text-purple-600 rounded-lg">
+                    <Store className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-500 font-medium uppercase">Parceiros Ativos</p>
+                    <p className="text-2xl font-bold text-slate-800">{activeEstsCount}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Alertas de Ação Urgente */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Fila de Aprovação de Motoboys */}
+                <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
+                  <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                    <UserPlus className="h-5 w-5 text-indigo-600" />
+                    <span>Motoboys Aguardando Aprovação ({pendingRidersCount})</span>
+                  </h3>
+                  {pendingRidersCount === 0 ? (
+                    <p className="text-sm text-slate-400 py-4 text-center">Nenhum motoboy aguardando aprovação.</p>
+                  ) : (
+                    <div className="divide-y divide-slate-100 max-h-[300px] overflow-y-auto">
+                      {users.filter(u => u.role === 'rider' && !u.active).map(rider => (
+                        <div key={rider.id} className="py-3 flex items-center justify-between gap-2">
+                          <div>
+                            <p className="font-bold text-slate-800 text-sm">{rider.name}</p>
+                            <p className="text-xs text-slate-500">{rider.phone} • {rider.cpf}</p>
+                          </div>
+                          <button
+                            onClick={() => handleApproveRider(rider.id)}
+                            className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1"
+                          >
+                            <Check className="h-3.5 w-3.5" />
+                            <span>Aprovar</span>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Solicitações de Parceria Pendentes */}
+                <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
+                  <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                    <Building2 className="h-5 w-5 text-emerald-600" />
+                    <span>Solicitações de Parceria Pendentes ({pendingRequestsCount})</span>
+                  </h3>
+                  {pendingRequestsCount === 0 ? (
+                    <p className="text-sm text-slate-400 py-4 text-center">Nenhuma solicitação pendente.</p>
+                  ) : (
+                    <div className="divide-y divide-slate-100 max-h-[300px] overflow-y-auto">
+                      {partnerRequests.filter(r => r.status === 'pending').map(req => (
+                        <div key={req.id} className="py-3 flex items-center justify-between gap-2">
+                          <div>
+                            <p className="font-bold text-slate-800 text-sm">{req.establishmentName}</p>
+                            <p className="text-xs text-slate-500">{req.ownerName} • {req.phone}</p>
+                          </div>
+                          <div className="flex gap-1">
+                            <button
+                              onClick={() => handleApproveRequest(req)}
+                              className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-2.5 py-1.5 rounded-lg transition-colors"
+                            >
+                              Aprovar
+                            </button>
+                            <button
+                              onClick={() => handleContactRequest(req)}
+                              className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-2.5 py-1.5 rounded-lg transition-colors"
+                            >
+                              WhatsApp
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Corridas Pendentes de Aprovação */}
+              {pendingDeliveries.length > 0 && (
+                <div className="bg-amber-50 border border-amber-200 p-6 rounded-xl shadow-sm space-y-4">
+                  <h3 className="text-base font-bold text-amber-800 flex items-center gap-2">
+                    <Clock className="h-5 w-5 text-amber-600 animate-pulse" />
+                    <span>Corridas Pendentes de Aprovação ({pendingDeliveries.length})</span>
+                  </h3>
+                  <div className="divide-y divide-amber-100">
+                    {pendingDeliveries.map(del => {
+                      const rider = users.find(r => r.id === del.riderId);
+                      const est = establishments.find(e => e.id === del.establishmentId);
+                      return (
+                        <div key={del.id} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                          <div>
+                            <p className="font-bold text-slate-800 text-sm">{rider?.name || 'Motoboy'} • {est?.name || 'Estabelecimento'}</p>
+                            <p className="text-xs text-slate-500">Valor: R$ {del.value.toFixed(2)} • Lançada às {del.time}</p>
+                          </div>
+                          <div className="flex gap-1">
+                            <button
+                              onClick={() => handleApproveDelivery(del.id)}
+                              className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-colors"
+                            >
+                              Aprovar
+                            </button>
+                            <button
+                              onClick={() => handleRejectDelivery(del.id)}
+                              className="bg-red-600 hover:bg-red-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-colors"
+                            >
+                              Rejeitar
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* TAB: USUÁRIOS */}
           {activeTab === 'users' && (
             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
@@ -1914,6 +2123,87 @@ export default function AdminDashboard() {
                         );
                       })
                     )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB: FECHAMENTO FINANCEIRO */}
+          {activeTab === 'finance' && (
+            <div className="space-y-6">
+              <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
+                <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+                  <DollarSign className="h-6 w-6 text-indigo-600" />
+                  <span>Fechamento Financeiro (Saldos Acumulados)</span>
+                </h2>
+                <p className="text-xs text-slate-500">Acompanhe e dê baixa nos saldos de motoboys e estabelecimentos parceiros.</p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Saldo dos Motoboys */}
+                <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
+                  <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                    <Users className="h-5 w-5 text-indigo-600" />
+                    <span>Saldos a Pagar (Motoboys)</span>
+                  </h3>
+                  <div className="divide-y divide-slate-100 max-h-[400px] overflow-y-auto">
+                    {users.filter(u => u.role === 'rider' && u.active).map(rider => {
+                      const unpaidDeliveries = deliveries.filter(d => d.riderId === rider.id && d.status === 'active' && !d.paid);
+                      const balance = unpaidDeliveries.reduce((sum, d) => sum + d.value, 0);
+
+                      return (
+                        <div key={rider.id} className="py-3 flex items-center justify-between gap-2">
+                          <div>
+                            <p className="font-bold text-slate-800 text-sm">{rider.name}</p>
+                            <p className="text-xs text-slate-500">{unpaidDeliveries.length} corrida(s) pendente(s)</p>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <span className="font-bold text-emerald-600 text-sm">R$ {balance.toFixed(2)}</span>
+                            <button
+                              disabled={balance === 0}
+                              onClick={() => handleSettleRiderDeliveries(rider.id)}
+                              className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-100 disabled:text-slate-400 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-colors"
+                            >
+                              Pagar
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Saldo dos Estabelecimentos */}
+                <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
+                  <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                    <Store className="h-5 w-5 text-emerald-600" />
+                    <span>Saldos a Receber (Estabelecimentos)</span>
+                  </h3>
+                  <div className="divide-y divide-slate-100 max-h-[400px] overflow-y-auto">
+                    {establishments.filter(e => e.active).map(est => {
+                      const unpaidDeliveries = deliveries.filter(d => d.establishmentId === est.id && d.status === 'active' && !d.paid);
+                      const balance = unpaidDeliveries.reduce((sum, d) => sum + d.value, 0);
+
+                      return (
+                        <div key={est.id} className="py-3 flex items-center justify-between gap-2">
+                          <div>
+                            <p className="font-bold text-slate-800 text-sm">{est.name}</p>
+                            <p className="text-xs text-slate-500">{unpaidDeliveries.length} corrida(s) pendente(s)</p>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <span className="font-bold text-indigo-600 text-sm">R$ {balance.toFixed(2)}</span>
+                            <button
+                              disabled={balance === 0}
+                              onClick={() => handleSettleEstDeliveries(est.id)}
+                              className="bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-100 disabled:text-slate-400 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-colors"
+                            >
+                              Receber
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               </div>
