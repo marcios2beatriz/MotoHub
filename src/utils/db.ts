@@ -312,7 +312,7 @@ export const db = {
           return {
             id: s.id,
             riderId: s.rider_id,
-            establishment_id: s.establishment_id,
+            establishmentId: s.establishment_id, // Corrigido de establishment_id para establishmentId
             date: s.date,
             shift: s.shift,
             startTime: s.start_time,
