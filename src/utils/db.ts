@@ -516,7 +516,7 @@ export const db = {
           email: e.email || '',
           active: e.active,
           phone: e.phone || '',
-          address: e.address, // Envia o objeto diretamente para que o Supabase salve como JSON/JSONB correto
+          address: JSON.stringify(e.address), // Garante que o endereço seja stringificado para compatibilidade total com colunas text/jsonb
           created_at: e.createdAt || new Date().toISOString(),
           updated_at: new Date().toISOString()
         });
