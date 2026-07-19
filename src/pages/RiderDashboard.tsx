@@ -460,7 +460,7 @@ export default function RiderDashboard() {
       } : d);
 
       db.setDeliveries(updated);
-      alert('Corrida updated com sucesso! Aguardando aprovação.');
+      alert('Corrida atualizada com sucesso! Aguardando aprovação.');
     } else {
       const newDelivery: Delivery = {
         id: 'd_' + Date.now(),
@@ -804,11 +804,21 @@ export default function RiderDashboard() {
                             <Clock className="h-3 w-3" />
                             <span>{delivery.time}</span>
                           </p>
-                          {delivery.notes && (
+                          {delivery.status === 'rejected' && delivery.notes ? (
+                            <div className="mt-1.5 text-xs text-red-700 bg-red-50 border border-red-100 rounded px-2.5 py-1.5 font-medium leading-relaxed">
+                              <strong>Motivo da Rejeição:</strong> {
+                                delivery.notes.includes('Rejeitado:') 
+                                  ? delivery.notes.split('Rejeitado:').pop()?.trim() 
+                                  : delivery.notes.includes('Motivo da rejeição:')
+                                  ? delivery.notes.split('Motivo da rejeição:').pop()?.trim()
+                                  : delivery.notes
+                              }
+                            </div>
+                          ) : delivery.notes ? (
                             <p className="text-xs text-slate-500 bg-slate-50 border border-slate-100 rounded px-2 py-1 mt-1.5 italic truncate max-w-[300px]">
                               Obs: {delivery.notes.split('\n').pop()?.replace(/\[.*?\]: /, '') || delivery.notes}
                             </p>
-                          )}
+                          ) : null}
                         </div>
                         <div className="flex items-center space-x-2">
                           {/* Botão Chat com Estabelecimento */}
