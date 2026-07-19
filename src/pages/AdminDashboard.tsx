@@ -1098,7 +1098,7 @@ export default function AdminDashboard() {
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="pl-9 pr-4 py-2 w-full border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
                   />
-                </div>
+                </div
                 <select
                   value={roleFilter}
                   onChange={(e: any) => setRoleFilter(e.target.value)}
@@ -1161,7 +1161,7 @@ export default function AdminDashboard() {
                               title={isPassVisible ? "Ocultar Senha" : "Ver Senha"}
                             >
                               {isPassVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                            </button>
+                            </button
                           </td>
                           <td className="py-3 px=4 text-slate-600>{user.phone}</td>
                           <td className="py-3 px=4 text-slate-600>{user.email}</td>
@@ -1238,13 +1238,13 @@ export default function AdminDashboard() {
                             )}
                             <button
                               onClick={() => handleDeleteUser(user.id)}
-                              className="p-1.5 text-red-500 hover:bg-red-50 rounded transition-colors inline-flex"
+                              className="p-1.5 text-red-500 hover:bg-red-500 rounded transition-colors inline-flex"
                               title="Excluir Usuário Definitivamente"
                             >
                               <Trash2 className="h-4 w-4" />
                             </button
-                          </td>
-                        </tr>
+                          </td
+                        </tr
                       );
                     })}
                   </tbody>
@@ -1281,7 +1281,7 @@ export default function AdminDashboard() {
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="pl-9 pr-4 py-2 w-full border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
                   />
-                </div>
+                </div
                 <select
                   value={statusFilter}
                   onChange={(e: any) => setStatusFilter(e.target.value)}
@@ -1291,7 +1291,7 @@ export default function AdminDashboard() {
                   <option value="active">Ativos</option>
                   <option value="inactive">Inativos</option>
                 </select
-              </div>
+              </div
 
               {/* Tabela */}
               <div className="overflow-x-auto">
@@ -1303,7 +1303,7 @@ export default function AdminDashboard() {
                       <th className="py-3 px-4">Telefone</th>
                       <th className="py-3 px-4">E-mail de Acesso</th>
                       <th className="py-3 px=4 text-slate-600>{est.phone}</td>
-                      <td className="py-3 px=4 text-slate-600 font-medium">{estUser?.email || 'Sem conta'}</td>
+                      <td className="py-3 px=4 text-slate-600 font-medium>{estUser?.email || 'Sem conta'}</td>
                       <th className="py-3 px=4 text-right space-x-2 whitespace-nowrap">
                         <button
                           onClick={() => {
@@ -1346,7 +1346,7 @@ export default function AdminDashboard() {
                         </button
                       </td
                     </tr
-                  </thead>
+                  </thead
                   <tbody className="divide-y divide-slate-100 text-sm">
                     {filteredEsts.map(est => {
                       const estUser = users.find(u => u.establishmentId === est.id);
@@ -1359,7 +1359,7 @@ export default function AdminDashboard() {
                             {est.address.street}, {est.address.number} - {est.address.neighborhood}
                           </td>
                           <td className="py-3 px=4 text-slate-600>{est.phone}</td>
-                          <td className="py-3 px=4 text-slate-600 font-medium">{estUser?.email || 'Sem conta'}</td>
+                          <td className="py-3 px=4 text-slate-600 font-medium>{estUser?.email || 'Sem conta'}</td>
                           <td className="py-3 px=4 text-slate-600>
                             {estUser ? (
                               <div className="flex items-center space-x-2>
@@ -1422,9 +1422,9 @@ export default function AdminDashboard() {
                         </tr
                       );
                     })}
-                  </tbody>
-                </table>
-              </div>
+                  </tbody
+                </table
+              </div
             </div
           )}
 
@@ -1593,7 +1593,7 @@ export default function AdminDashboard() {
 
               {(() => {
                 const todayStr = db.getLocalDateString();
-                const q = searchSearch.toLowerCase();
+                const q = scheduleSearch.toLowerCase();
                 const riders = users.filter(u => u.role === 'rider');
                 const filteredList = riders.filter(r =>
                   r.name.toLowerCase().includes(q) || r.cpf.includes(q) || r.phone.includes(q)
