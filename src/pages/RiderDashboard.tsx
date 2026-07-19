@@ -77,7 +77,7 @@ export default function RiderDashboard() {
   const [historyDateFrom, setHistoryDateFrom] = useState('');
   const [historyDateTo, setHistoryDateTo] = useState('');
 
-  // Helper ultra-robusto para resolver estabelecimento por ID ou nome aproximado
+  //  // Helper ultra-robusto para resolver estabelecimento por ID ou nome aproximado
   const resolveEst = (id: string): Establishment | undefined => {
     const allEsts = db.getEstablishments();
     let found = allEsts.find(e => e.id === id);
@@ -708,24 +708,64 @@ export default function RiderDashboard() {
               )}
             </div>
 
-            {/* Card de Chat de Turno Rápido */}
-            {todaySchedule && (
-              <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 bg-indigo-100 text-indigo-600 rounded-lg">
-                    <MessageSquare className="h-5 w-5" />
+            {/* ESCALA DO DIA CORRENTE EM DESTAQUE (Requisito 5) */}
+            {todaySchedule ? (
+              (() => {
+                const est = resolveEst(todaySchedule.establishmentId);
+                return (
+                  <div className="bg-indigo-600 text-white p-5 rounded-2xl shadow-lg space-y-4 relative overflow-hidden">
+                    <div className="absolute -right-8 -bottom-8 opacity-10">
+                      <Calendar className="h-32 w-32" />
+                    </div>
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <span className="bg-indigo-500 text-white text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider">
+                          Escala de Hoje
+                        </span>
+                        <h3 className="text-xl font-extrabold mt-2">{est?.name || 'Estabelecimento'}</h3>
+                        <p className="text-xs text-indigo-100 flex items-center gap-1 mt-1">
+                          <Clock className="h-3.5 w-3.5" />
+                          <span>Turno da {getShiftLabel(todaySchedule.shift)} ({todaySchedule.startTime} - {todaySchedule.endTime})</span>
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => setActiveScheduleChatId(todaySchedule.id)}
+                        className="bg-white/10 hover:bg-white/20 text-white p-2 rounded-xl transition-colors flex items-center gap-1.5 text-xs font-bold"
+                        title="Chat de Turno"
+                      >
+                        <MessageSquare className="h-4 w-4" />
+                        <span>Chat</span>
+                      </button>
+                    </div>
+
+                    {est?.address && (
+                      <div className="bg-white/10 p-3.5 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="flex items-start gap-2">
+                          <MapPin className="h-5 w-5 text-indigo-200 flex-shrink-0 mt-0.5" />
+                          <div className="text-xs text-indigo-50">
+                            <p className="font-bold">{est.address.street}, {est.address.number}</p>
+                            <p>{est.address.neighborhood} • {est.address.city}/{est.address.state}</p>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => handleOpenGPS(est.address)}
+                          className="bg-white text-indigo-700 hover:bg-indigo-50 px-4 py-2.5 rounded-xl text-xs font-extrabold transition-all flex items-center justify-center gap-1.5 shadow-md"
+                        >
+                          <Navigation className="h-4 w-4" />
+                          <span>Abrir no GPS</span>
+                        </button>
+                      </div>
+                    )}
                   </div>
-                  <div>
-                    <p className="font-bold text-sm text-indigo-900">Chat de Turno Ativo</p>
-                    <p className="text-xs text-indigo-700">Fale diretamente com o gerente do estabelecimento hoje.</p>
-                  </div>
+                );
+              })()
+            ) : (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3 text-amber-800">
+                <AlertCircle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-bold text-sm">Nenhuma escala para hoje</p>
+                  <p className="text-xs text-amber-700 mt-0.5">Você não está escalado em nenhum estabelecimento hoje. Fale com o administrador para receber escalas.</p>
                 </div>
-                <button
-                  onClick={() => setActiveScheduleChatId(todaySchedule.id)}
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-xs font-bold transition-colors shadow-sm"
-                >
-                  Abrir Chat
-                </button>
               </div>
             )}
 
