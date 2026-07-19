@@ -12,21 +12,31 @@ export interface User {
   role: 'admin' | 'establishment' | 'rider';
   active: boolean;
   createdAt: string;
+  phone: string;
+  cpf: string;
+  passwordHash: string;
+  mustResetPassword?: boolean;
+  establishmentId?: string;
+  updatedAt?: string;
 }
 
 export interface Establishment {
   id: string;
   name: string;
-  email: string;
+  email?: string;
   active: boolean;
-  address?: {
+  phone: string;
+  address: {
     street: string;
     number: string;
+    complement?: string;
     neighborhood: string;
     city: string;
     state: string;
+    zipCode: string;
   };
   createdAt: string;
+  updatedAt?: string;
 }
 
 export interface Schedule {
@@ -38,6 +48,8 @@ export interface Schedule {
   startTime: string;
   endTime: string;
   chat?: string; // Histórico de chat do turno
+  createdBy?: string;
+  createdAt?: string;
   updatedAt?: string;
 }
 
@@ -54,6 +66,7 @@ export interface Delivery {
   notes?: string; // Chat/Observações com o estabelecimento
   customerChat?: string; // Chat com o cliente final
   updatedAt?: string;
+  paid?: boolean;
 }
 
 export interface Notification {
@@ -65,6 +78,24 @@ export interface Notification {
   read: boolean;
 }
 
+export interface PartnerRequest {
+  id: string;
+  establishmentName: string;
+  ownerName: string;
+  phone: string;
+  address: string;
+  status: 'pending' | 'contacted';
+  createdAt: string;
+}
+
+export interface RiderLocation {
+  riderId: string;
+  riderName: string;
+  lat: number;
+  lng: number;
+  updatedAt: string;
+}
+
 // Chaves para o LocalStorage
 const KEYS = {
   USERS: 'delivery_system_users',
@@ -73,7 +104,8 @@ const KEYS = {
   DELIVERIES: 'delivery_system_deliveries',
   NOTIFICATIONS: 'delivery_system_notifications',
   CURRENT_USER: 'delivery_system_current_user',
-  RIDER_LOCATIONS: 'delivery_system_rider_locations'
+  RIDER_LOCATIONS: 'delivery_system_rider_locations',
+  PARTNER_REQUESTS: 'delivery_system_partner_requests'
 };
 
 // Helper para mesclar strings de chat sem duplicar mensagens
@@ -96,6 +128,7 @@ export const db = {
   },
   setUsers(users: User[]) {
     localStorage.setItem(KEYS.USERS, JSON.stringify(users));
+    this.syncUsersToSupabase(users);
   },
 
   getEstablishments(): Establishment[] {
@@ -104,6 +137,7 @@ export const db = {
   },
   setEstablishments(ests: Establishment[]) {
     localStorage.setItem(KEYS.ESTABLISHMENTS, JSON.stringify(ests));
+    this.syncEstablishmentsToSupabase(ests);
   },
 
   getSchedules(): Schedule[] {
@@ -112,6 +146,7 @@ export const db = {
   },
   setSchedules(schedules: Schedule[]) {
     localStorage.setItem(KEYS.SCHEDULES, JSON.stringify(schedules));
+    this.syncToSupabase();
   },
 
   getDeliveries(): Delivery[] {
@@ -129,6 +164,15 @@ export const db = {
   },
   setNotifications(notifications: Notification[]) {
     localStorage.setItem(KEYS.NOTIFICATIONS, JSON.stringify(notifications));
+  },
+
+  getPartnerRequests(): PartnerRequest[] {
+    const data = localStorage.getItem(KEYS.PARTNER_REQUESTS);
+    return data ? JSON.parse(data) : [];
+  },
+  setPartnerRequests(requests: PartnerRequest[]) {
+    localStorage.setItem(KEYS.PARTNER_REQUESTS, JSON.stringify(requests));
+    this.syncPartnerRequestsToSupabase(requests);
   },
 
   getCurrentUser(): User | null {
@@ -150,9 +194,43 @@ export const db = {
     return `${year}-${month}-${day}`;
   },
 
+  // --- RESOLVERS & HELPERS ---
+  resolveUser(id: string): User | undefined {
+    return this.getUsers().find(u => u.id === id);
+  },
+
+  resolveEstablishment(id: string): Establishment | undefined {
+    return this.getEstablishments().find(e => e.id === id);
+  },
+
+  generateUniqueDummyCpf(): string {
+    const rand = () => Math.floor(Math.random() * 10);
+    return `000.000.000-${rand()}${rand()}`;
+  },
+
+  async deleteUser(id: string) {
+    const users = this.getUsers().filter(u => u.id !== id);
+    localStorage.setItem(KEYS.USERS, JSON.stringify(users));
+    try {
+      await supabase.from('users').delete().eq('id', id);
+    } catch (e) {
+      console.error('Erro ao deletar usuário do Supabase:', e);
+    }
+  },
+
+  async deleteEstablishment(id: string) {
+    const ests = this.getEstablishments().filter(e => e.id !== id);
+    localStorage.setItem(KEYS.ESTABLISHMENTS, JSON.stringify(ests));
+    try {
+      await supabase.from('establishments').delete().eq('id', id);
+    } catch (e) {
+      console.error('Erro ao deletar estabelecimento do Supabase:', e);
+    }
+  },
+
   // --- RIDER REAL-TIME LOCATION ---
   updateRiderLocation(riderId: string, riderName: string, lat: number, lng: number) {
-    const locations = this.getRiderLocations();
+    const locations = this.getRiderLocationsRecord();
     const updated = {
       ...locations,
       [riderId]: {
@@ -177,9 +255,13 @@ export const db = {
     });
   },
 
-  getRiderLocations(): Record<string, { riderId: string; riderName: string; lat: number; lng: number; updatedAt: string }> {
+  getRiderLocationsRecord(): Record<string, RiderLocation> {
     const data = localStorage.getItem(KEYS.RIDER_LOCATIONS);
     return data ? JSON.parse(data) : {};
+  },
+
+  getRiderLocations(): RiderLocation[] {
+    return Object.values(this.getRiderLocationsRecord());
   },
 
   // --- SUPABASE SYNCHRONIZATION ---
@@ -194,9 +276,15 @@ export const db = {
           email: u.email,
           role: u.role,
           active: u.active,
-          createdAt: u.created_at
+          createdAt: u.created_at,
+          phone: u.phone || '',
+          cpf: u.cpf || '',
+          passwordHash: u.password_hash || '',
+          mustResetPassword: u.must_reset_password || false,
+          establishmentId: u.establishment_id || undefined,
+          updatedAt: u.updated_at
         }));
-        this.setUsers(mappedUsers);
+        localStorage.setItem(KEYS.USERS, JSON.stringify(mappedUsers));
       }
 
       // 2. Sincronizar Estabelecimentos
@@ -207,10 +295,12 @@ export const db = {
           name: e.name,
           email: e.email,
           active: e.active,
-          address: e.address ? JSON.parse(e.address) : undefined,
-          createdAt: e.created_at
+          phone: e.phone || '',
+          address: e.address ? JSON.parse(e.address) : { street: '', number: '', complement: '', neighborhood: '', city: '', state: '', zipCode: '' },
+          createdAt: e.created_at,
+          updatedAt: e.updated_at
         }));
-        this.setEstablishments(mappedEsts);
+        localStorage.setItem(KEYS.ESTABLISHMENTS, JSON.stringify(mappedEsts));
       }
 
       // 3. Sincronizar Escalas (Schedules)
@@ -228,6 +318,8 @@ export const db = {
             startTime: s.start_time,
             endTime: s.end_time,
             chat: mergeChatStrings(local?.chat, s.chat),
+            createdBy: s.created_by || undefined,
+            createdAt: s.created_at,
             updatedAt: s.updated_at
           };
         });
@@ -267,8 +359,6 @@ export const db = {
           }
 
           // --- REGRA DE OURO DE MESCLAGEM (PREVENÇÃO DE RETORNO A PENDENTE) ---
-          // Se o status remoto for 'active', 'rejected' ou 'cancelled', ele NUNCA deve voltar para 'pending'.
-          // Status resolvidos têm prioridade absoluta sobre o status 'pending' local.
           let finalStatus: 'pending' | 'active' | 'rejected' | 'cancelled' = d.status;
           
           if (local) {
@@ -299,7 +389,8 @@ export const db = {
             orderNumber,
             notes: mergeChatStrings(local?.notes, notes),
             customerChat: mergeChatStrings(local?.customerChat, customerChat),
-            updatedAt
+            updatedAt,
+            paid: d.paid || false
           };
         });
 
@@ -310,10 +401,85 @@ export const db = {
         localStorage.setItem(KEYS.DELIVERIES, JSON.stringify([...mappedDeliveries, ...unsyncedLocal]));
       }
 
+      // 5. Sincronizar Solicitações de Parceria
+      const { data: reqsData } = await supabase.from('partner_requests').select('*');
+      if (reqsData) {
+        const mappedReqs: PartnerRequest[] = reqsData.map(r => ({
+          id: r.id,
+          establishmentName: r.establishment_name,
+          ownerName: r.owner_name,
+          phone: r.phone,
+          address: r.address,
+          status: r.status,
+          createdAt: r.created_at
+        }));
+        localStorage.setItem(KEYS.PARTNER_REQUESTS, JSON.stringify(mappedReqs));
+      }
+
       // Dispara evento global para atualizar as telas em tempo real
       window.dispatchEvent(new Event('db-sync-complete'));
     } catch (err) {
       console.error('Erro ao sincronizar dados do Supabase:', err);
+    }
+  },
+
+  async syncUsersToSupabase(users: User[]) {
+    try {
+      for (const u of users) {
+        await supabase.from('users').upsert({
+          id: u.id,
+          name: u.name,
+          email: u.email,
+          role: u.role,
+          active: u.active,
+          phone: u.phone,
+          cpf: u.cpf,
+          password_hash: u.passwordHash,
+          must_reset_password: u.mustResetPassword || false,
+          establishment_id: u.establishmentId || null,
+          created_at: u.createdAt || new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        });
+      }
+    } catch (e) {
+      console.error('Erro ao sincronizar usuários com Supabase:', e);
+    }
+  },
+
+  async syncEstablishmentsToSupabase(ests: Establishment[]) {
+    try {
+      for (const e of ests) {
+        await supabase.from('establishments').upsert({
+          id: e.id,
+          name: e.name,
+          email: e.email || '',
+          active: e.active,
+          phone: e.phone || '',
+          address: e.address ? JSON.stringify(e.address) : null,
+          created_at: e.createdAt || new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        });
+      }
+    } catch (err) {
+      console.error('Erro ao sincronizar estabelecimentos com Supabase:', err);
+    }
+  },
+
+  async syncPartnerRequestsToSupabase(requests: PartnerRequest[]) {
+    try {
+      for (const r of requests) {
+        await supabase.from('partner_requests').upsert({
+          id: r.id,
+          establishment_name: r.establishmentName,
+          owner_name: r.ownerName,
+          phone: r.phone,
+          address: r.address,
+          status: r.status,
+          created_at: r.createdAt
+        });
+      }
+    } catch (e) {
+      console.error('Erro ao sincronizar solicitações de parceria com Supabase:', e);
     }
   },
 
@@ -331,6 +497,8 @@ export const db = {
           start_time: s.startTime,
           end_time: s.endTime,
           chat: s.chat || null,
+          created_by: s.createdBy || null,
+          created_at: s.createdAt || new Date().toISOString(),
           updated_at: s.updatedAt || new Date().toISOString()
         });
       }
@@ -358,7 +526,8 @@ export const db = {
           order_number: serializedOrderNumber,
           notes: d.notes || null,
           customer_chat: d.customerChat || null,
-          updated_at: d.updatedAt || new Date().toISOString()
+          updated_at: d.updatedAt || new Date().toISOString(),
+          paid: d.paid || false
         });
       }
     } catch (err) {
