@@ -177,7 +177,7 @@ const syncToSupabase = async (table: string, data: any[]) => {
           active: item.active,
           password_hash: item.passwordHash,
           must_reset_password: item.mustResetPassword || false,
-          establishment_id: item.establishmentId || null,
+          establishment_id: item.establishment_id || null,
           updated_at: item.updatedAt || new Date().toISOString()
         };
       }
@@ -206,7 +206,11 @@ const syncToSupabase = async (table: string, data: any[]) => {
           shift: item.shift,
           start_time: item.startTime,
           end_time: item.endTime,
-          created_by: item.createdBy || 'Admin',
+          created_by: JSON.stringify({
+            createdBy: item.createdBy || 'Admin',
+            chat: item.chat || null,
+            updatedAt: item.updatedAt || item.createdAt || new Date().toISOString()
+          }),
           chat: item.chat || null,
           created_at: item.createdAt,
           updated_at: item.updatedAt || item.createdAt || new Date().toISOString()
@@ -222,7 +226,12 @@ const syncToSupabase = async (table: string, data: any[]) => {
           value: item.value,
           status: item.status,
           schedule_id: item.scheduleId || null,
-          order_number: item.orderNumber || null,
+          order_number: JSON.stringify({
+            orderNumber: item.orderNumber || null,
+            notes: item.notes || null,
+            customerChat: item.customerChat || null,
+            updatedAt: item.updatedAt || new Date().toISOString()
+          }),
           notes: item.notes || null,
           customer_chat: item.customerChat || null,
           updated_at: item.updatedAt || new Date().toISOString()
@@ -778,8 +787,33 @@ export const db = {
             });
           }
 
-          // Sobrescrita direta para propagar exclusões remotas e evitar duplicidade
-          setStorageData('dm_schedules', uniqueSchs);
+          // Smart merge: only overwrite local if remote is newer or has more data
+          const localSchs = getStorageData<Schedule[]>('dm_schedules', []);
+          const mergedSchs = uniqueSchs.map(remote => {
+            const local = localSchs.find(l => l.id === remote.id);
+            if (local) {
+              const finalChat = remote.chat || local.chat;
+              const remoteTime = remote.updatedAt ? new Date(remote.updatedAt).getTime() : 0;
+              const localTime = local.updatedAt ? new Date(local.updatedAt).getTime() : 0;
+              
+              if (localTime > remoteTime) {
+                return {
+                  ...local,
+                  chat: local.chat || remote.chat
+                };
+              }
+              return {
+                ...remote,
+                chat: finalChat
+              };
+            }
+            return remote;
+          });
+          
+          const remoteIds = new Set(uniqueSchs.map(s => s.id));
+          const localOnly = localSchs.filter(l => !remoteIds.has(l.id) && !deletedIds.includes(l.id));
+          
+          setStorageData('dm_schedules', [...mergedSchs, ...localOnly]);
         }
       }
 
@@ -839,8 +873,40 @@ export const db = {
               };
             });
           
-          // Sobrescrita direta para propagar exclusões remotas
-          setStorageData('dm_deliveries', mappedDels);
+          // Smart merge: only overwrite local if remote is newer or has more data
+          const localDels = getStorageData<Delivery[]>('dm_deliveries', []);
+          const mergedDels = mappedDels.map(remote => {
+            const local = localDels.find(l => l.id === remote.id);
+            if (local) {
+              // If local has notes/chat but remote doesn't (due to missing columns), preserve local
+              const finalNotes = remote.notes || local.notes;
+              const finalCustomerChat = remote.customerChat || local.customerChat;
+              
+              // Compare timestamps if available
+              const remoteTime = remote.updatedAt ? new Date(remote.updatedAt).getTime() : 0;
+              const localTime = local.updatedAt ? new Date(local.updatedAt).getTime() : 0;
+              
+              if (localTime > remoteTime) {
+                return {
+                  ...local,
+                  notes: local.notes || remote.notes,
+                  customerChat: local.customerChat || remote.customerChat
+                };
+              }
+              return {
+                ...remote,
+                notes: finalNotes,
+                customerChat: finalCustomerChat
+              };
+            }
+            return remote;
+          });
+          
+          // Add any local deliveries that are not in remote yet (and not deleted)
+          const remoteIds = new Set(mappedDels.map(d => d.id));
+          const localOnly = localDels.filter(l => !remoteIds.has(l.id) && !deletedIds.includes(l.id));
+          
+          setStorageData('dm_deliveries', [...mergedDels, ...localOnly]);
         }
       }
 
