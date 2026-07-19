@@ -60,6 +60,7 @@ export interface Delivery {
   notes?: string; // Campo opcional de observações (Chat com Estabelecimento)
   customerChat?: string; // Campo exclusivo para o Chat com o Cliente
   updatedAt?: string; // Timestamp para controle de concorrência
+  paid?: boolean; // Campo para controle de fechamento financeiro
 }
 
 export interface Notification {
@@ -240,7 +241,8 @@ const syncToSupabase = async (table: string, data: any[]) => {
           order_number: item.orderNumber || null,
           notes: item.notes || null,
           customer_chat: item.customerChat || null,
-          updated_at: item.updatedAt || new Date().toISOString()
+          updated_at: item.updatedAt || new Date().toISOString(),
+          paid: item.paid || false
         };
       }
       if (table === 'notifications') {
@@ -866,7 +868,8 @@ export const db = {
                 orderNumber: orderNumber || undefined,
                 notes: notes || d.notes || undefined,
                 customerChat: customerChat || d.customer_chat || undefined,
-                updatedAt
+                updatedAt,
+                paid: d.paid || false
               };
             });
           
@@ -879,7 +882,8 @@ export const db = {
                 ...remote,
                 notes: mergeChatStrings(local.notes, remote.notes),
                 customerChat: mergeChatStrings(local.customerChat, remote.customerChat),
-                updatedAt: remote.updatedAt || local.updatedAt
+                updatedAt: remote.updatedAt || local.updatedAt,
+                paid: remote.paid || local.paid
               };
             }
             return remote;
