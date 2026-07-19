@@ -158,6 +158,18 @@ const getMissingColumn = (msg: string): string | null => {
   return null;
 };
 
+// Função auxiliar para mesclar históricos de chat linha por linha sem duplicados
+const mergeChatStrings = (localChat: string | undefined, remoteChat: string | undefined): string | undefined => {
+  if (!localChat) return remoteChat;
+  if (!remoteChat) return localChat;
+
+  const localLines = localChat.split('\n').map(l => l.trim()).filter(Boolean);
+  const remoteLines = remoteChat.split('\n').map(l => l.trim()).filter(Boolean);
+
+  const allLines = new Set([...localLines, ...remoteLines]);
+  return Array.from(allLines).join('\n');
+};
+
 // Sincronização activa com o Supabase
 const syncToSupabase = async (table: string, data: any[]) => {
   if (disabledTables.has(table)) {
@@ -177,7 +189,7 @@ const syncToSupabase = async (table: string, data: any[]) => {
           active: item.active,
           password_hash: item.passwordHash,
           must_reset_password: item.mustResetPassword || false,
-          establishment_id: item.establishment_id || null,
+          establishment_id: item.establishmentId || null,
           updated_at: item.updatedAt || new Date().toISOString()
         };
       }
@@ -206,11 +218,7 @@ const syncToSupabase = async (table: string, data: any[]) => {
           shift: item.shift,
           start_time: item.startTime,
           end_time: item.endTime,
-          created_by: JSON.stringify({
-            createdBy: item.createdBy || 'Admin',
-            chat: item.chat || null,
-            updatedAt: item.updatedAt || item.createdAt || new Date().toISOString()
-          }),
+          created_by: item.createdBy || 'Admin',
           chat: item.chat || null,
           created_at: item.createdAt,
           updated_at: item.updatedAt || item.createdAt || new Date().toISOString()
@@ -226,12 +234,7 @@ const syncToSupabase = async (table: string, data: any[]) => {
           value: item.value,
           status: item.status,
           schedule_id: item.scheduleId || null,
-          order_number: JSON.stringify({
-            orderNumber: item.orderNumber || null,
-            notes: item.notes || null,
-            customerChat: item.customerChat || null,
-            updatedAt: item.updatedAt || new Date().toISOString()
-          }),
+          order_number: item.orderNumber || null,
           notes: item.notes || null,
           customer_chat: item.customerChat || null,
           updated_at: item.updatedAt || new Date().toISOString()
@@ -792,19 +795,10 @@ export const db = {
           const mergedSchs = uniqueSchs.map(remote => {
             const local = localSchs.find(l => l.id === remote.id);
             if (local) {
-              const finalChat = remote.chat || local.chat;
-              const remoteTime = remote.updatedAt ? new Date(remote.updatedAt).getTime() : 0;
-              const localTime = local.updatedAt ? new Date(local.updatedAt).getTime() : 0;
-              
-              if (localTime > remoteTime) {
-                return {
-                  ...local,
-                  chat: local.chat || remote.chat
-                };
-              }
               return {
                 ...remote,
-                chat: finalChat
+                chat: mergeChatStrings(local.chat, remote.chat),
+                updatedAt: remote.updatedAt || local.updatedAt
               };
             }
             return remote;
@@ -878,25 +872,11 @@ export const db = {
           const mergedDels = mappedDels.map(remote => {
             const local = localDels.find(l => l.id === remote.id);
             if (local) {
-              // If local has notes/chat but remote doesn't (due to missing columns), preserve local
-              const finalNotes = remote.notes || local.notes;
-              const finalCustomerChat = remote.customerChat || local.customerChat;
-              
-              // Compare timestamps if available
-              const remoteTime = remote.updatedAt ? new Date(remote.updatedAt).getTime() : 0;
-              const localTime = local.updatedAt ? new Date(local.updatedAt).getTime() : 0;
-              
-              if (localTime > remoteTime) {
-                return {
-                  ...local,
-                  notes: local.notes || remote.notes,
-                  customerChat: local.customerChat || remote.customerChat
-                };
-              }
               return {
                 ...remote,
-                notes: finalNotes,
-                customerChat: finalCustomerChat
+                notes: mergeChatStrings(local.notes, remote.notes),
+                customerChat: mergeChatStrings(local.customerChat, remote.customerChat),
+                updatedAt: remote.updatedAt || local.updatedAt
               };
             }
             return remote;
