@@ -290,20 +290,34 @@ export const db = {
         localStorage.setItem(KEYS.USERS, JSON.stringify([...mappedUsers, ...unsyncedLocal]));
       }
 
-      // 2. Sincronizar Estabelecimentos
+      // 2. Sincronizar Estabelecimentos com Parseamento Seguro de Endereço
       const { data: estsData } = await supabase.from('establishments').select('*');
       if (estsData) {
         const localEsts = this.getEstablishments();
-        const mappedEsts: Establishment[] = estsData.map(e => ({
-          id: e.id,
-          name: e.name,
-          email: e.email,
-          active: e.active,
-          phone: e.phone || '',
-          address: e.address ? JSON.parse(e.address) : { street: '', number: '', complement: '', neighborhood: '', city: '', state: '', zipCode: '' },
-          createdAt: e.created_at,
-          updatedAt: e.updated_at
-        }));
+        const mappedEsts: Establishment[] = estsData.map(e => {
+          let parsedAddress = { street: '', number: '', complement: '', neighborhood: '', city: '', state: '', zipCode: '' };
+          if (e.address) {
+            if (typeof e.address === 'object') {
+              parsedAddress = { ...parsedAddress, ...e.address };
+            } else if (typeof e.address === 'string') {
+              try {
+                parsedAddress = { ...parsedAddress, ...JSON.parse(e.address) };
+              } catch (err) {
+                console.warn('Erro ao parsear endereço do estabelecimento:', err);
+              }
+            }
+          }
+          return {
+            id: e.id,
+            name: e.name,
+            email: e.email,
+            active: e.active,
+            phone: e.phone || '',
+            address: parsedAddress,
+            createdAt: e.created_at,
+            updatedAt: e.updated_at
+          };
+        });
         const remoteIds = new Set(mappedEsts.map(e => e.id));
         const unsyncedLocal = localEsts.filter(e => !remoteIds.has(e.id));
         localStorage.setItem(KEYS.ESTABLISHMENTS, JSON.stringify([...mappedEsts, ...unsyncedLocal]));
@@ -528,7 +542,7 @@ export const db = {
         await supabase.from('deliveries').upsert({
           id: d.id,
           rider_id: d.riderId,
-          establishment_id: d.establishmentId,
+          establishment_id: d.establishment_id,
           date: d.date,
           time: d.time,
           value: d.value,
