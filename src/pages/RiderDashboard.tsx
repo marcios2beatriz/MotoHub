@@ -637,7 +637,7 @@ export default function RiderDashboard() {
           </button>
           <button
             onClick={() => setActiveTab('notifications')}
-            className={`py-2.5 text-sm font-medium rounded-md flex items-center justify-center space-x-1.5 transition-colors relative ${
+            className={`py-2.5 text-sm font-medium rounded-md flex items-center justify-center space-x-1.5 relative ${
               activeTab === 'notifications' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-100'
             }`}
           >
@@ -1268,7 +1268,7 @@ export default function RiderDashboard() {
                   onClick={() => { setShowLaunchModal(false); setEditingDelivery(null); }}
                   className="px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50"
                 >
-                  -- Cancelar
+                  Cancelar
                 </button>
                 <button
                   type="submit"
