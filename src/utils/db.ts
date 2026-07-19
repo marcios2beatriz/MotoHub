@@ -221,11 +221,7 @@ const syncToSupabase = async (table: string, data: any[]) => {
           shift: item.shift,
           start_time: item.startTime,
           end_time: item.endTime,
-          created_by: JSON.stringify({
-            createdBy: item.createdBy || 'Admin',
-            chat: item.chat || null,
-            updatedAt: item.updatedAt || item.createdAt || new Date().toISOString()
-          }),
+          created_by: item.createdBy || 'Admin',
           chat: item.chat || null,
           created_at: item.createdAt,
           updated_at: item.updatedAt || item.createdAt || new Date().toISOString()
@@ -241,12 +237,7 @@ const syncToSupabase = async (table: string, data: any[]) => {
           value: item.value,
           status: item.status,
           schedule_id: item.scheduleId || null,
-          order_number: JSON.stringify({
-            orderNumber: item.orderNumber || null,
-            notes: item.notes || null,
-            customerChat: item.customerChat || null,
-            updatedAt: item.updatedAt || new Date().toISOString()
-          }),
+          order_number: item.orderNumber || null,
           notes: item.notes || null,
           customer_chat: item.customerChat || null,
           updated_at: item.updatedAt || new Date().toISOString()
