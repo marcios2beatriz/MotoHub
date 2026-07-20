@@ -112,13 +112,10 @@ export default function EstablishmentDashboard() {
 
   // Helper ultra-robusto para verificar se uma corrida pertence ao estabelecimento atual por nome, ID ou escala ativa do motoboy
   const isDeliveryForCurrentEst = (d: Delivery, currentEstName: string, matchingEstIds: string[], allEsts: Establishment[]) => {
-    // 1. Tentar por ID direto
     if (matchingEstIds.includes(d.establishmentId)) return true;
     
-    // 2. Tentar resolver o estabelecimento pelo ID gravado na corrida (com auto-cura)
     let destEst = db.resolveEstablishment(d.establishmentId);
     
-    // 3. Se não achar, tentar resolver pelo scheduleId da corrida
     if (!destEst && d.scheduleId) {
       const sch = db.getSchedules().find(s => s.id === d.scheduleId);
       if (sch) {
@@ -126,7 +123,6 @@ export default function EstablishmentDashboard() {
       }
     }
     
-    // 4. Se ainda não achar, buscar QUALQUER escala do motoboy hoje e comparar o nome do estabelecimento por texto!
     const riderOfDel = db.resolveUser(d.riderId);
     const riderEmail = riderOfDel ? riderOfDel.email.toLowerCase() : '';
 
@@ -149,8 +145,6 @@ export default function EstablishmentDashboard() {
       if (matchingSchedule) return true;
     }
 
-    // 5. Fallback supremo: Se o motoboy que lançou a corrida está escalado HOJE neste estabelecimento (por nome),
-    // e a corrida foi lançada hoje, assume que a corrida é deste estabelecimento!
     const riderSchedulesToday = db.getSchedules().filter(s => {
       if (s.date !== d.date) return false;
       if (s.riderId === d.riderId) return true;
@@ -184,14 +178,12 @@ export default function EstablishmentDashboard() {
     const currentUser = db.getCurrentUser();
     if (!currentUser) return;
 
-    // Buscar dados sempre atualizados do usuário pelo e-mail (muito mais seguro contra divergência de IDs)
     const freshUser = db.getUsers().find(u => u.email.toLowerCase() === currentUser.email.toLowerCase()) || currentUser;
     let estId = freshUser.establishmentId;
 
     const allEsts = db.getEstablishments();
     let currentEst = allEsts.find(e => e.id === estId);
 
-    // MECANISMO DE AUTO-CURA: Se não achar o estabelecimento pelo ID, tenta buscar por aproximação de nome ou prefixo de e-mail
     if (!currentEst) {
       const emailPrefix = freshUser.email.split('@')[0].toLowerCase();
       currentEst = allEsts.find(e => 
@@ -209,7 +201,6 @@ export default function EstablishmentDashboard() {
       }
 
       if (currentEst) {
-        // Cura o ID mismatch localmente para as próximas consultas
         estId = currentEst.id;
         freshUser.establishmentId = estId;
         db.setCurrentUser(freshUser);
@@ -233,13 +224,11 @@ export default function EstablishmentDashboard() {
     const todayStr = db.getLocalDateString();
     const allSchedules = db.getSchedules();
     
-    // Filtra as escalas do dia de hoje usando a resolução por nome cruzado
     const estSchedules = allSchedules.filter(s => isScheduleForCurrentEst(s, currentEstName, matchingEstIds, allEsts) && s.date === todayStr);
     setTodaySchedules(estSchedules);
 
     const allUsers = db.getUsers();
     
-    // Mostra os motoboys que possuem escala ativa hoje para este estabelecimento (com fallback por e-mail)
     const riders = allUsers.filter(u => 
       estSchedules.some(s => {
         if (s.riderId === u.id) return true;
@@ -250,7 +239,6 @@ export default function EstablishmentDashboard() {
     setScheduledRiders(riders);
 
     const allDeliveries = db.getDeliveries();
-    // Filtra as corridas de hoje usando a resolução por nome cruzado
     const estDeliveriesToday = allDeliveries.filter(d => isDeliveryForCurrentEst(d, currentEstName, matchingEstIds, allEsts) && d.date === todayStr);
     setTodayDeliveries(estDeliveriesToday);
 
@@ -264,16 +252,13 @@ export default function EstablishmentDashboard() {
       return;
     }
 
-    // Garantir que temos os dados mais recentes do usuário com o ID do estabelecimento
     const freshUser = db.getUsers().find(u => u.email.toLowerCase() === user.email.toLowerCase());
     if (freshUser && freshUser.establishmentId !== user.establishmentId) {
       setUser(freshUser);
     }
 
-    // Sincronização ativa imediata ao carregar a página
     db.pullFromSupabase().then(() => loadData());
 
-    // Sincronização ativa agressiva a cada 5 segundos para rastreamento em tempo real
     const interval = setInterval(() => {
       db.pullFromSupabase().then(() => loadData());
     }, 5000);
@@ -289,7 +274,6 @@ export default function EstablishmentDashboard() {
     };
   }, [user, navigate]);
 
-  // Monitoramento de novas mensagens no chat com Motoboy/Cliente sobre o pedido
   useEffect(() => {
     todayDeliveries.forEach(d => {
       const prevNotes = prevNotesRef.current[d.id];
@@ -300,23 +284,19 @@ export default function EstablishmentDashboard() {
         if (currentLines.length > prevLines.length) {
           const newLines = currentLines.slice(prevLines.length);
           newLines.forEach(line => {
-            // Verifica se a mensagem foi enviada por outra pessoa (não pelo Estabelecimento)
             const isMe = line.includes('- Estabelecimento') || line.includes(`(${user?.name})`);
             if (!isMe) {
               const rider = db.resolveUser(d.riderId);
               const sender = line.includes('- Motoboy') ? 'Motoboy' : 'Cliente';
               const messageText = line.substring(line.indexOf(']: ') + 3);
               
-              // 1. Notificação Nativa do Dispositivo
               sendDeviceNotification(
                 `Nova mensagem de ${sender}`,
                 `Pedido #${d.orderNumber || d.id.slice(-4)} (${rider?.name || 'Entregador'}): "${messageText}"`
               );
 
-              // Tocar som de notificação
               playNotificationSound();
 
-              // 2. Alerta Visual na Tela (Toast)
               const alertDiv = document.createElement('div');
               alertDiv.className = 'fixed top-4 left-4 right-4 bg-indigo-600 text-white p-4 rounded-xl shadow-2xl z-50 flex items-center justify-between animate-bounce max-w-md mx-auto';
               alertDiv.innerHTML = `
@@ -340,7 +320,6 @@ export default function EstablishmentDashboard() {
     });
   }, [todayDeliveries, user]);
 
-  // Monitoramento de novas mensagens no chat de turno
   useEffect(() => {
     todaySchedules.forEach(s => {
       const prevChat = prevScheduleChatRef.current[s.id];
@@ -356,16 +335,13 @@ export default function EstablishmentDashboard() {
               const rider = db.resolveUser(s.riderId);
               const messageText = line.substring(line.indexOf(']: ') + 3);
               
-              // 1. Notificação Nativa
               sendDeviceNotification(
                 `Mensagem de Turno de ${rider?.name || 'Motoboy'}`,
                 `"${messageText}"`
               );
 
-              // Tocar som de notificação
               playNotificationSound();
 
-              // 2. Alerta Visual na Tela (Toast)
               const alertDiv = document.createElement('div');
               alertDiv.className = 'fixed top-4 left-4 right-4 bg-indigo-600 text-white p-4 rounded-xl shadow-2xl z-50 flex items-center justify-between animate-bounce max-w-md mx-auto';
               alertDiv.innerHTML = `
@@ -389,7 +365,6 @@ export default function EstablishmentDashboard() {
     });
   }, [todaySchedules, user]);
 
-  // 1. Hook de Inicialização Única do Mapa (Vinculado apenas ao ID do estabelecimento)
   useEffect(() => {
     if (!establishment || !mapContainerRef.current) return;
 
@@ -401,7 +376,6 @@ export default function EstablishmentDashboard() {
       document.head.appendChild(link);
     }
 
-    // Coordenadas padrão de fallback: Campina Grande - PB (Centro)
     const defaultLat = -7.2247;
     const defaultLng = -35.8878;
 
@@ -438,7 +412,6 @@ export default function EstablishmentDashboard() {
       let finalLng = defaultLng;
       let geocoded = false;
 
-      // Regra de Ouro: Se for a Hamburgueria Burgrill e o endereço for o padrão, força as coordenadas exatas de Bodocongó
       if (establishment.name.toLowerCase().includes('burgrill') && establishment.address.street === 'Rua Aprígio Veloso') {
         finalLat = -7.2150;
         finalLng = -35.9130;
@@ -448,7 +421,6 @@ export default function EstablishmentDashboard() {
       if (!geocoded && addr) {
         const cepClean = addr.zipCode ? addr.zipCode.replace(/\D/g, '') : '';
 
-        // Verificação prioritária no dicionário de CEPs conhecidos (Precisão Absoluta)
         if (cepClean && KNOWN_CEPS[cepClean]) {
           finalLat = KNOWN_CEPS[cepClean].lat;
           finalLng = KNOWN_CEPS[cepClean].lng;
@@ -461,11 +433,9 @@ export default function EstablishmentDashboard() {
         let neighborhood = addr.neighborhood || '';
         let number = addr.number || '';
 
-        // Limpar termos "S/N" que quebram a busca do Nominatim
         const cleanNumber = number.toLowerCase().replace(/s\/n|sn|sem número|sem numero/g, '').trim();
         const cleanStreet = street.toLowerCase().replace(/s\/n|sn|sem número|sem numero/g, '').trim();
 
-        // Etapa 1: Tentar obter coordenadas precisas pelo CEP usando ViaCEP + Nominatim estruturado
         if (!geocoded && cepClean) {
           try {
             const viaCepRes = await fetch(`https://viacep.com.br/ws/${cepClean}/json/`);
@@ -483,7 +453,6 @@ export default function EstablishmentDashboard() {
               if (data && data.length > 0) {
                 const testLat = parseFloat(data[0].lat);
                 const testLng = parseFloat(data[0].lon);
-                // Validação geográfica estrita: deve estar dentro da Paraíba (PB)
                 if (testLat >= -8.5 && testLat <= -5.5 && testLng >= -39.0 && testLng <= -34.0) {
                   finalLat = testLat;
                   finalLng = testLng;
@@ -496,7 +465,6 @@ export default function EstablishmentDashboard() {
           }
         }
 
-        // Etapa 2: Fallback para Nominatim estruturado com CEP + Cidade + Estado
         if (!geocoded && cepClean) {
           try {
             const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&postalcode=${cepClean}&country=Brasil`;
@@ -516,7 +484,6 @@ export default function EstablishmentDashboard() {
           }
         }
 
-        // Etapa 3: Fallback para endereço completo cadastrado (Rua + Bairro + Cidade + Estado)
         if (!geocoded) {
           const queryFull = `${cleanStreet}, ${cleanNumber}, ${neighborhood}, ${city}, ${state}, Brasil`;
           try {
@@ -533,62 +500,6 @@ export default function EstablishmentDashboard() {
             }
           } catch (e) {
             console.warn('Erro ao geocodificar por endereço completo:', e);
-          }
-        }
-
-        // Etapa 4: Fallback para Rua + Bairro + Cidade (sem o número, que às vezes confunde o Nominatim)
-        if (!geocoded) {
-          const queryStreetOnly = `${cleanStreet}, ${neighborhood}, ${city}, ${state}, Brasil`;
-          try {
-            const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(queryStreetOnly)}`, { headers });
-            const data = await res.json();
-            if (data && data.length > 0) {
-              const testLat = parseFloat(data[0].lat);
-              const testLng = parseFloat(data[0].lon);
-              if (testLat >= -8.5 && testLat <= -5.5 && testLng >= -39.0 && testLng <= -34.0) {
-                finalLat = testLat;
-                finalLng = testLng;
-                geocoded = true;
-              }
-            }
-          } catch (e) {
-            console.warn('Erro ao geocodificar por rua apenas:', e);
-          }
-        }
-
-        // Etapa 5: Fallback para Bairro + Cidade + Estado
-        if (!geocoded) {
-          const queryNeighborhood = `${neighborhood}, ${city}, ${state}, Brasil`;
-          try {
-            const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(queryNeighborhood)}`, { headers });
-            const data = await res.json();
-            if (data && data.length > 0) {
-              const testLat = parseFloat(data[0].lat);
-              const testLng = parseFloat(data[0].lon);
-              if (testLat >= -8.5 && testLat <= -5.5 && testLng >= -39.0 && testLng <= -34.0) {
-                finalLat = testLat;
-                finalLng = testLng;
-                geocoded = true;
-              }
-            }
-          } catch (e) {
-            console.warn('Erro ao geocodificar por bairro:', e);
-          }
-        }
-
-        // Etapa 6: Fallback para Cidade + Estado (Garante que fique na cidade correta)
-        if (!geocoded) {
-          const queryCity = `${city}, ${state}, Brasil`;
-          try {
-            const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(queryCity)}`, { headers });
-            const data = await res.json();
-            if (data && data.length > 0) {
-              finalLat = parseFloat(data[0].lat);
-              finalLng = parseFloat(data[0].lon);
-              geocoded = true;
-            }
-          } catch (e) {
-            console.warn('Erro ao geocodificar por cidade:', e);
           }
         }
       }
@@ -609,14 +520,12 @@ export default function EstablishmentDashboard() {
     };
   }, [establishment?.id]);
 
-  // 2. Hook de Atualização Suave dos Marcadores dos Motoboys e Ajuste de Zoom (Apenas no primeiro carregamento)
   useEffect(() => {
     const currentMap = mapRef.current;
     if (!currentMap) return;
 
     const scheduledRiderIds = scheduledRiders.map(r => r.id);
 
-    // Remover marcadores de motoboys que não estão mais escalados
     Object.keys(markersRef.current).forEach(riderId => {
       if (!scheduledRiderIds.includes(riderId)) {
         markersRef.current[riderId].remove();
@@ -624,7 +533,6 @@ export default function EstablishmentDashboard() {
       }
     });
 
-    // Adicionar ou atualizar marcadores de motoboys escalados
     riderLocations.forEach(loc => {
       if (!scheduledRiderIds.includes(loc.riderId)) return;
 
@@ -649,14 +557,12 @@ export default function EstablishmentDashboard() {
       }
     });
 
-    // Ajustar o enquadramento do mapa APENAS se ainda não tiver sido feito (Centralização Inteligente Única)
     if (!hasSetInitialBoundsRef.current) {
       const points: L.LatLngExpression[] = [];
       if (estCoords) {
         points.push([estCoords.lat, estCoords.lng]);
       }
       
-      // Adicionar localizações dos motoboys ativos
       riderLocations.forEach(loc => {
         if (scheduledRiderIds.includes(loc.riderId)) {
           points.push([loc.lat, loc.lng]);
@@ -674,7 +580,6 @@ export default function EstablishmentDashboard() {
     }
   }, [scheduledRiders, riderLocations, estCoords]);
 
-  // 3. Forçar redimensionamento do mapa ao expandir/minimizar
   useEffect(() => {
     if (mapRef.current) {
       setTimeout(() => {
@@ -777,13 +682,12 @@ export default function EstablishmentDashboard() {
     const updated = allDeliveries.map(d => d.id === id ? { ...d, status: 'active' as const, updatedAt: nowStr } : d);
     db.setDeliveries(updated);
 
-    // Notify Rider
     const allNotif = db.getNotifications();
     const newNotif: Notification = {
       id: 'n_' + Date.now(),
       riderId: delivery.riderId,
       title: '✅ Corrida Aprovada!',
-      message: `Sua corrida no valor de R$ ${delivery.value.toFixed(2)} foi aprovada pelo estabelecimento ${establishment?.name}.`,
+      message: `Sua corrida no valor de R$ ${Number(delivery.value || 0).toFixed(2)} foi aprovada pelo estabelecimento ${establishment?.name}.`,
       date: new Date().toISOString(),
       read: false
     };
@@ -813,13 +717,12 @@ export default function EstablishmentDashboard() {
       } : d);
       db.setDeliveries(updated);
 
-      // Notify Rider
       const allNotif = db.getNotifications();
       const newNotif: Notification = {
         id: 'n_' + Date.now(),
         riderId: delivery.riderId,
         title: '❌ Corrida Rejeitada',
-        message: `Sua corrida no valor de R$ ${delivery.value.toFixed(2)} foi rejeitada pelo estabelecimento ${establishment?.name}. Motivo: ${reason || 'Não especificado'}.`,
+        message: `Sua corrida no valor de R$ ${Number(delivery.value || 0).toFixed(2)} foi rejeitada pelo estabelecimento ${establishment?.name}. Motivo: ${reason || 'Não especificado'}.`,
         date: new Date().toISOString(),
         read: false
       };
@@ -859,11 +762,10 @@ export default function EstablishmentDashboard() {
     });
   };
 
-  // Calculations
   const getRiderTotalEarnings = (riderId: string) => {
     return todayDeliveries
       .filter(d => d.riderId === riderId && d.status === 'active')
-      .reduce((sum, d) => sum + d.value, 0);
+      .reduce((sum, d) => sum + Number(d.value || 0), 0);
   };
 
   const getRiderDeliveryCount = (riderId: string) => {
@@ -872,12 +774,10 @@ export default function EstablishmentDashboard() {
 
   const totalEstEarningsToday = todayDeliveries
     .filter(d => d.status === 'active')
-    .reduce((sum, d) => sum + d.value, 0);
+    .reduce((sum, d) => sum + Number(d.value || 0), 0);
 
-  // Buscar TODAS as corridas pendentes do estabelecimento (usando a lista de IDs correspondentes ao nome)
   const allDeliveries = db.getDeliveries();
   
-  // Mapeamento de IDs correspondentes ao nome do estabelecimento para filtragem robusta
   const matchingEstIds = establishment 
     ? db.getEstablishments()
         .filter(e => e.name.toLowerCase().trim() === establishment.name.toLowerCase().trim())
@@ -890,7 +790,6 @@ export default function EstablishmentDashboard() {
   const pendingDeliveries = allDeliveries.filter(d => isDeliveryForCurrentEst(d, currentEstName, matchingEstIds, allEsts) && d.status === 'pending');
   const processedDeliveries = todayDeliveries.filter(d => d.status !== 'pending');
 
-  // Derivação de Estados dos Chats em Tempo Real
   const activeNotesDelivery = allDeliveries.find(d => d.id === notesDeliveryId) || null;
   const activeScheduleChat = todaySchedules.find(s => s.id === activeScheduleChatId) || null;
 
@@ -942,7 +841,7 @@ export default function EstablishmentDashboard() {
               </div>
               <div>
                 <p className="text-xs text-slate-500 font-medium uppercase">Total Hoje</p>
-                <p className="text-2xl font-bold text-slate-800">R$ {totalEstEarningsToday.toFixed(2)}</p>
+                <p className="text-2xl font-bold text-slate-800">R$ {Number(totalEstEarningsToday || 0).toFixed(2)}</p>
               </div>
             </div>
 
@@ -992,7 +891,7 @@ export default function EstablishmentDashboard() {
                         )}
                       </div>
                       <div className="flex items-center space-x-3 self-end sm:self-center flex-shrink-0">
-                        <span className="font-bold text-amber-700 text-lg">R$ {del.value.toFixed(2)}</span>
+                        <span className="font-bold text-amber-700 text-lg">R$ {Number(del.value || 0).toFixed(2)}</span>
                         <div className="flex items-center space-x-1">
                           <button
                             onClick={() => setNotesDeliveryId(del.id)}
@@ -1001,7 +900,6 @@ export default function EstablishmentDashboard() {
                           >
                             <MessageSquare className="h-4 w-4" />
                           </button>
-                          {/* Link de Rastreamento disponível para corridas pendentes */}
                           <button
                             onClick={() => handleCopyTrackingLink(del.id)}
                             className={`px-2 py-1 rounded text-xs font-bold flex items-center gap-1 transition-colors ${
@@ -1128,7 +1026,7 @@ export default function EstablishmentDashboard() {
                         </div>
                         <div className="bg-white p-2 rounded-lg border border-slate-100 text-center">
                           <p className="text-xs text-slate-400">Total</p>
-                          <p className="text-sm font-bold text-emerald-600">R$ {total.toFixed(2)}</p>
+                          <p className="text-sm font-bold text-emerald-600">R$ {Number(total || 0).toFixed(2)}</p>
                         </div>
                       </div>
                     </div>
@@ -1190,7 +1088,7 @@ export default function EstablishmentDashboard() {
                             <Clock className="h-3.5 w-3.5" />
                             <span>{del.time}</span>
                           </td>
-                          <td className="py-3 px-4 font-bold text-emerald-600">R$ {del.value.toFixed(2)}</td>
+                          <td className="py-3 px-4 font-bold text-emerald-600">R$ {Number(del.value || 0).toFixed(2)}</td>
                           <td className="py-3 px-4">
                             <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${
                               del.status === 'active' 
@@ -1213,7 +1111,6 @@ export default function EstablishmentDashboard() {
                               >
                                 <MessageSquare className="h-4 w-4" />
                               </button>
-                              {/* Link de Rastreamento disponível para corridas ativas e pendentes */}
                               {(del.status === 'active' || del.status === 'pending') && (
                                 <button
                                   onClick={() => handleCopyTrackingLink(del.id)}
