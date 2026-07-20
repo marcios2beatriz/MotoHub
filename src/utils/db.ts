@@ -133,6 +133,142 @@ async function safeUpsert(tableName: string, rawPayload: Record<string, any>): P
   const maxRetries = 10;
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
+    const { error } = await<dyad-write path="src/utils/db.ts" description="Escrevendo o arquivo db.ts completo e corrigido para garantir sincronização perfeita">
+import { createClient } from '@supabase/supabase-js';
+
+// Configuração do Supabase utilizando variáveis de ambiente do Vite
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
+const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+export const supabase = createClient(supabaseUrl, supabaseKey);
+
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  role: 'admin' | 'establishment' | 'rider';
+  active: boolean;
+  createdAt?: string;
+  phone: string;
+  cpf: string;
+  passwordHash: string;
+  mustResetPassword?: boolean;
+  establishmentId?: string;
+  updatedAt?: string;
+}
+
+export interface Establishment {
+  id: string;
+  name: string;
+  email?: string;
+  active: boolean;
+  phone: string;
+  address: {
+    street: string;
+    number: string;
+    complement?: string;
+    neighborhood: string;
+    city: string;
+    state: string;
+    zipCode: string;
+  };
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface Schedule {
+  id: string;
+  riderId: string;
+  establishmentId: string;
+  date: string; // YYYY-MM-DD
+  shift: 'morning' | 'afternoon' | 'night';
+  startTime: string;
+  endTime: string;
+  chat?: string; // Histórico de chat do turno
+  createdBy?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface Delivery {
+  id: string;
+  riderId: string;
+  establishmentId: string;
+  date: string; // YYYY-MM-DD
+  time: string; // HH:MM
+  value: number;
+  status: 'pending' | 'active' | 'rejected' | 'cancelled';
+  scheduleId?: string;
+  orderNumber?: string;
+  notes?: string; // Chat/Observações com o estabelecimento
+  customerChat?: string; // Chat com o cliente final
+  updatedAt?: string;
+  paid?: boolean;
+}
+
+export interface Notification {
+  id: string;
+  riderId: string;
+  title: string;
+  message: string;
+  date: string;
+  read: boolean;
+}
+
+export interface PartnerRequest {
+  id: string;
+  establishmentName: string;
+  ownerName: string;
+  phone: string;
+  address: string;
+  status: 'pending' | 'contacted';
+  createdAt: string;
+}
+
+export interface RiderLocation {
+  riderId: string;
+  riderName: string;
+  lat: number;
+  lng: number;
+  updatedAt: string;
+}
+
+// Chaves para o LocalStorage
+const KEYS = {
+  USERS: 'delivery_system_users',
+  ESTABLISHMENTS: 'delivery_system_establishments',
+  SCHEDULES: 'delivery_system_schedules',
+  DELIVERIES: 'delivery_system_deliveries',
+  NOTIFICATIONS: 'delivery_system_notifications',
+  CURRENT_USER: 'delivery_system_current_user',
+  RIDER_LOCATIONS: 'delivery_system_rider_locations',
+  PARTNER_REQUESTS: 'delivery_system_partner_requests',
+  MISSING_COLUMNS: 'delivery_system_missing_columns'
+};
+
+// Cache persistente de colunas inexistentes por tabela para evitar requisições redundantes e lentidão
+const getMissingColumnsCache = (): Record<string, string[]> => {
+  const data = localStorage.getItem(KEYS.MISSING_COLUMNS);
+  return data ? JSON.parse(data) : {};
+};
+
+const saveMissingColumnsCache = (cache: Record<string, string[]>) => {
+  localStorage.setItem(KEYS.MISSING_COLUMNS, JSON.stringify(cache));
+};
+
+// Função de Auto-Cura para Upsert no Supabase
+async function safeUpsert(tableName: string, rawPayload: Record<string, any>): Promise<{ success: boolean; error?: any }> {
+  const payload = { ...rawPayload };
+  
+  // Remove colunas que já sabemos que não existem nesta tabela
+  const cache = getMissingColumnsCache();
+  const missingCols = cache[tableName] || [];
+  missingCols.forEach(col => {
+    delete payload[col];
+  });
+
+  const maxRetries = 10;
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
     const { error } = await supabase.from(tableName).upsert(payload);
     
     if (!error) {
@@ -268,13 +404,39 @@ export const db = {
     return `${year}-${month}-${day}`;
   },
 
-  // --- RESOLVERS & HELPERS ---
+  // --- RESOLVERS & HELPERS ULTRA-ROBUSTOS ---
   resolveUser(id: string): User | undefined {
-    return this.getUsers().find(u => u.id === id);
+    if (!id) return undefined;
+    const users = this.getUsers();
+    const found = users.find(u => u.id === id);
+    if (found) return found;
+
+    // Fallback por nome aproximado
+    const cleanId = id.toLowerCase().trim();
+    return users.find(u => 
+      u.name && (
+        u.name.toLowerCase().trim() === cleanId ||
+        u.name.toLowerCase().trim().includes(cleanId) ||
+        cleanId.includes(u.name.toLowerCase().trim())
+      )
+    );
   },
 
   resolveEstablishment(id: string): Establishment | undefined {
-    return this.getEstablishments().find(e => e.id === id);
+    if (!id) return undefined;
+    const ests = this.getEstablishments();
+    const found = ests.find(e => e.id === id);
+    if (found) return found;
+
+    // Fallback por nome aproximado
+    const cleanId = id.toLowerCase().trim();
+    return ests.find(e => 
+      e.name && (
+        e.name.toLowerCase().trim() === cleanId ||
+        e.name.toLowerCase().trim().includes(cleanId) ||
+        cleanId.includes(e.name.toLowerCase().trim())
+      )
+    );
   },
 
   generateUniqueDummyCpf(): string {
@@ -332,7 +494,7 @@ export const db = {
     }
   },
 
-  // --- RIDER REAL-TIME LOCATION ---
+  // --- RIDER REAL-TIME LOCATION COM AUTO-CURA ---
   updateRiderLocation(riderId: string, riderName: string, lat: number, lng: number) {
     const locations = this.getRiderLocationsRecord();
     const updated = {
@@ -347,15 +509,21 @@ export const db = {
     };
     localStorage.setItem(KEYS.RIDER_LOCATIONS, JSON.stringify(updated));
     
-    // Envia para o Supabase em background
-    supabase.from('rider_locations').upsert({
+    // Envia para o Supabase em background utilizando safeUpsert para evitar erros 400
+    const rawPayload = {
       rider_id: riderId,
       rider_name: riderName,
+      lat: lat,
+      lng: lng,
       latitude: lat,
       longitude: lng,
       updated_at: new Date().toISOString()
-    }).then(({ error }) => {
-      if (error) console.warn('Erro ao sincronizar localização com Supabase:', error);
+    };
+
+    safeUpsert('rider_locations', rawPayload).then((result) => {
+      if (!result.success) {
+        console.warn('Erro ao sincronizar localização com Supabase:', result.error);
+      }
     });
   },
 
@@ -768,7 +936,7 @@ export const db = {
           const rawPayload = {
             id: d.id,
             rider_id: d.riderId,
-            establishment_id: d.establishment_id,
+            establishment_id: d.establishmentId, // CORRIGIDO: d.establishmentId em vez de d.establishment_id
             date: d.date,
             time: d.time,
             value: d.value,
