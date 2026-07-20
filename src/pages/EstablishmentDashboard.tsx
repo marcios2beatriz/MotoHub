@@ -98,11 +98,13 @@ export default function EstablishmentDashboard() {
 
   // Helper robusto para verificar se uma escala pertence ao estabelecimento atual por nome ou ID
   const isScheduleForCurrentEst = (s: Schedule, currentEstName: string, matchingEstIds: string[], allEsts: Establishment[]) => {
+    if (!currentEstName) return false;
     if (matchingEstIds.includes(s.establishmentId)) return true;
     const destEst = db.resolveEstablishment(s.establishmentId);
     if (destEst) {
       const destName = destEst.name.toLowerCase().trim();
       return destName === currentEstName || 
+             destName === currentEstName || 
              destName.includes(currentEstName) || 
              currentEstName.includes(destName) ||
              destName.replace(/\s+/g, '') === currentEstName.replace(/\s+/g, '');
@@ -112,6 +114,8 @@ export default function EstablishmentDashboard() {
 
   // Helper ultra-robusto para verificar se uma corrida pertence ao estabelecimento atual por nome ou ID
   const isDeliveryForCurrentEst = (d: Delivery, currentEstName: string, matchingEstIds: string[], allEsts: Establishment[]) => {
+    if (!currentEstName) return false;
+    
     // 1. Se o ID do estabelecimento da corrida bate diretamente com os IDs do estabelecimento atual
     if (matchingEstIds.includes(d.establishmentId)) return true;
     
@@ -837,13 +841,13 @@ export default function EstablishmentDashboard() {
 
           {/* Pending Deliveries Approval Section */}
           {pendingDeliveries.length > 0 && (
-            <div className="bg-amber-50/50 p-6 rounded-xl shadow-sm border border-amber-200 space-y-4">
-              <h2 className="text-lg font-bold text-amber-800 flex items-center space-x-2">
-                <Clock className="h-5 w-5 text-amber-600 animate-pulse" />
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
+              <h2 className="text-lg font-bold text-slate-800 flex items-center space-x-2">
+                <Clock className="h-5 w-5 text-indigo-600 animate-pulse" />
                 <span>Corridas Pendentes de Aprovação ({pendingDeliveries.length})</span>
               </h2>
 
-              <div className="divide-y divide-amber-100">
+              <div className="divide-y divide-slate-100">
                 {pendingDeliveries.map(del => {
                   const rider = db.resolveUser(del.riderId);
                   return (
@@ -852,7 +856,7 @@ export default function EstablishmentDashboard() {
                         <div className="flex items-center space-x-2 flex-wrap gap-y-1">
                           <p className="font-bold text-slate-800">{rider?.name || 'Motoboy'}</p>
                           {del.orderNumber && (
-                            <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-2.5 py-0.5 rounded">
+                            <span className="bg-slate-100 text-slate-500 text-[10px] font-bold px-2.5 py-0.5 rounded">
                               #{del.orderNumber}
                             </span>
                           )}
@@ -862,13 +866,13 @@ export default function EstablishmentDashboard() {
                           <span>Lançada às {del.time} ({new Date(del.date + 'T00:00:00').toLocaleDateString('pt-BR')})</span>
                         </p>
                         {del.notes && (
-                          <p className="text-xs text-slate-600 bg-white border border-amber-100 rounded px-2 py-1 mt-1.5 italic truncate max-w-[300px]">
+                          <p className="text-xs text-slate-600 bg-white border border-slate-100 rounded px-2 py-1 mt-1.5 italic truncate max-w-[300px]">
                             Obs: {del.notes.split('\n').pop()?.replace(/\[.*?\]: /, '') || del.notes}
                           </p>
                         )}
                       </div>
                       <div className="flex items-center space-x-3 self-end sm:self-center flex-shrink-0">
-                        <span className="font-bold text-amber-700 text-lg">R$ {Number(del.value || 0).toFixed(2)}</span>
+                        <span className="font-bold text-slate-700 text-lg">R$ {Number(del.value || 0).toFixed(2)}</span>
                         <div className="flex items-center space-x-1">
                           <button
                             onClick={() => setNotesDeliveryId(del.id)}
