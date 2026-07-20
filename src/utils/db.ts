@@ -105,22 +105,30 @@ const KEYS = {
   NOTIFICATIONS: 'delivery_system_notifications',
   CURRENT_USER: 'delivery_system_current_user',
   RIDER_LOCATIONS: 'delivery_system_rider_locations',
-  PARTNER_REQUESTS: 'delivery_system_partner_requests'
+  PARTNER_REQUESTS: 'delivery_system_partner_requests',
+  MISSING_COLUMNS: 'delivery_system_missing_columns'
 };
 
-// Cache global de colunas inexistentes por tabela para evitar requisições redundantes e lentidão
-const missingColumnsCache: Record<string, Set<string>> = {};
+// Cache persistente de colunas inexistentes por tabela para evitar requisições redundantes e lentidão
+const getMissingColumnsCache = (): Record<string, string[]> => {
+  const data = localStorage.getItem(KEYS.MISSING_COLUMNS);
+  return data ? JSON.parse(data) : {};
+};
+
+const saveMissingColumnsCache = (cache: Record<string, string[]>) => {
+  localStorage.setItem(KEYS.MISSING_COLUMNS, JSON.stringify(cache));
+};
 
 // Função de Auto-Cura para Upsert no Supabase
 async function safeUpsert(tableName: string, rawPayload: Record<string, any>): Promise<{ success: boolean; error?: any }> {
   const payload = { ...rawPayload };
   
   // Remove colunas que já sabemos que não existem nesta tabela
-  if (missingColumnsCache[tableName]) {
-    missingColumnsCache[tableName].forEach(col => {
-      delete payload[col];
-    });
-  }
+  const cache = getMissingColumnsCache();
+  const missingCols = cache[tableName] || [];
+  missingCols.forEach(col => {
+    delete payload[col];
+  });
 
   const maxRetries = 10;
 
@@ -141,11 +149,15 @@ async function safeUpsert(tableName: string, rawPayload: Record<string, any>): P
       const missingCol = match[1];
       console.warn(`[Auto-Cura] Removendo coluna inexistente '${missingCol}' da tabela '${tableName}' e tentando novamente.`);
       
-      // Adiciona ao cache para evitar tentar enviar esta coluna no futuro
-      if (!missingColumnsCache[tableName]) {
-        missingColumnsCache[tableName] = new Set();
+      // Adiciona ao cache persistente para evitar tentar enviar esta coluna no futuro
+      const currentCache = getMissingColumnsCache();
+      if (!currentCache[tableName]) {
+        currentCache[tableName] = [];
       }
-      missingColumnsCache[tableName].add(missingCol);
+      if (!currentCache[tableName].includes(missingCol)) {
+        currentCache[tableName].push(missingCol);
+        saveMissingColumnsCache(currentCache);
+      }
 
       delete payload[missingCol];
       continue; // Tenta novamente com o payload podado
@@ -256,13 +268,39 @@ export const db = {
     return `${year}-${month}-${day}`;
   },
 
-  // --- RESOLVERS & HELPERS ---
+  // --- RESOLVERS & HELPERS ULTRA-ROBUSTOS ---
   resolveUser(id: string): User | undefined {
-    return this.getUsers().find(u => u.id === id);
+    if (!id) return undefined;
+    const users = this.getUsers();
+    const found = users.find(u => u.id === id);
+    if (found) return found;
+
+    // Fallback por nome aproximado
+    const cleanId = id.toLowerCase().trim();
+    return users.find(u => 
+      u.name && (
+        u.name.toLowerCase().trim() === cleanId ||
+        u.name.toLowerCase().trim().includes(cleanId) ||
+        cleanId.includes(u.name.toLowerCase().trim())
+      )
+    );
   },
 
   resolveEstablishment(id: string): Establishment | undefined {
-    return this.getEstablishments().find(e => e.id === id);
+    if (!id) return undefined;
+    const ests = this.getEstablishments();
+    const found = ests.find(e => e.id === id);
+    if (found) return found;
+
+    // Fallback por nome aproximado
+    const cleanId = id.toLowerCase().trim();
+    return ests.find(e => 
+      e.name && (
+        e.name.toLowerCase().trim() === cleanId ||
+        e.name.toLowerCase().trim().includes(cleanId) ||
+        cleanId.includes(e.name.toLowerCase().trim())
+      )
+    );
   },
 
   generateUniqueDummyCpf(): string {
@@ -320,7 +358,7 @@ export const db = {
     }
   },
 
-  // --- RIDER REAL-TIME LOCATION ---
+  // --- RIDER REAL-TIME LOCATION COM AUTO-CURA ---
   updateRiderLocation(riderId: string, riderName: string, lat: number, lng: number) {
     const locations = this.getRiderLocationsRecord();
     const updated = {
@@ -335,15 +373,21 @@ export const db = {
     };
     localStorage.setItem(KEYS.RIDER_LOCATIONS, JSON.stringify(updated));
     
-    // Envia para o Supabase em background
-    supabase.from('rider_locations').upsert({
+    // Envia para o Supabase em background utilizando safeUpsert para evitar erros 400
+    const rawPayload = {
       rider_id: riderId,
       rider_name: riderName,
+      lat: lat,
+      lng: lng,
       latitude: lat,
       longitude: lng,
       updated_at: new Date().toISOString()
-    }).then(({ error }) => {
-      if (error) console.warn('Erro ao sincronizar localização com Supabase:', error);
+    };
+
+    safeUpsert('rider_locations', rawPayload).then((result) => {
+      if (!result.success) {
+        console.warn('Erro ao sincronizar localização com Supabase:', result.error);
+      }
     });
   },
 
@@ -756,7 +800,7 @@ export const db = {
           const rawPayload = {
             id: d.id,
             rider_id: d.riderId,
-            establishment_id: d.establishment_id,
+            establishment_id: d.establishmentId,
             date: d.date,
             time: d.time,
             value: d.value,
