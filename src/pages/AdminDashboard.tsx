@@ -113,11 +113,48 @@ export default function AdminDashboard() {
   const [customEndDate, setCustomEndDate] = useState('');
 
   const loadData = () => {
-    setUsers(db.getUsers());
-    setEstablishments(db.getEstablishments());
-    setSchedules(db.getSchedules());
-    setDeliveries(db.getDeliveries());
-    setPartnerRequests(db.getPartnerRequests());
+    const currentUsers = db.getUsers();
+    const currentEsts = db.getEstablishments();
+    const currentSchedules = db.getSchedules();
+    const currentDeliveries = db.getDeliveries();
+    const rawRequests = db.getPartnerRequests();
+
+    // --- LÓGICA DE AUTO-RECUPERAÇÃO (FALLBACK) ---
+    // Se a tabela partner_requests estiver vazia ou inacessível, nós geramos solicitações virtuais
+    // a partir de estabelecimentos inativos para garantir que o Admin consiga aprová-los!
+    const inactiveEsts = currentEsts.filter(e => !e.active);
+    const virtualRequests: PartnerRequest[] = inactiveEsts.map(e => {
+      const manager = currentUsers.find(u => u.establishmentId === e.id);
+      const street = e.address?.street || 'Endereço não informado';
+      const num = e.address?.number || 'S/N';
+      const neighborhood = e.address?.neighborhood || '';
+      const city = e.address?.city || '';
+      
+      return {
+        id: 'req_virtual_' + e.id,
+        establishmentName: e.name,
+        ownerName: manager ? manager.name.replace('Gerente ', '') : 'Proprietário',
+        phone: e.phone || manager?.phone || 'Sem telefone',
+        address: `${street}, ${num} - ${neighborhood} ${city}`.trim(),
+        status: 'pending' as const,
+        createdAt: e.createdAt || new Date().toISOString()
+      };
+    });
+
+    // Mescla as solicitações reais com as virtuais (evitando duplicados por nome)
+    const mergedRequests = [...rawRequests];
+    virtualRequests.forEach(vr => {
+      const exists = mergedRequests.some(r => r.establishmentName.toLowerCase().trim() === vr.establishmentName.toLowerCase().trim());
+      if (!exists) {
+        mergedRequests.push(vr);
+      }
+    });
+
+    setUsers(currentUsers);
+    setEstablishments(currentEsts);
+    setSchedules(currentSchedules);
+    setDeliveries(currentDeliveries);
+    setPartnerRequests(mergedRequests);
   };
 
   useEffect(() => {
@@ -574,9 +611,18 @@ export default function AdminDashboard() {
   };
 
   const handleDeleteRequest = async (id: string) => {
-    if (confirm('Deseja realmente excluir esta solicitação?')) {
-      await db.deletePartnerRequest(id);
-      loadData();
+    if (id.startsWith('req_virtual_')) {
+      // Se for uma solicitação virtual, exclui o estabelecimento inativo correspondente
+      const estId = id.replace('req_virtual_', '');
+      if (confirm('Deseja realmente excluir este estabelecimento pendente definitivamente?')) {
+        await db.deleteEstablishment(estId);
+        loadData();
+      }
+    } else {
+      if (confirm('Deseja realmente excluir esta solicitação?')) {
+        await db.deletePartnerRequest(id);
+        loadData();
+      }
     }
   };
 
@@ -589,16 +635,23 @@ export default function AdminDashboard() {
 
   const handleApproveRequest = (req: PartnerRequest) => {
     const allEsts = db.getEstablishments();
-    const est = allEsts.find(e => e.name.toLowerCase() === req.establishmentName.toLowerCase());
+    const est = allEsts.find(e => e.name.toLowerCase().trim() === req.establishmentName.toLowerCase().trim());
     if (est) {
       const updatedEsts = allEsts.map(e => e.id === est.id ? { ...e, active: true, updatedAt: new Date().toISOString() } : e);
       db.setEstablishments(updatedEsts);
       const updatedUsers = db.getUsers().map(u => u.establishmentId === est.id ? { ...u, active: true, updatedAt: new Date().toISOString() } : u);
       db.setUsers(updatedUsers);
-      const updatedRequests = partnerRequests.map(r => r.id === req.id ? { ...r, status: 'contacted' as const } : r);
-      db.setPartnerRequests(updatedRequests);
+      
+      // Se for uma solicitação real, atualiza o status dela
+      if (!req.id.startsWith('req_virtual_')) {
+        const updatedRequests = partnerRequests.map(r => r.id === req.id ? { ...r, status: 'contacted' as const } : r);
+        db.setPartnerRequests(updatedRequests);
+      }
+      
       loadData();
       alert('Solicitação aprovada com sucesso!');
+    } else {
+      alert('Erro: Estabelecimento correspondente não encontrado.');
     }
   };
 
