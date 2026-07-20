@@ -108,6 +108,37 @@ const KEYS = {
   PARTNER_REQUESTS: 'delivery_system_partner_requests'
 };
 
+// Função de Auto-Cura para Upsert no Supabase
+async function safeUpsert(tableName: string, rawPayload: Record<string, any>): Promise<{ success: boolean; error?: any }> {
+  const payload = { ...rawPayload };
+  const maxRetries = 10;
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    const { error } = await supabase.from(tableName).upsert(payload);
+    
+    if (!error) {
+      return { success: true };
+    }
+
+    const msg = error.message || '';
+    // Detecta se o erro é de coluna inexistente no banco de dados
+    // Exemplo: "Could not find the 'created_at' column of 'users' in the schema cache"
+    const match = msg.match(/Could not find the '([^']+)' column/);
+    
+    if (match && match[1]) {
+      const missingCol = match[1];
+      console.warn(`[Auto-Cura] Removendo coluna inexistente '${missingCol}' da tabela '${tableName}' e tentando novamente.`);
+      delete payload[missingCol];
+      continue; // Tenta novamente com o payload podado
+    }
+
+    // Se for outro tipo de erro (como violação de NOT NULL), retorna o erro para log
+    return { success: false, error };
+  }
+
+  return { success: false, error: 'Limite de tentativas de auto-cura excedido' };
+}
+
 // Helper para mesclar strings de chat sem duplicar mensagens
 function mergeChatStrings(localChat: string | undefined, remoteChat: string | undefined): string {
   if (!localChat) return remoteChat || '';
@@ -564,8 +595,7 @@ export const db = {
   async syncUsersToSupabase(users: User[]) {
     for (const u of users) {
       try {
-        // Tentativa 1: Payload completo com todas as colunas customizadas
-        const { error } = await supabase.from('users').upsert({
+        const rawPayload = {
           id: u.id,
           name: u.name,
           email: u.email,
@@ -578,36 +608,11 @@ export const db = {
           establishment_id: u.establishmentId || null,
           created_at: u.createdAt || new Date().toISOString(),
           updated_at: new Date().toISOString()
-        });
-        if (!error) continue;
+        };
 
-        console.warn(`Primeira tentativa de sincronizar usuário ${u.id} falhou:`, error.message);
-
-        // Tentativa 2: Omitir colunas que podem não existir no schema remoto (como must_reset_password, password_hash, created_at, updated_at)
-        const { error: error2 } = await supabase.from('users').upsert({
-          id: u.id,
-          name: u.name,
-          email: u.email,
-          role: u.role,
-          active: u.active,
-          phone: u.phone,
-          cpf: u.cpf,
-          establishment_id: u.establishmentId || null
-        });
-        if (!error2) continue;
-
-        console.warn(`Segunda tentativa de sincronizar usuário ${u.id} falhou:`, error2.message);
-
-        // Tentativa 3: Apenas colunas essenciais garantidas
-        const { error: error3 } = await supabase.from('users').upsert({
-          id: u.id,
-          name: u.name,
-          email: u.email,
-          role: u.role,
-          active: u.active
-        });
-        if (error3) {
-          console.error(`Todas as tentativas de sincronizar o usuário ${u.id} falharam:`, error3);
+        const result = await safeUpsert('users', rawPayload);
+        if (!result.success) {
+          console.error(`[Sync] Falha ao sincronizar usuário ${u.id}:`, result.error);
         }
       } catch (e) {
         console.error(`Exceção ao sincronizar usuário ${u.id}:`, e);
@@ -618,54 +623,20 @@ export const db = {
   async syncEstablishmentsToSupabase(ests: Establishment[]) {
     for (const e of ests) {
       try {
-        // Tentativa 1: Enviar endereço como objeto JSON (ideal para colunas jsonb) e incluir email e datas
-        const { error } = await supabase.from('establishments').upsert({
+        const rawPayload = {
           id: e.id,
           name: e.name,
-          email: e.email || undefined,
+          email: e.email || null,
           active: e.active,
           phone: e.phone || '',
-          address: e.address, // Objeto direto
+          address: typeof e.address === 'object' ? JSON.stringify(e.address) : e.address,
           created_at: e.createdAt || new Date().toISOString(),
           updated_at: new Date().toISOString()
-        });
-        if (!error) continue;
+        };
 
-        console.warn(`Primeira tentativa de sincronizar estabelecimento ${e.id} falhou:`, error.message);
-
-        // Tentativa 2: Enviar endereço stringificado (para colunas text) e incluir email e datas
-        const { error: error2 } = await supabase.from('establishments').upsert({
-          id: e.id,
-          name: e.name,
-          email: e.email || undefined,
-          active: e.active,
-          phone: e.phone || '',
-          address: JSON.stringify(e.address), // Stringificado
-          created_at: e.createdAt || new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        });
-        if (!error2) continue;
-
-        console.warn(`Segunda tentativa de sincronizar estabelecimento ${e.id} falhou:`, error2.message);
-
-        // Tentativa 3: Omitir endereço e datas (apenas id, name, active, phone, email)
-        const { error: error3 } = await supabase.from('establishments').upsert({
-          id: e.id,
-          name: e.name,
-          email: e.email || undefined,
-          active: e.active,
-          phone: e.phone || ''
-        });
-        if (!error3) continue;
-
-        // Tentativa 4: Apenas id, name, active
-        const { error: error4 } = await supabase.from('establishments').upsert({
-          id: e.id,
-          name: e.name,
-          active: e.active
-        });
-        if (error4) {
-          console.error(`Todas as tentativas de sincronizar o estabelecimento ${e.id} falharam:`, error4);
+        const result = await safeUpsert('establishments', rawPayload);
+        if (!result.success) {
+          console.error(`[Sync] Falha ao sincronizar estabelecimento ${e.id}:`, result.error);
         }
       } catch (err) {
         console.error(`Exceção ao sincronizar estabelecimento ${e.id}:`, err);
@@ -676,7 +647,7 @@ export const db = {
   async syncPartnerRequestsToSupabase(requests: PartnerRequest[]) {
     try {
       for (const r of requests) {
-        await supabase.from('partner_requests').upsert({
+        const rawPayload = {
           id: r.id,
           establishment_name: r.establishmentName,
           owner_name: r.ownerName,
@@ -684,7 +655,12 @@ export const db = {
           address: r.address,
           status: r.status,
           created_at: r.createdAt
-        });
+        };
+
+        const result = await safeUpsert('partner_requests', rawPayload);
+        if (!result.success) {
+          console.warn(`[Sync] Tabela partner_requests pode não existir ou falhou:`, result.error);
+        }
       }
     } catch (e) {
       console.error('Erro ao sincronizar solicitações de parceria com Supabase:', e);
@@ -697,7 +673,7 @@ export const db = {
       const schedules = this.getSchedules();
       for (const s of schedules) {
         try {
-          const { error } = await supabase.from('schedules').upsert({
+          const rawPayload = {
             id: s.id,
             rider_id: s.riderId,
             establishment_id: s.establishmentId,
@@ -709,21 +685,11 @@ export const db = {
             created_by: s.createdBy || null,
             created_at: s.createdAt || new Date().toISOString(),
             updated_at: s.updatedAt || new Date().toISOString()
-          });
-          if (error) {
-            // Tentativa 2: Omitir datas e chat
-            const { error: error2 } = await supabase.from('schedules').upsert({
-              id: s.id,
-              rider_id: s.riderId,
-              establishment_id: s.establishmentId,
-              date: s.date,
-              shift: s.shift,
-              start_time: s.startTime,
-              end_time: s.endTime
-            });
-            if (error2) {
-              console.warn(`Falha ao sincronizar escala ${s.id}:`, error2.message);
-            }
+          };
+
+          const result = await safeUpsert('schedules', rawPayload);
+          if (!result.success) {
+            console.warn(`[Sync] Falha ao sincronizar escala ${s.id}:`, result.error);
           }
         } catch (e) {
           console.error(`Erro ao sincronizar escala ${s.id}:`, e);
@@ -742,7 +708,7 @@ export const db = {
             updatedAt: d.updatedAt || new Date().toISOString()
           });
 
-          const { error } = await supabase.from('deliveries').upsert({
+          const rawPayload = {
             id: d.id,
             rider_id: d.riderId,
             establishment_id: d.establishment_id,
@@ -756,21 +722,11 @@ export const db = {
             customer_chat: d.customerChat || null,
             updated_at: d.updatedAt || new Date().toISOString(),
             paid: d.paid || false
-          });
-          if (error) {
-            // Tentativa 2: Omitir datas, notes, customer_chat, paid
-            const { error: error2 } = await supabase.from('deliveries').upsert({
-              id: d.id,
-              rider_id: d.riderId,
-              establishment_id: d.establishment_id,
-              date: d.date,
-              time: d.time,
-              value: d.value,
-              status: d.status
-            });
-            if (error2) {
-              console.warn(`Falha ao sincronizar corrida ${d.id}:`, error2.message);
-            }
+          };
+
+          const result = await safeUpsert('deliveries', rawPayload);
+          if (!result.success) {
+            console.warn(`[Sync] Falha ao sincronizar corrida ${d.id}:`, result.error);
           }
         } catch (e) {
           console.error(`Erro ao sincronizar corrida ${d.id}:`, e);
