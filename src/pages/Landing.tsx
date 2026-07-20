@@ -34,18 +34,45 @@ export default function Landing() {
     password: ''
   });
 
-  // Form de Estabelecimento
+  // Form de Estabelecimento Desmembrado
   const [estForm, setEstForm] = useState({
     establishmentName: '',
     ownerName: '',
     phone: '',
-    address: '',
+    street: '',
+    number: '',
+    neighborhood: '',
+    city: '',
+    state: '',
+    zipCode: '',
     email: '',
     password: ''
   });
 
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
+
+  // Função para buscar CEP automaticamente e preencher os campos
+  const handleCepBlur = async (e: React.FocusEvent<HTMLInputElement>) => {
+    const cep = e.target.value.replace(/\D/g, '');
+    if (cep.length === 8) {
+      try {
+        const res = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+        const data = await res.json();
+        if (data && !data.erro) {
+          setEstForm(prev => ({
+            ...prev,
+            street: data.logradouro || '',
+            neighborhood: data.bairro || '',
+            city: data.localidade || '',
+            state: data.uf || ''
+          }));
+        }
+      } catch (err) {
+        console.warn('Erro ao buscar CEP:', err);
+      }
+    }
+  };
 
   const handleRegister = (e: React.FormEvent) => {
     e.preventDefault();
@@ -102,23 +129,24 @@ export default function Landing() {
 
     const estId = 'e_' + Date.now();
 
-    // Criar o estabelecimento (inativo até aprovação do admin)
+    // Criar o estabelecimento com endereço estruturado
     const newEst: Establishment = {
       id: estId,
       name: estForm.establishmentName,
+      email: estForm.email,
       address: {
-        street: estForm.address,
-        number: 'S/N',
-        neighborhood: '',
-        city: '',
-        state: '',
-        zipCode: ''
+        street: estForm.street,
+        number: estForm.number,
+        neighborhood: estForm.neighborhood,
+        city: estForm.city,
+        state: estForm.state,
+        zipCode: estForm.zipCode
       },
       phone: estForm.phone,
       active: false // Inativo até aprovação
     };
 
-    // Criar o usuário gerente vinculado (inativo até aprovação)
+    // Criar o usuário gerente vinculado
     const newEstUser: User = {
       id: 'u_' + Date.now(),
       name: estForm.ownerName,
@@ -126,18 +154,19 @@ export default function Landing() {
       phone: estForm.phone,
       email: estForm.email,
       role: 'establishment',
-      active: false, // Inativo até aprovação
+      active: false,
       passwordHash: estForm.password,
       establishmentId: estId
     };
 
-    // Criar a solicitação de parceria para controle do admin
+    // Criar a solicitação de parceria formatada
+    const formattedAddress = `${estForm.street}, ${estForm.number} - ${estForm.neighborhood}, ${estForm.city}/${estForm.state}`;
     const newRequest: PartnerRequest = {
       id: 'req_' + Date.now(),
       establishmentName: estForm.establishmentName,
       ownerName: estForm.ownerName,
       phone: estForm.phone,
-      address: estForm.address,
+      address: formattedAddress,
       status: 'pending',
       createdAt: new Date().toISOString()
     };
@@ -151,7 +180,19 @@ export default function Landing() {
     db.setPartnerRequests([...allRequests, newRequest]);
 
     setSuccess(true);
-    setEstForm({ establishmentName: '', ownerName: '', phone: '', address: '', email: '', password: '' });
+    setEstForm({
+      establishmentName: '',
+      ownerName: '',
+      phone: '',
+      street: '',
+      number: '',
+      neighborhood: '',
+      city: '',
+      state: '',
+      zipCode: '',
+      email: '',
+      password: ''
+    });
 
     setTimeout(() => {
       setShowEstModal(false);
@@ -209,7 +250,7 @@ export default function Landing() {
               🚀 Gestão Inteligente de Delivery
             </span>
             <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold text-slate-900 tracking-tight leading-none">
-              Conectando <span className="text-indigo-600">Entregadores</span> and <span className="text-indigo-600">Estabelecimentos</span>
+              Conectando <span className="text-indigo-600">Entregadores</span> e <span className="text-indigo-600">Estabelecimentos</span>
             </h1>
             <p className="text-lg text-slate-600 max-w-2xl mx-auto lg:mx-0">
               O MotoHub é a plataforma definitiva para gerenciar escalas de motoqueiros, acompanhar faturamentos em tempo real e otimizar as entregas do seu negócio.
@@ -471,7 +512,7 @@ export default function Landing() {
         </div>
       )}
 
-      {/* MODAL DE CADASTRO DE ESTABELECIMENTO */}
+      {/* MODAL DE CADASTRO DE ESTABELECIMENTO COM ENDEREÇO DESMEMBRADO */}
       {showEstModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl max-h-[95vh] overflow-y-auto">
@@ -541,16 +582,86 @@ export default function Landing() {
                     className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
                   />
                 </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Endereço do Estabelecimento</label>
-                  <textarea
-                    required
-                    rows={2}
-                    placeholder="Rua, número, bairro, cidade..."
-                    value={estForm.address}
-                    onChange={(e) => setEstForm({ ...estForm, address: e.target.value })}
-                    className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all resize-none"
-                  />
+
+                {/* Endereço Desmembrado */}
+                <div className="border-t border-slate-100 pt-3 space-y-3">
+                  <p className="text-xs font-bold text-indigo-600 uppercase tracking-wider">Endereço do Estabelecimento</p>
+                  
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="col-span-2">
+                      <label className="block text-xs font-bold text-slate-500 uppercase mb-1">CEP (Auto-completar)</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Ex: 58429-900"
+                        value={estForm.zipCode}
+                        onChange={(e) => setEstForm({ ...estForm, zipCode: e.target.value })}
+                        onBlur={handleCepBlur}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Número</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Ex: 882"
+                        value={estForm.number}
+                        onChange={(e) => setEstForm({ ...estForm, number: e.target.value })}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Rua / Logradouro</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Ex: Rua Aprígio Veloso"
+                      value={estForm.street}
+                      onChange={(e) => setEstForm({ ...estForm, street: e.target.value })}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="col-span-2">
+                      <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Bairro</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Ex: Bodocongó"
+                        value={estForm.neighborhood}
+                        onChange={(e) => setEstForm({ ...estForm, neighborhood: e.target.value })}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Estado</label>
+                      <input
+                        type="text"
+                        required
+                        maxLength={2}
+                        placeholder="PB"
+                        value={estForm.state}
+                        onChange={(e) => setEstForm({ ...estForm, state: e.target.value })}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Cidade</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Ex: Campina Grande"
+                      value={estForm.city}
+                      onChange={(e) => setEstForm({ ...estForm, city: e.target.value })}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
+                    />
+                  </div>
                 </div>
 
                 {/* Credenciais de Acesso */}
