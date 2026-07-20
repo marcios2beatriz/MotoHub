@@ -99,6 +99,108 @@ export interface RiderLocation {
 // Chaves para o LocalStorage
 const KEYS = {
   USERS: 'delivery_system_users',
+  ESTABLISH<dyad-write path="src/utils/db.ts" description="Reescrevendo o arquivo db.ts por completo com suporte a colunas individuais de endereço para sincronização com o Supabase">
+import { createClient } from '@supabase/supabase-js';
+
+// Configuração do Supabase utilizando variáveis de ambiente do Vite
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
+const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+export const supabase = createClient(supabaseUrl, supabaseKey);
+
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  role: 'admin' | 'establishment' | 'rider';
+  active: boolean;
+  createdAt?: string;
+  phone: string;
+  cpf: string;
+  passwordHash: string;
+  mustResetPassword?: boolean;
+  establishmentId?: string;
+  updatedAt?: string;
+}
+
+export interface Establishment {
+  id: string;
+  name: string;
+  email?: string;
+  active: boolean;
+  phone: string;
+  address: {
+    street: string;
+    number: string;
+    complement?: string;
+    neighborhood: string;
+    city: string;
+    state: string;
+    zipCode: string;
+  };
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface Schedule {
+  id: string;
+  riderId: string;
+  establishmentId: string;
+  date: string; // YYYY-MM-DD
+  shift: 'morning' | 'afternoon' | 'night';
+  startTime: string;
+  endTime: string;
+  chat?: string; // Histórico de chat do turno
+  createdBy?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface Delivery {
+  id: string;
+  riderId: string;
+  establishmentId: string;
+  date: string; // YYYY-MM-DD
+  time: string; // HH:MM
+  value: number;
+  status: 'pending' | 'active' | 'rejected' | 'cancelled';
+  scheduleId?: string;
+  orderNumber?: string;
+  notes?: string; // Chat/Observações com o estabelecimento
+  customerChat?: string; // Chat com o cliente final
+  updatedAt?: string;
+  paid?: boolean;
+}
+
+export interface Notification {
+  id: string;
+  riderId: string;
+  title: string;
+  message: string;
+  date: string;
+  read: boolean;
+}
+
+export interface PartnerRequest {
+  id: string;
+  establishmentName: string;
+  ownerName: string;
+  phone: string;
+  address: string;
+  status: 'pending' | 'contacted';
+  createdAt: string;
+}
+
+export interface RiderLocation {
+  riderId: string;
+  riderName: string;
+  lat: number;
+  lng: number;
+  updatedAt: string;
+}
+
+// Chaves para o LocalStorage
+const KEYS = {
+  USERS: 'delivery_system_users',
   ESTABLISHMENTS: 'delivery_system_establishments',
   SCHEDULES: 'delivery_system_schedules',
   DELIVERIES: 'delivery_system_deliveries',
@@ -133,10 +235,6 @@ async function safeUpsert(tableName: string, rawPayload: Record<string, any>): P
 
     const msg = error.message || '';
     // Detecta se o erro é de coluna inexistente no banco de dados
-    // Exemplos:
-    // - "Could not find the 'created_at' column of 'users' in the schema cache"
-    // - "column \"updated_at\" of relation \"users\" does not exist"
-    // - "column \"notes\" does not exist"
     const match = msg.match(/Could not find the '([^']+)' column/) || 
                   msg.match(/column "([^"]+)"/) || 
                   msg.match(/column '([^']+)'/);
@@ -155,7 +253,7 @@ async function safeUpsert(tableName: string, rawPayload: Record<string, any>): P
       continue; // Tenta novamente com o payload podado
     }
 
-    // Se for outro tipo de erro (como violação de NOT NULL), retorna o erro para log
+    // Se for outro tipo de erro, retorna o erro para log
     return { success: false, error };
   }
 
@@ -445,14 +543,27 @@ export const db = {
         const localEsts = this.getEstablishments();
         const mappedEsts: Establishment[] = estsData.map(e => {
           let parsedAddress = { street: '', number: '', complement: '', neighborhood: '', city: '', state: '', zipCode: '' };
-          if (e.address) {
+          
+          // Se o banco de dados retornou colunas individuais de endereço
+          if (e.street || e.neighborhood || e.city) {
+            parsedAddress = {
+              street: e.street || '',
+              number: e.number || '',
+              complement: e.complement || '',
+              neighborhood: e.neighborhood || '',
+              city: e.city || '',
+              state: e.state || '',
+              zipCode: e.zip_code || e.zipCode || ''
+            };
+          } else if (e.address) {
+            // Se retornou como coluna JSON única
             if (typeof e.address === 'object') {
               parsedAddress = { ...parsedAddress, ...e.address };
             } else if (typeof e.address === 'string') {
               try {
                 let temp = JSON.parse(e.address);
                 if (typeof temp === 'string') {
-                  temp = JSON.parse(temp); // Desfaz dupla serialização se houver
+                  temp = JSON.parse(temp);
                 }
                 if (temp && typeof temp === 'object') {
                   parsedAddress = { ...parsedAddress, ...temp };
@@ -463,8 +574,7 @@ export const db = {
             }
           }
 
-          // --- REGRA DE PRESERVAÇÃO DE ENDEREÇO LOCAL ---
-          // Se o endereço retornado do Supabase estiver vazio/incompleto ou for um placeholder, mas tivermos um endereço local válido, preservamos o local.
+          // Preservação de endereço local se o remoto estiver vazio
           const local = localEsts.find(l => l.id === e.id);
           if (isAddressEmptyOrPlaceholder(parsedAddress) && local && local.address && !isAddressEmptyOrPlaceholder(local.address)) {
             parsedAddress = { ...local.address };
@@ -489,7 +599,7 @@ export const db = {
       console.warn('Erro ao sincronizar tabela "establishments" do Supabase:', err);
     }
 
-    // 3. Sincronizar Escalas (Schedules) com Preservação de Dados Locais
+    // 3. Sincronizar Escalas (Schedules)
     try {
       const { data: schData, error } = await supabase.from('schedules').select('*');
       if (error) throw error;
@@ -519,7 +629,7 @@ export const db = {
       console.warn('Erro ao sincronizar tabela "schedules" do Supabase:', err);
     }
 
-    // 4. Sincronizar Corridas (Deliveries) com Lógica de Mesclagem Robusta
+    // 4. Sincronizar Corridas (Deliveries)
     try {
       const { data: delData, error } = await supabase.from('deliveries').select('*');
       if (error) throw error;
@@ -529,7 +639,6 @@ export const db = {
         const mappedDeliveries: Delivery[] = delData.map(d => {
           const local = localDeliveries.find(l => l.id === d.id);
           
-          // Decodificação segura do order_number que pode conter metadados serializados
           let orderNumber = d.order_number || undefined;
           let notes = d.notes || undefined;
           let customerChat = d.customer_chat || undefined;
@@ -543,7 +652,6 @@ export const db = {
               customerChat = parsed.customerChat || undefined;
               updatedAt = parsed.updatedAt || d.updated_at;
             } catch (e) {
-              // Fallback se falhar
               if (d.order_number.includes('|')) {
                 const parts = d.order_number.split('|');
                 orderNumber = parts[0] || undefined;
@@ -553,7 +661,6 @@ export const db = {
             }
           }
 
-          // --- REGRA DE OURO DE MESCLAGEM (PREVENÇÃO DE RETORNO A PENDENTE) ---
           let finalStatus: 'pending' | 'active' | 'rejected' | 'cancelled' = d.status;
           
           if (local) {
@@ -561,11 +668,10 @@ export const db = {
             const isLocalResolved = ['active', 'rejected', 'cancelled'].includes(local.status);
 
             if (isRemoteResolved && local.status === 'pending') {
-              finalStatus = d.status; // Mantém o status resolvido do servidor
+              finalStatus = d.status;
             } else if (!isRemoteResolved && isLocalResolved) {
-              finalStatus = local.status; // Se o local resolveu primeiro, mantém o local
+              finalStatus = local.status;
             } else {
-              // Se ambos têm o mesmo nível de resolução, decide pela data de atualização mais recente
               const localTime = local.updatedAt ? new Date(local.updatedAt).getTime() : 0;
               const remoteTime = updatedAt ? new Date(updatedAt).getTime() : 0;
               finalStatus = localTime > remoteTime ? local.status : d.status;
@@ -589,7 +695,6 @@ export const db = {
           };
         });
 
-        // Adiciona corridas locais que ainda não foram enviadas para o servidor
         const remoteIds = new Set(mappedDeliveries.map(d => d.id));
         const unsyncedLocal = localDeliveries.filter(l => !remoteIds.has(l.id));
         
@@ -619,7 +724,7 @@ export const db = {
         localStorage.setItem(KEYS.PARTNER_REQUESTS, JSON.stringify([...mappedReqs, ...unsyncedLocal]));
       }
     } catch (err) {
-      console.warn('Erro ao sincronizar tabela "partner_requests" do Supabase (pode não existir ainda):', err);
+      console.warn('Erro ao sincronizar tabela "partner_requests" do Supabase:', err);
     }
 
     // Dispara evento global para atualizar as telas em tempo real
@@ -664,6 +769,14 @@ export const db = {
           active: e.active,
           phone: e.phone || '',
           address: typeof e.address === 'object' ? JSON.stringify(e.address) : e.address,
+          // Colunas individuais para compatibilidade com tabelas que não usam JSON
+          street: e.address?.street || '',
+          number: e.address?.number || '',
+          complement: e.address?.complement || '',
+          neighborhood: e.address?.neighborhood || '',
+          city: e.address?.city || '',
+          state: e.address?.state || '',
+          zip_code: e.address?.zipCode || '',
           created_at: e.createdAt || new Date().toISOString(),
           updated_at: new Date().toISOString()
         };
@@ -734,7 +847,6 @@ export const db = {
       const deliveries = this.getDeliveries();
       for (const d of deliveries) {
         try {
-          // Serializa metadados no order_number para garantir compatibilidade total de colunas
           const serializedOrderNumber = JSON.stringify({
             orderNumber: d.orderNumber || '',
             notes: d.notes || '',
