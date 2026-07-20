@@ -108,45 +108,35 @@ const KEYS = {
   PARTNER_REQUESTS: 'delivery_system_partner_requests'
 };
 
-// Cache de colunas detectadas para evitar requisições repetidas
-const detectedColumnsCache: Record<string, string[]> = {};
+// Função de Auto-Cura para Upsert no Supabase
+async function safeUpsert(tableName: string, rawPayload: Record<string, any>): Promise<{ success: boolean; error?: any }> {
+  const payload = { ...rawPayload };
+  const maxRetries = 10;
 
-// Função auxiliar para descobrir quais colunas realmente existem em uma tabela do Supabase
-async function getTableColumns(tableName: string): Promise<string[]> {
-  if (detectedColumnsCache[tableName]) {
-    return detectedColumnsCache[tableName];
-  }
-
-  try {
-    // Faz uma consulta vazia limitando a 1 registro para obter as chaves do objeto retornado
-    const { data, error } = await supabase.from(tableName).select('*').limit(1);
-    if (error) throw error;
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    const { error } = await supabase.from(tableName).upsert(payload);
     
-    if (data && data.length > 0) {
-      const cols = Object.keys(data[0]);
-      detectedColumnsCache[tableName] = cols;
-      return cols;
-    } else {
-      // Se a tabela estiver vazia, tenta inserir um registro temporário com ID inválido para forçar o retorno do schema ou usa fallback
-      detectedColumnsCache[tableName] = [];
-      return [];
+    if (!error) {
+      return { success: true };
     }
-  } catch (e) {
-    console.warn(`Não foi possível autodetectar colunas para a tabela ${tableName}:`, e);
-    return [];
-  }
-}
 
-// Filtra um objeto mantendo apenas as chaves que existem na lista de colunas válidas
-function filterPayload(payload: Record<string, any>, validColumns: string[]): Record<string, any> {
-  if (validColumns.length === 0) return payload; // Se não detectou, envia tudo como fallback
-  const filtered: Record<string, any> = {};
-  for (const key of Object.keys(payload)) {
-    if (validColumns.includes(key)) {
-      filtered[key] = payload[key];
+    const msg = error.message || '';
+    // Detecta se o erro é de coluna inexistente no banco de dados
+    // Exemplo: "Could not find the 'created_at' column of 'users' in the schema cache"
+    const match = msg.match(/Could not find the '([^']+)' column/);
+    
+    if (match && match[1]) {
+      const missingCol = match[1];
+      console.warn(`[Auto-Cura] Removendo coluna inexistente '${missingCol}' da tabela '${tableName}' e tentando novamente.`);
+      delete payload[missingCol];
+      continue; // Tenta novamente com o payload podado
     }
+
+    // Se for outro tipo de erro (como violação de NOT NULL), retorna o erro para log
+    return { success: false, error };
   }
-  return filtered;
+
+  return { success: false, error: 'Limite de tentativas de auto-cura excedido' };
 }
 
 // Helper para mesclar strings de chat sem duplicar mensagens
@@ -603,12 +593,9 @@ export const db = {
   },
 
   async syncUsersToSupabase(users: User[]) {
-    const validCols = await getTableColumns('users');
-    
     for (const u of users) {
       try {
-        // Mapeia o payload local para o formato do banco de dados
-        const rawPayload: Record<string, any> = {
+        const rawPayload = {
           id: u.id,
           name: u.name,
           email: u.email,
@@ -623,12 +610,9 @@ export const db = {
           updated_at: new Date().toISOString()
         };
 
-        // Filtra dinamicamente mantendo apenas as colunas que realmente existem no Supabase
-        const filteredPayload = filterPayload(rawPayload, validCols);
-
-        const { error } = await supabase.from('users').upsert(filteredPayload);
-        if (error) {
-          console.error(`Erro ao sincronizar usuário ${u.id} com payload filtrado:`, error.message);
+        const result = await safeUpsert('users', rawPayload);
+        if (!result.success) {
+          console.error(`[Sync] Falha ao sincronizar usuário ${u.id}:`, result.error);
         }
       } catch (e) {
         console.error(`Exceção ao sincronizar usuário ${u.id}:`, e);
@@ -637,12 +621,9 @@ export const db = {
   },
 
   async syncEstablishmentsToSupabase(ests: Establishment[]) {
-    const validCols = await getTableColumns('establishments');
-
     for (const e of ests) {
       try {
-        // Mapeia o payload local para o formato do banco de dados
-        const rawPayload: Record<string, any> = {
+        const rawPayload = {
           id: e.id,
           name: e.name,
           email: e.email || null,
@@ -653,12 +634,9 @@ export const db = {
           updated_at: new Date().toISOString()
         };
 
-        // Filtra dinamicamente mantendo apenas as colunas que realmente existem no Supabase
-        const filteredPayload = filterPayload(rawPayload, validCols);
-
-        const { error } = await supabase.from('establishments').upsert(filteredPayload);
-        if (error) {
-          console.error(`Erro ao sincronizar estabelecimento ${e.id} com payload filtrado:`, error.message);
+        const result = await safeUpsert('establishments', rawPayload);
+        if (!result.success) {
+          console.error(`[Sync] Falha ao sincronizar estabelecimento ${e.id}:`, result.error);
         }
       } catch (err) {
         console.error(`Exceção ao sincronizar estabelecimento ${e.id}:`, err);
@@ -667,15 +645,9 @@ export const db = {
   },
 
   async syncPartnerRequestsToSupabase(requests: PartnerRequest[]) {
-    const validCols = await getTableColumns('partner_requests');
-    if (validCols.length === 0) {
-      console.warn('Tabela partner_requests não existe ou está inacessível no Supabase. Sincronização ignorada.');
-      return;
-    }
-
     try {
       for (const r of requests) {
-        const rawPayload: Record<string, any> = {
+        const rawPayload = {
           id: r.id,
           establishment_name: r.establishmentName,
           owner_name: r.ownerName,
@@ -685,8 +657,10 @@ export const db = {
           created_at: r.createdAt
         };
 
-        const filteredPayload = filterPayload(rawPayload, validCols);
-        await supabase.from('partner_requests').upsert(filteredPayload);
+        const result = await safeUpsert('partner_requests', rawPayload);
+        if (!result.success) {
+          console.warn(`[Sync] Tabela partner_requests pode não existir ou falhou:`, result.error);
+        }
       }
     } catch (e) {
       console.error('Erro ao sincronizar solicitações de parceria com Supabase:', e);
@@ -697,11 +671,9 @@ export const db = {
     try {
       // 1. Sincronizar Escalas (Schedules)
       const schedules = this.getSchedules();
-      const validScheduleCols = await getTableColumns('schedules');
-
       for (const s of schedules) {
         try {
-          const rawPayload: Record<string, any> = {
+          const rawPayload = {
             id: s.id,
             rider_id: s.riderId,
             establishment_id: s.establishmentId,
@@ -715,10 +687,9 @@ export const db = {
             updated_at: s.updatedAt || new Date().toISOString()
           };
 
-          const filteredPayload = filterPayload(rawPayload, validScheduleCols);
-          const { error } = await supabase.from('schedules').upsert(filteredPayload);
-          if (error) {
-            console.warn(`Falha ao sincronizar escala ${s.id}:`, error.message);
+          const result = await safeUpsert('schedules', rawPayload);
+          if (!result.success) {
+            console.warn(`[Sync] Falha ao sincronizar escala ${s.id}:`, result.error);
           }
         } catch (e) {
           console.error(`Erro ao sincronizar escala ${s.id}:`, e);
@@ -727,8 +698,6 @@ export const db = {
 
       // 2. Sincronizar Corridas (Deliveries)
       const deliveries = this.getDeliveries();
-      const validDeliveryCols = await getTableColumns('deliveries');
-
       for (const d of deliveries) {
         try {
           // Serializa metadados no order_number para garantir compatibilidade total de colunas
@@ -739,7 +708,7 @@ export const db = {
             updatedAt: d.updatedAt || new Date().toISOString()
           });
 
-          const rawPayload: Record<string, any> = {
+          const rawPayload = {
             id: d.id,
             rider_id: d.riderId,
             establishment_id: d.establishment_id,
@@ -755,10 +724,9 @@ export const db = {
             paid: d.paid || false
           };
 
-          const filteredPayload = filterPayload(rawPayload, validDeliveryCols);
-          const { error } = await supabase.from('deliveries').upsert(filteredPayload);
-          if (error) {
-            console.warn(`Falha ao sincronizar corrida ${d.id}:`, error.message);
+          const result = await safeUpsert('deliveries', rawPayload);
+          if (!result.success) {
+            console.warn(`[Sync] Falha ao sincronizar corrida ${d.id}:`, result.error);
           }
         } catch (e) {
           console.error(`Erro ao sincronizar corrida ${d.id}:`, e);
