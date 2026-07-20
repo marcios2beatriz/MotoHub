@@ -77,17 +77,18 @@ export default function RiderDashboard() {
   const [historyDateFrom, setHistoryDateFrom] = useState('');
   const [historyDateTo, setHistoryDateTo] = useState('');
 
-  //  // Helper ultra-robusto para resolver estabelecimento por ID ou nome aproximado
+  // Helper ultra-robusto para resolver estabelecimento por ID ou nome aproximado
   const resolveEst = (id: string): Establishment | undefined => {
+    if (!id) return undefined;
     const allEsts = db.getEstablishments();
     let found = allEsts.find(e => e.id === id);
     if (found) return found;
     
     // Fallback por nome aproximado caso o ID seja diferente ou corrompido
     found = allEsts.find(e => 
-      e.name.toLowerCase().trim() === id.toLowerCase().trim() ||
-      e.name.toLowerCase().trim().includes(id.toLowerCase().trim()) ||
-      id.toLowerCase().trim().includes(e.name.toLowerCase().trim())
+      e.name && e.name.toLowerCase().trim() === id.toLowerCase().trim() ||
+      e.name && e.name.toLowerCase().trim().includes(id.toLowerCase().trim()) ||
+      e.name && id.toLowerCase().trim().includes(e.name.toLowerCase().trim())
     );
     return found;
   };
@@ -378,17 +379,17 @@ export default function RiderDashboard() {
   const startOfMonth = getStartOfMonth();
 
   const todayDeliveries = deliveries.filter(d => d.date === todayStr);
-  const todayEarnings = todayDeliveries.filter(d => d.status === 'active').reduce((sum, d) => sum + d.value, 0);
+  const todayEarnings = todayDeliveries.filter(d => d.status === 'active').reduce((sum, d) => sum + Number(d.value || 0), 0);
 
   const weekEarnings = deliveries.filter(d => {
     const dDate = new Date(d.date + 'T00:00:00');
     return dDate >= startOfWeek && d.status === 'active';
-  }).reduce((sum, d) => sum + d.value, 0);
+  }).reduce((sum, d) => sum + Number(d.value || 0), 0);
 
   const monthEarnings = deliveries.filter(d => {
     const dDate = new Date(d.date + 'T00:00:00');
     return dDate >= startOfMonth && d.status === 'active';
-  }).reduce((sum, d) => sum + d.value, 0);
+  }).reduce((sum, d) => sum + Number(d.value || 0), 0);
 
   const getFutureSchedules = () => {
     const todayStr = db.getLocalDateString();
@@ -719,7 +720,7 @@ export default function RiderDashboard() {
                     </div>
                     <div className="flex justify-between items-start">
                       <div>
-                        <span className="bg-indigo-500 text-white text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider">
+                        <span className="bg-indigo-500 text-white text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider mb-2 inline-block">
                           Escala de Hoje
                         </span>
                         <h3 className="text-xl font-extrabold mt-2">{est?.name || 'Estabelecimento'}</h3>
@@ -777,7 +778,7 @@ export default function RiderDashboard() {
                 </div>
                 <div>
                   <p className="text-xs text-slate-500 font-medium uppercase">Hoje</p>
-                  <p className="text-2xl font-bold text-slate-800">R$ {todayEarnings.toFixed(2)}</p>
+                  <p className="text-2xl font-bold text-slate-800">R$ {Number(todayEarnings || 0).toFixed(2)}</p>
                 </div>
               </div>
 
@@ -787,7 +788,7 @@ export default function RiderDashboard() {
                 </div>
                 <div>
                   <p className="text-xs text-slate-500 font-medium uppercase">Esta Semana</p>
-                  <p className="text-2xl font-bold text-slate-800">R$ {weekEarnings.toFixed(2)}</p>
+                  <p className="text-2xl font-bold text-slate-800">R$ {Number(weekEarnings || 0).toFixed(2)}</p>
                 </div>
               </div>
 
@@ -797,7 +798,7 @@ export default function RiderDashboard() {
                 </div>
                 <div>
                   <p className="text-xs text-slate-500 font-medium uppercase">Este Mês</p>
-                  <p className="text-2xl font-bold text-slate-800">R$ {monthEarnings.toFixed(2)}</p>
+                  <p className="text-2xl font-bold text-slate-800">R$ {Number(monthEarnings || 0).toFixed(2)}</p>
                 </div>
               </div>
             </div>
@@ -906,7 +907,7 @@ export default function RiderDashboard() {
                             </button>
                           )}
                           <span className={`font-bold ${delivery.status === 'active' ? 'text-emerald-600' : 'text-slate-400'}`}>
-                            R$ {delivery.value.toFixed(2)}
+                            R$ {Number(delivery.value || 0).toFixed(2)}
                           </span>
                           {delivery.status === 'pending' && (
                             <button

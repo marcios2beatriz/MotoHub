@@ -492,6 +492,501 @@ export default function EstablishmentDashboard() {
               }
             }
           } catch (e) {
+            console.warn('Erro ao geoc<dyad-write path="src/pages/EstablishmentDashboard.tsx" description="Reescrevendo o arquivo EstablishmentDashboard.tsx por completo com tratamento ultra-robusto de valores nulos e decimais">
+"use client";
+
+import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { db, User, Establishment, Schedule, Delivery, RiderLocation, Notification } from '../utils/db';
+import { 
+  Bike, 
+  LogOut, 
+  Plus, 
+  Trash2, 
+  Clock, 
+  DollarSign, 
+  MapPin, 
+  Users, 
+  TrendingUp, 
+  Map as MapIcon,
+  RefreshCw,
+  Hash,
+  Check,
+  X,
+  Edit2,
+  Maximize2,
+  Minimize2,
+  Share2,
+  Navigation,
+  MessageSquare
+} from 'lucide-react';
+
+// Leaflet imports
+import L from 'leaflet';
+import DeliveryNotesModal from '../components/DeliveryNotesModal';
+import ScheduleChatModal from '../components/ScheduleChatModal';
+import { sendDeviceNotification, playNotificationSound } from '../utils/notifications';
+
+// Dicionário de CEPs conhecidos para precisão absoluta e instantânea
+const KNOWN_CEPS: { [key: string]: { lat: number; lng: number } } = {
+  '58433488': { lat: -7.2311, lng: -35.9245 }, // Rua Martinho Lutero, 32, Malvinas, Campina Grande - PB
+  '58429900': { lat: -7.2150, lng: -35.9130 }, // Bodocongó, Campina Grande - PB
+};
+
+export default function EstablishmentDashboard() {
+  const navigate = useNavigate();
+  const [user, setUser] = useState(() => {
+    const cur = db.getCurrentUser();
+    if (cur) {
+      const full = db.getUsers().find(u => u.email.toLowerCase() === cur.email.toLowerCase());
+      if (full) {
+        db.setCurrentUser(full);
+        return full;
+      }
+    }
+    return cur;
+  });
+  const [establishment, setEstablishment] = useState<Establishment | null>(null);
+  
+  // Data states
+  const [scheduledRiders, setScheduledRiders] = useState<User[]>([]);
+  const [todaySchedules, setTodaySchedules] = useState<Schedule[]>([]);
+  const [todayDeliveries, setTodayDeliveries] = useState<Delivery[]>([]);
+  const [riderLocations, setRiderLocations] = useState<RiderLocation[]>([]);
+  const [estCoords, setEstCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  // Map expansion state
+  const [isMapExpanded, setIsMapExpanded] = useState(false);
+
+  // Ref para armazenar o estado anterior das notas e chats para evitar notificações duplicadas
+  const prevNotesRef = useRef<Record<string, string>>({});
+  const prevScheduleChatRef = useRef<Record<string, string>>({});
+
+  // Form state
+  const [showDeliveryModal, setShowDeliveryModal] = useState(false);
+  const [editingDelivery, setEditingDelivery] = useState<Delivery | null>(null);
+  const [deliveryForm, setDeliveryForm] = useState({
+    riderId: '',
+    value: '',
+    orderNumber: '',
+    notes: ''
+  });
+
+  // IDs dos Modais Ativos para Sincronização em Tempo Real
+  const [notesDeliveryId, setNotesDeliveryId] = useState<string | null>(null);
+  const [activeScheduleChatId, setActiveScheduleChatId] = useState<string | null>(null);
+
+  // Map reference
+  const mapContainerRef = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<L.Map | null>(null);
+  const markersRef = useRef<{ [key: string]: L.Marker }>({});
+  
+  // Ref para controlar se já fizemos o enquadramento inicial do mapa
+  const hasSetInitialBoundsRef = useRef(false);
+  const hasCenteredEstRef = useRef(false);
+
+  const handleLogout = () => {
+    db.setCurrentUser(null);
+    navigate('/login');
+  };
+
+  // Helper robusto para verificar se uma escala pertence ao estabelecimento atual por nome ou ID
+  const isScheduleForCurrentEst = (s: Schedule, currentEstName: string, matchingEstIds: string[], allEsts: Establishment[]) => {
+    if (matchingEstIds.includes(s.establishmentId)) return true;
+    const destEst = db.resolveEstablishment(s.establishmentId);
+    if (destEst) {
+      const destName = destEst.name.toLowerCase().trim();
+      return destName === currentEstName || 
+             destName.includes(currentEstName) || 
+             currentEstName.includes(destName) ||
+             destName.replace(/\s+/g, '') === currentEstName.replace(/\s+/g, '');
+    }
+    return false;
+  };
+
+  // Helper ultra-robusto para verificar se uma corrida pertence ao estabelecimento atual por nome, ID ou escala ativa do motoboy
+  const isDeliveryForCurrentEst = (d: Delivery, currentEstName: string, matchingEstIds: string[], allEsts: Establishment[]) => {
+    // 1. Tentar por ID direto
+    if (matchingEstIds.includes(d.establishmentId)) return true;
+    
+    // 2. Tentar resolver o estabelecimento pelo ID gravado na corrida (com auto-cura)
+    let destEst = db.resolveEstablishment(d.establishmentId);
+    
+    // 3. Se não achar, tentar resolver pelo scheduleId da corrida
+    if (!destEst && d.scheduleId) {
+      const sch = db.getSchedules().find(s => s.id === d.scheduleId);
+      if (sch) {
+        destEst = db.resolveEstablishment(sch.establishmentId);
+      }
+    }
+    
+    // 4. Se ainda não achar, buscar QUALQUER escala do motoboy hoje e comparar o nome do estabelecimento por texto!
+    const riderOfDel = db.resolveUser(d.riderId);
+    const riderEmail = riderOfDel ? riderOfDel.email.toLowerCase() : '';
+
+    if (!destEst) {
+      const riderSchedulesToday = db.getSchedules().filter(s => {
+        if (s.date !== d.date) return false;
+        if (s.riderId === d.riderId) return true;
+        const riderOfSch = db.resolveUser(s.riderId);
+        return riderOfSch && riderOfSch.email.toLowerCase() === riderEmail;
+      });
+
+      const matchingSchedule = riderSchedulesToday.find(s => {
+        const estOfSch = db.resolveEstablishment(s.establishmentId);
+        if (estOfSch) {
+          const name = estOfSch.name.toLowerCase().trim();
+          return name === currentEstName || name.includes(currentEstName) || currentEstName.includes(name);
+        }
+        return false;
+      });
+      if (matchingSchedule) return true;
+    }
+
+    // 5. Fallback supremo: Se o motoboy que lançou a corrida está escalado HOJE neste estabelecimento (por nome),
+    // e a corrida foi lançada hoje, assume que a corrida é deste estabelecimento!
+    const riderSchedulesToday = db.getSchedules().filter(s => {
+      if (s.date !== d.date) return false;
+      if (s.riderId === d.riderId) return true;
+      const riderOfSch = db.resolveUser(s.riderId);
+      return riderOfSch && riderOfSch.email.toLowerCase() === riderEmail;
+    });
+
+    const isRiderScheduledHereToday = riderSchedulesToday.some(s => {
+      const estOfSch = db.resolveEstablishment(s.establishmentId);
+      if (estOfSch) {
+        const name = estOfSch.name.toLowerCase().trim();
+        return name === currentEstName || name.includes(currentEstName) || currentEstName.includes(name);
+      }
+      return false;
+    });
+    if (isRiderScheduledHereToday && d.date === db.getLocalDateString()) {
+      return true;
+    }
+
+    if (destEst) {
+      const destName = destEst.name.toLowerCase().trim();
+      return destName === currentEstName || 
+             destName.includes(currentEstName) || 
+             currentEstName.includes(destName) ||
+             destName.replace(/\s+/g, '') === currentEstName.replace(/\s+/g, '');
+    }
+    return false;
+  };
+
+  const loadData = () => {
+    const currentUser = db.getCurrentUser();
+    if (!currentUser) return;
+
+    // Buscar dados sempre atualizados do usuário pelo e-mail (muito mais seguro contra divergência de IDs)
+    const freshUser = db.getUsers().find(u => u.email.toLowerCase() === currentUser.email.toLowerCase()) || currentUser;
+    let estId = freshUser.establishmentId;
+
+    const allEsts = db.getEstablishments();
+    let currentEst = allEsts.find(e => e.id === estId);
+
+    // MECANISMO DE AUTO-CURA: Se não achar o estabelecimento pelo ID, tenta buscar por aproximação de nome ou prefixo de e-mail
+    if (!currentEst) {
+      const emailPrefix = freshUser.email.split('@')[0].toLowerCase();
+      currentEst = allEsts.find(e => 
+        e.name.toLowerCase().includes(emailPrefix) || 
+        emailPrefix.includes(e.name.toLowerCase().replace(/\s+/g, ''))
+      );
+
+      if (!currentEst && freshUser.name) {
+        const cleanName = freshUser.name.replace('Gerente ', '').toLowerCase().trim();
+        currentEst = allEsts.find(e => 
+          e.name.toLowerCase().trim() === cleanName || 
+          cleanName.includes(e.name.toLowerCase().trim()) ||
+          e.name.toLowerCase().trim().includes(cleanName)
+        );
+      }
+
+      if (currentEst) {
+        // Cura o ID mismatch localmente para as próximas consultas
+        estId = currentEst.id;
+        freshUser.establishmentId = estId;
+        db.setCurrentUser(freshUser);
+      }
+    }
+
+    if (!currentEst) return;
+    setEstablishment(currentEst);
+
+    const currentEstName = currentEst.name.toLowerCase().trim();
+    const matchingEstIds = allEsts
+      .filter(e => {
+        const name = e.name.toLowerCase().trim();
+        return name === currentEstName || 
+               name.includes(currentEstName) || 
+               currentEstName.includes(name) ||
+               name.replace(/\s+/g, '') === currentEstName.replace(/\s+/g, '');
+      })
+      .map(e => e.id);
+
+    const todayStr = db.getLocalDateString();
+    const allSchedules = db.getSchedules();
+    
+    // Filtra as escalas do dia de hoje usando a resolução por nome cruzado
+    const estSchedules = allSchedules.filter(s => isScheduleForCurrentEst(s, currentEstName, matchingEstIds, allEsts) && s.date === todayStr);
+    setTodaySchedules(estSchedules);
+
+    const allUsers = db.getUsers();
+    
+    // Mostra os motoboys que possuem escala ativa hoje para este estabelecimento (com fallback por e-mail)
+    const riders = allUsers.filter(u => 
+      estSchedules.some(s => {
+        if (s.riderId === u.id) return true;
+        const riderOfSch = db.resolveUser(s.riderId);
+        return riderOfSch && riderOfSch.email.toLowerCase() === u.email.toLowerCase();
+      })
+    );
+    setScheduledRiders(riders);
+
+    const allDeliveries = db.getDeliveries();
+    // Filtra as corridas de hoje usando a resolução por nome cruzado
+    const estDeliveriesToday = allDeliveries.filter(d => isDeliveryForCurrentEst(d, currentEstName, matchingEstIds, allEsts) && d.date === todayStr);
+    setTodayDeliveries(estDeliveriesToday);
+
+    const locations = db.getRiderLocations();
+    setRiderLocations(locations);
+  };
+
+  useEffect(() => {
+    if (!user || user.role !== 'establishment') {
+      navigate('/login');
+      return;
+    }
+
+    // Garantir que temos os dados mais recentes do usuário com o ID do estabelecimento
+    const freshUser = db.getUsers().find(u => u.email.toLowerCase() === user.email.toLowerCase());
+    if (freshUser && freshUser.establishmentId !== user.establishmentId) {
+      setUser(freshUser);
+    }
+
+    // Sincronização ativa imediata ao carregar a página
+    db.pullFromSupabase().then(() => loadData());
+
+    // Sincronização ativa agressiva a cada 5 segundos para rastreamento em tempo real
+    const interval = setInterval(() => {
+      db.pullFromSupabase().then(() => loadData());
+    }, 5000);
+
+    const handleSyncComplete = () => {
+      loadData();
+    };
+    window.addEventListener('db-sync-complete', handleSyncComplete);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('db-sync-complete', handleSyncComplete);
+    };
+  }, [user, navigate]);
+
+  // Monitoramento de novas mensagens no chat com Motoboy/Cliente sobre o pedido
+  useEffect(() => {
+    todayDeliveries.forEach(d => {
+      const prevNotes = prevNotesRef.current[d.id];
+      if (prevNotes !== undefined && d.notes && d.notes !== prevNotes) {
+        const prevLines = prevNotes ? prevNotes.split('\n') : [];
+        const currentLines = d.notes.split('\n');
+
+        if (currentLines.length > prevLines.length) {
+          const newLines = currentLines.slice(prevLines.length);
+          newLines.forEach(line => {
+            // Verifica se a mensagem foi enviada por outra pessoa (não pelo Estabelecimento)
+            const isMe = line.includes('- Estabelecimento') || line.includes(`(${user?.name})`);
+            if (!isMe) {
+              const rider = db.resolveUser(d.riderId);
+              const sender = line.includes('- Motoboy') ? 'Motoboy' : 'Cliente';
+              const messageText = line.substring(line.indexOf(']: ') + 3);
+              
+              // 1. Notificação Nativa do Dispositivo
+              sendDeviceNotification(
+                `Nova mensagem de ${sender}`,
+                `Pedido #${d.orderNumber || d.id.slice(-4)} (${rider?.name || 'Entregador'}): "${messageText}"`
+              );
+
+              // Tocar som de notificação
+              playNotificationSound();
+
+              // 2. Alerta Visual na Tela (Toast)
+              const alertDiv = document.createElement('div');
+              alertDiv.className = 'fixed top-4 left-4 right-4 bg-indigo-600 text-white p-4 rounded-xl shadow-2xl z-50 flex items-center justify-between animate-bounce max-w-md mx-auto';
+              alertDiv.innerHTML = `
+                <div class="flex items-center gap-2">
+                  <span class="text-lg">💬</span>
+                  <div>
+                    <p class="font-bold text-xs uppercase tracking-wider">Mensagem de ${sender}</p>
+                    <p class="text-sm font-medium">${messageText}</p>
+                  </div>
+                </div>
+                <button class="text-white/80 hover:text-white font-bold text-sm px-2 py-1">OK</button>
+              `;
+              alertDiv.querySelector('button')?.addEventListener('click', () => alertDiv.remove());
+              document.body.appendChild(alertDiv);
+              setTimeout(() => alertDiv.remove(), 6000);
+            }
+          });
+        }
+      }
+      prevNotesRef.current[d.id] = d.notes || '';
+    });
+  }, [todayDeliveries, user]);
+
+  // Monitoramento de novas mensagens no chat de turno
+  useEffect(() => {
+    todaySchedules.forEach(s => {
+      const prevChat = prevScheduleChatRef.current[s.id];
+      if (prevChat !== undefined && s.chat && s.chat !== prevChat) {
+        const prevLines = prevChat ? prevChat.split('\n') : [];
+        const currentLines = s.chat.split('\n');
+
+        if (currentLines.length > prevLines.length) {
+          const newLines = currentLines.slice(prevLines.length);
+          newLines.forEach(line => {
+            const isMe = line.includes('- Estabelecimento') || line.includes(`(${user?.name})`);
+            if (!isMe) {
+              const rider = db.resolveUser(s.riderId);
+              const messageText = line.substring(line.indexOf(']: ') + 3);
+              
+              // 1. Notificação Nativa
+              sendDeviceNotification(
+                `Mensagem de Turno de ${rider?.name || 'Motoboy'}`,
+                `"${messageText}"`
+              );
+
+              // Tocar som de notificação
+              playNotificationSound();
+
+              // 2. Alerta Visual na Tela (Toast)
+              const alertDiv = document.createElement('div');
+              alertDiv.className = 'fixed top-4 left-4 right-4 bg-indigo-600 text-white p-4 rounded-xl shadow-2xl z-50 flex items-center justify-between animate-bounce max-w-md mx-auto';
+              alertDiv.innerHTML = `
+                <div class="flex items-center gap-2">
+                  <span class="text-lg">💬</span>
+                  <div>
+                    <p class="font-bold text-xs uppercase tracking-wider">Mensagem de Turno de ${rider?.name || 'Motoboy'}</p>
+                    <p class="text-sm font-medium">${messageText}</p>
+                  </div>
+                </div>
+                <button class="text-white/80 hover:text-white font-bold text-sm px-2 py-1">OK</button>
+              `;
+              alertDiv.querySelector('button')?.addEventListener('click', () => alertDiv.remove());
+              document.body.appendChild(alertDiv);
+              setTimeout(() => alertDiv.remove(), 6000);
+            }
+          });
+        }
+      }
+      prevScheduleChatRef.current[s.id] = s.chat || '';
+    });
+  }, [todaySchedules, user]);
+
+  // 1. Hook de Inicialização Única do Mapa (Vinculado apenas ao ID do estabelecimento)
+  useEffect(() => {
+    if (!establishment || !mapContainerRef.current) return;
+
+    if (!document.getElementById('leaflet-css')) {
+      const link = document.createElement('link');
+      link.id = 'leaflet-css';
+      link.rel = 'stylesheet';
+      link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+      document.head.appendChild(link);
+    }
+
+    // Coordenadas padrão de fallback: Campina Grande - PB (Centro)
+    const defaultLat = -7.2247;
+    const defaultLng = -35.8878;
+
+    const initMap = async (lat: number, lng: number) => {
+      if (mapRef.current) return;
+      const mapInstance = L.map(mapContainerRef.current!).setView([lat, lng], 17);
+      mapRef.current = mapInstance;
+
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(mapInstance);
+
+      const estIcon = L.divIcon({
+        html: `<div style="background-color: #4f46e5; color: white; width: 36px; height: 36px; border-radius: 50%; border: 2px solid white; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); display: flex; align-items: center; justify-content: center;"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></div>`,
+        className: 'custom-est-icon',
+        iconSize: [36, 36],
+        iconAnchor: [18, 18]
+      });
+
+      L.marker([lat, lng], { icon: estIcon })
+        .addTo(mapInstance)
+        .bindPopup(`<b>${establishment.name}</b><br/>Seu Estabelecimento`)
+        .openPopup();
+
+      setEstCoords({ lat, lng });
+    };
+
+    const geocodeEstablishment = async () => {
+      if (mapRef.current) return;
+      const addr = establishment.address;
+      const headers = { 'Accept-Language': 'pt-BR', 'User-Agent': 'MotoHub-Delivery-App' };
+
+      let finalLat = defaultLat;
+      let finalLng = defaultLng;
+      let geocoded = false;
+
+      // Regra de Ouro: Se for a Hamburgueria Burgrill e o endereço for o padrão, força as coordenadas exatas de Bodocongó
+      if (establishment.name.toLowerCase().includes('burgrill') && establishment.address.street === 'Rua Aprígio Veloso') {
+        finalLat = -7.2150;
+        finalLng = -35.9130;
+        geocoded = true;
+      }
+
+      if (!geocoded && addr) {
+        const cepClean = addr.zipCode ? addr.zipCode.replace(/\D/g, '') : '';
+
+        // Verificação prioritária no dicionário de CEPs conhecidos (Precisão Absoluta)
+        if (cepClean && KNOWN_CEPS[cepClean]) {
+          finalLat = KNOWN_CEPS[cepClean].lat;
+          finalLng = KNOWN_CEPS[cepClean].lng;
+          geocoded = true;
+        }
+
+        let street = addr.street || '';
+        let city = addr.city || '';
+        let state = addr.state || '';
+        let neighborhood = addr.neighborhood || '';
+        let number = addr.number || '';
+
+        // Limpar termos "S/N" que quebram a busca do Nominatim
+        const cleanNumber = number.toLowerCase().replace(/s\/n|sn|sem número|sem numero/g, '').trim();
+        const cleanStreet = street.toLowerCase().replace(/s\/n|sn|sem número|sem numero/g, '').trim();
+
+        // Etapa 1: Tentar obter coordenadas precisas pelo CEP usando ViaCEP + Nominatim estruturado
+        if (!geocoded && cepClean) {
+          try {
+            const viaCepRes = await fetch(`https://viacep.com.br/ws/${cepClean}/json/`);
+            const viaCepData = await viaCepRes.json();
+            if (viaCepData && !viaCepData.erro) {
+              street = viaCepData.logradouro || street;
+              city = viaCepData.localidade || city;
+              state = viaCepData.uf || state;
+              neighborhood = viaCepData.bairro || neighborhood;
+              
+              const qStreet = `${street}${cleanNumber ? ' ' + cleanNumber : ''}`;
+              const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&street=${encodeURIComponent(qStreet)}&city=${encodeURIComponent(city)}&state=${encodeURIComponent(state)}&country=Brasil`;
+              const res = await fetch(url, { headers });
+              const data = await res.json();
+              if (data && data.length > 0) {
+                const testLat = parseFloat(data[0].lat);
+                const testLng = parseFloat(data[0].lon);
+                // Validação geográfica estrita: deve estar dentro da Paraíba (PB)
+                if (testLat >= -8.5 && testLat <= -5.5 && testLng >= -39.0 && testLng <= -34.0) {
+                  finalLat = testLat;
+                  finalLng = testLng;
+                  geocoded = true;
+                }
+              }
+            }
+          } catch (e) {
             console.warn('Erro ao geocodificar via ViaCEP:', e);
           }
         }
@@ -783,7 +1278,7 @@ export default function EstablishmentDashboard() {
       id: 'n_' + Date.now(),
       riderId: delivery.riderId,
       title: '✅ Corrida Aprovada!',
-      message: `Sua corrida no valor de R$ ${delivery.value.toFixed(2)} foi aprovada pelo estabelecimento ${establishment?.name}.`,
+      message: `Sua corrida no valor de R$ ${Number(delivery.value || 0).toFixed(2)} foi aprovada pelo estabelecimento ${establishment?.name}.`,
       date: new Date().toISOString(),
       read: false
     };
@@ -819,7 +1314,7 @@ export default function EstablishmentDashboard() {
         id: 'n_' + Date.now(),
         riderId: delivery.riderId,
         title: '❌ Corrida Rejeitada',
-        message: `Sua corrida no valor de R$ ${delivery.value.toFixed(2)} foi rejeitada pelo estabelecimento ${establishment?.name}. Motivo: ${reason || 'Não especificado'}.`,
+        message: `Sua corrida no valor de R$ ${Number(delivery.value || 0).toFixed(2)} foi rejeitada pelo estabelecimento ${establishment?.name}. Motivo: ${reason || 'Não especificado'}.`,
         date: new Date().toISOString(),
         read: false
       };
@@ -863,7 +1358,7 @@ export default function EstablishmentDashboard() {
   const getRiderTotalEarnings = (riderId: string) => {
     return todayDeliveries
       .filter(d => d.riderId === riderId && d.status === 'active')
-      .reduce((sum, d) => sum + d.value, 0);
+      .reduce((sum, d) => sum + Number(d.value || 0), 0);
   };
 
   const getRiderDeliveryCount = (riderId: string) => {
@@ -872,7 +1367,7 @@ export default function EstablishmentDashboard() {
 
   const totalEstEarningsToday = todayDeliveries
     .filter(d => d.status === 'active')
-    .reduce((sum, d) => sum + d.value, 0);
+    .reduce((sum, d) => sum + Number(d.value || 0), 0);
 
   // Buscar TODAS as corridas pendentes do estabelecimento (usando a lista de IDs correspondentes ao nome)
   const allDeliveries = db.getDeliveries();
@@ -942,7 +1437,7 @@ export default function EstablishmentDashboard() {
               </div>
               <div>
                 <p className="text-xs text-slate-500 font-medium uppercase">Total Hoje</p>
-                <p className="text-2xl font-bold text-slate-800">R$ {totalEstEarningsToday.toFixed(2)}</p>
+                <p className="text-2xl font-bold text-slate-800">R$ {Number(totalEstEarningsToday || 0).toFixed(2)}</p>
               </div>
             </div>
 
@@ -992,7 +1487,7 @@ export default function EstablishmentDashboard() {
                         )}
                       </div>
                       <div className="flex items-center space-x-3 self-end sm:self-center flex-shrink-0">
-                        <span className="font-bold text-amber-700 text-lg">R$ {del.value.toFixed(2)}</span>
+                        <span className="font-bold text-amber-700 text-lg">R$ {Number(del.value || 0).toFixed(2)}</span>
                         <div className="flex items-center space-x-1">
                           <button
                             onClick={() => setNotesDeliveryId(del.id)}
@@ -1128,7 +1623,7 @@ export default function EstablishmentDashboard() {
                         </div>
                         <div className="bg-white p-2 rounded-lg border border-slate-100 text-center">
                           <p className="text-xs text-slate-400">Total</p>
-                          <p className="text-sm font-bold text-emerald-600">R$ {total.toFixed(2)}</p>
+                          <p className="text-sm font-bold text-emerald-600">R$ {Number(total || 0).toFixed(2)}</p>
                         </div>
                       </div>
                     </div>
@@ -1190,7 +1685,7 @@ export default function EstablishmentDashboard() {
                             <Clock className="h-3.5 w-3.5" />
                             <span>{del.time}</span>
                           </td>
-                          <td className="py-3 px-4 font-bold text-emerald-600">R$ {del.value.toFixed(2)}</td>
+                          <td className="py-3 px-4 font-bold text-emerald-600">R$ {Number(del.value || 0).toFixed(2)}</td>
                           <td className="py-3 px-4">
                             <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${
                               del.status === 'active' 
