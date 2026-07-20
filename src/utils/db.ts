@@ -362,20 +362,21 @@ export const db = {
     const localEsts = this.getEstablishments();
     const localRequests = this.getPartnerRequests();
 
-    try {
-      if (localUsers.length > 0) {
-        await this.syncUsersToSupabase(localUsers);
-      }
-    } catch (e) {
-      console.warn('Erro ao empurrar usuários locais:', e);
-    }
-
+    // IMPORTANTE: Sincronizar estabelecimentos ANTES de usuários para evitar violação de chave estrangeira (foreign key constraint)
     try {
       if (localEsts.length > 0) {
         await this.syncEstablishmentsToSupabase(localEsts);
       }
     } catch (e) {
       console.warn('Erro ao empurrar estabelecimentos locais:', e);
+    }
+
+    try {
+      if (localUsers.length > 0) {
+        await this.syncUsersToSupabase(localUsers);
+      }
+    } catch (e) {
+      console.warn('Erro ao empurrar usuários locais:', e);
     }
 
     try {

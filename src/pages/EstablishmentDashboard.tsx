@@ -192,20 +192,24 @@ export default function EstablishmentDashboard() {
     // Fallback 2: Buscar por prefixo do e-mail
     if (!currentEst) {
       const emailPrefix = freshUser.email.split('@')[0].toLowerCase();
-      currentEst = allEsts.find(e => 
-        e.name.toLowerCase().includes(emailPrefix) || 
-        emailPrefix.includes(e.name.toLowerCase().replace(/\s+/g, ''))
-      );
+      if (emailPrefix && emailPrefix !== 'gerente' && emailPrefix !== 'admin') {
+        currentEst = allEsts.find(e => 
+          e.name.toLowerCase().includes(emailPrefix) || 
+          emailPrefix.includes(e.name.toLowerCase().replace(/\s+/g, ''))
+        );
+      }
     }
 
-    // Fallback 3: Buscar por nome do gerente
+    // Fallback 3: Buscar por nome do gerente (evitando strings vazias ou muito curtas)
     if (!currentEst && freshUser.name) {
       const cleanName = freshUser.name.replace('Gerente ', '').toLowerCase().trim();
-      currentEst = allEsts.find(e => 
-        e.name.toLowerCase().trim() === cleanName || 
-        cleanName.includes(e.name.toLowerCase().trim()) ||
-        e.name.toLowerCase().trim().includes(cleanName)
-      );
+      if (cleanName && cleanName.length > 2) {
+        currentEst = allEsts.find(e => 
+          e.name.toLowerCase().trim() === cleanName || 
+          e.name.toLowerCase().trim().includes(cleanName) ||
+          cleanName.includes(e.name.toLowerCase().trim())
+        );
+      }
     }
 
     if (!currentEst) return;
