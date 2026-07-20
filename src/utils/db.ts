@@ -105,22 +105,30 @@ const KEYS = {
   NOTIFICATIONS: 'delivery_system_notifications',
   CURRENT_USER: 'delivery_system_current_user',
   RIDER_LOCATIONS: 'delivery_system_rider_locations',
-  PARTNER_REQUESTS: 'delivery_system_partner_requests'
+  PARTNER_REQUESTS: 'delivery_system_partner_requests',
+  MISSING_COLUMNS: 'delivery_system_missing_columns'
 };
 
-// Cache global de colunas inexistentes por tabela para evitar requisições redundantes e lentidão
-const missingColumnsCache: Record<string, Set<string>> = {};
+// Cache persistente de colunas inexistentes por tabela para evitar requisições redundantes e lentidão
+const getMissingColumnsCache = (): Record<string, string[]> => {
+  const data = localStorage.getItem(KEYS.MISSING_COLUMNS);
+  return data ? JSON.parse(data) : {};
+};
+
+const saveMissingColumnsCache = (cache: Record<string, string[]>) => {
+  localStorage.setItem(KEYS.MISSING_COLUMNS, JSON.stringify(cache));
+};
 
 // Função de Auto-Cura para Upsert no Supabase
 async function safeUpsert(tableName: string, rawPayload: Record<string, any>): Promise<{ success: boolean; error?: any }> {
   const payload = { ...rawPayload };
   
   // Remove colunas que já sabemos que não existem nesta tabela
-  if (missingColumnsCache[tableName]) {
-    missingColumnsCache[tableName].forEach(col => {
-      delete payload[col];
-    });
-  }
+  const cache = getMissingColumnsCache();
+  const missingCols = cache[tableName] || [];
+  missingCols.forEach(col => {
+    delete payload[col];
+  });
 
   const maxRetries = 10;
 
@@ -141,11 +149,15 @@ async function safeUpsert(tableName: string, rawPayload: Record<string, any>): P
       const missingCol = match[1];
       console.warn(`[Auto-Cura] Removendo coluna inexistente '${missingCol}' da tabela '${tableName}' e tentando novamente.`);
       
-      // Adiciona ao cache para evitar tentar enviar esta coluna no futuro
-      if (!missingColumnsCache[tableName]) {
-        missingColumnsCache[tableName] = new Set();
+      // Adiciona ao cache persistente para evitar tentar enviar esta coluna no futuro
+      const currentCache = getMissingColumnsCache();
+      if (!currentCache[tableName]) {
+        currentCache[tableName] = [];
       }
-      missingColumnsCache[tableName].add(missingCol);
+      if (!currentCache[tableName].includes(missingCol)) {
+        currentCache[tableName].push(missingCol);
+        saveMissingColumnsCache(currentCache);
+      }
 
       delete payload[missingCol];
       continue; // Tenta novamente com o payload podado

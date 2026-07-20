@@ -110,12 +110,15 @@ export default function EstablishmentDashboard() {
     return false;
   };
 
-  // Helper ultra-robusto para verificar se uma corrida pertence ao estabelecimento atual por nome, ID ou escala ativa do motoboy
+  // Helper ultra-robusto para verificar se uma corrida pertence ao estabelecimento atual por nome ou ID
   const isDeliveryForCurrentEst = (d: Delivery, currentEstName: string, matchingEstIds: string[], allEsts: Establishment[]) => {
+    // 1. Se o ID do estabelecimento da corrida bate diretamente com os IDs do estabelecimento atual
     if (matchingEstIds.includes(d.establishmentId)) return true;
     
+    // 2. Tenta resolver o estabelecimento da corrida
     let destEst = db.resolveEstablishment(d.establishmentId);
     
+    // 3. Se não resolveu, mas tem ID de escala, tenta resolver pela escala
     if (!destEst && d.scheduleId) {
       const sch = db.getSchedules().find(s => s.id === d.scheduleId);
       if (sch) {
@@ -123,47 +126,7 @@ export default function EstablishmentDashboard() {
       }
     }
     
-    const riderOfDel = db.resolveUser(d.riderId);
-    const riderEmail = riderOfDel ? riderOfDel.email.toLowerCase() : '';
-
-    if (!destEst) {
-      const riderSchedulesToday = db.getSchedules().filter(s => {
-        if (s.date !== d.date) return false;
-        if (s.riderId === d.riderId) return true;
-        const riderOfSch = db.resolveUser(s.riderId);
-        return riderOfSch && riderOfSch.email.toLowerCase() === riderEmail;
-      });
-
-      const matchingSchedule = riderSchedulesToday.find(s => {
-        const estOfSch = db.resolveEstablishment(s.establishmentId);
-        if (estOfSch) {
-          const name = estOfSch.name.toLowerCase().trim();
-          return name === currentEstName || name.includes(currentEstName) || currentEstName.includes(name);
-        }
-        return false;
-      });
-      if (matchingSchedule) return true;
-    }
-
-    const riderSchedulesToday = db.getSchedules().filter(s => {
-      if (s.date !== d.date) return false;
-      if (s.riderId === d.riderId) return true;
-      const riderOfSch = db.resolveUser(s.riderId);
-      return riderOfSch && riderOfSch.email.toLowerCase() === riderEmail;
-    });
-
-    const isRiderScheduledHereToday = riderSchedulesToday.some(s => {
-      const estOfSch = db.resolveEstablishment(s.establishmentId);
-      if (estOfSch) {
-        const name = estOfSch.name.toLowerCase().trim();
-        return name === currentEstName || name.includes(currentEstName) || currentEstName.includes(name);
-      }
-      return false;
-    });
-    if (isRiderScheduledHereToday && d.date === db.getLocalDateString()) {
-      return true;
-    }
-
+    // 4. Se resolveu o estabelecimento, compara os nomes de forma robusta
     if (destEst) {
       const destName = destEst.name.toLowerCase().trim();
       return destName === currentEstName || 
@@ -171,6 +134,7 @@ export default function EstablishmentDashboard() {
              currentEstName.includes(destName) ||
              destName.replace(/\s+/g, '') === currentEstName.replace(/\s+/g, '');
     }
+    
     return false;
   };
 
