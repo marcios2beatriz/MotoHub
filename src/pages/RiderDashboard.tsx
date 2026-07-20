@@ -79,18 +79,7 @@ export default function RiderDashboard() {
 
   // Helper ultra-robusto para resolver estabelecimento por ID ou nome aproximado
   const resolveEst = (id: string): Establishment | undefined => {
-    if (!id) return undefined;
-    const allEsts = db.getEstablishments();
-    let found = allEsts.find(e => e.id === id);
-    if (found) return found;
-    
-    // Fallback por nome aproximado caso o ID seja diferente ou corrompido
-    found = allEsts.find(e => 
-      e.name && e.name.toLowerCase().trim() === id.toLowerCase().trim() ||
-      e.name && e.name.toLowerCase().trim().includes(id.toLowerCase().trim()) ||
-      e.name && id.toLowerCase().trim().includes(e.name.toLowerCase().trim())
-    );
-    return found;
+    return db.resolveEstablishment(id);
   };
 
   const loadData = () => {
@@ -433,8 +422,18 @@ export default function RiderDashboard() {
 
   const getScheduledEstablishmentsToday = () => {
     const todaySchedules = schedules.filter(s => s.date === todayStr);
-    const scheduledIds = todaySchedules.map(s => s.establishmentId);
-    return establishments.filter(e => scheduledIds.includes(e.id));
+    const resolvedEsts = todaySchedules
+      .map(s => db.resolveEstablishment(s.establishmentId))
+      .filter((e): e is Establishment => !!e);
+    
+    // Remove duplicados por ID
+    const uniqueEsts: Establishment[] = [];
+    resolvedEsts.forEach(e => {
+      if (!uniqueEsts.some(x => x.id === e.id)) {
+        uniqueEsts.push(e);
+      }
+    });
+    return uniqueEsts;
   };
 
   const handleLaunchDelivery = (e: React.FormEvent) => {
