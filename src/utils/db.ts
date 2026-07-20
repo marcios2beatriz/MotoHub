@@ -132,6 +132,11 @@ async function safeUpsert(tableName: string, rawPayload: Record<string, any>): P
     }
 
     const msg = error.message || '';
+    // Detecta se o erro é de coluna inexistente no banco de dados
+    // Exemplos:
+    // - "Could not find the 'created_at' column of 'users' in the schema cache"
+    // - "column \"updated_at\" of relation \"users\" does not exist"
+    // - "column \"notes\" does not exist"
     const match = msg.match(/Could not find the '([^']+)' column/) || 
                   msg.match(/column "([^"]+)"/) || 
                   msg.match(/column '([^']+)'/);
@@ -140,15 +145,17 @@ async function safeUpsert(tableName: string, rawPayload: Record<string, any>): P
       const missingCol = match[1];
       console.warn(`[Auto-Cura] Removendo coluna inexistente '${missingCol}' da tabela '${tableName}' e tentando novamente.`);
       
+      // Adiciona ao cache para evitar tentar enviar esta coluna no futuro
       if (!missingColumnsCache[tableName]) {
         missingColumnsCache[tableName] = new Set();
       }
       missingColumnsCache[tableName].add(missingCol);
 
       delete payload[missingCol];
-      continue;
+      continue; // Tenta novamente com o payload podado
     }
 
+    // Se for outro tipo de erro (como violação de NOT NULL), retorna o erro para log
     return { success: false, error };
   }
 
@@ -165,6 +172,18 @@ function mergeChatStrings(localChat: string | undefined, remoteChat: string | un
   
   const uniqueLines = Array.from(new Set([...localLines, ...remoteLines]));
   return uniqueLines.join('\n');
+}
+
+// Helper para verificar se um endereço está vazio ou contém apenas placeholders padrão
+function isAddressEmptyOrPlaceholder(addr: any): boolean {
+  if (!addr) return true;
+  const street = (addr.street || '').toLowerCase().trim();
+  const neighborhood = (addr.neighborhood || '').toLowerCase().trim();
+  
+  const isEmpty = !street || !neighborhood;
+  const isPlaceholder = street === 'sem rua' || street === 'a definir' || neighborhood === 'sem bairro' || neighborhood === 'a definir';
+  
+  return isEmpty || isPlaceholder;
 }
 
 export const db = {
@@ -320,6 +339,7 @@ export const db = {
     };
     localStorage.setItem(KEYS.RIDER_LOCATIONS, JSON.stringify(updated));
     
+    // Envia para o Supabase em background
     supabase.from('rider_locations').upsert({
       rider_id: riderId,
       rider_name: riderName,
@@ -379,9 +399,12 @@ export const db = {
 
   // --- SUPABASE SYNCHRONIZATION ---
   async pullFromSupabase() {
-    // REMOVIDO pushLocalDataToSupabase() daqui!
-    // Isso evita que computadores com dados locais antigos sobrescrevam as atualizações recentes do banco de dados.
-    // O envio de dados locais agora ocorre estritamente no momento em que o usuário realiza uma ação de escrita.
+    // 0. PRIMEIRO PASSO (PUSH): Envia qualquer alteração local pendente para o Supabase
+    try {
+      await this.pushLocalDataToSupabase();
+    } catch (err) {
+      console.warn('Erro ao enviar dados locais pendentes para o Supabase:', err);
+    }
 
     // 1. Sincronizar Usuários
     try {
@@ -414,7 +437,7 @@ export const db = {
       console.warn('Erro ao sincronizar tabela "users" do Supabase:', err);
     }
 
-    // 2. Sincronizar Estabelecimentos (Supabase é a fonte da verdade absoluta)
+    // 2. Sincronizar Estabelecimentos com Parseamento Seguro de Endereço
     try {
       const { data: estsData, error } = await supabase.from('establishments').select('*');
       if (error) throw error;
@@ -429,7 +452,7 @@ export const db = {
               try {
                 let temp = JSON.parse(e.address);
                 if (typeof temp === 'string') {
-                  temp = JSON.parse(temp);
+                  temp = JSON.parse(temp); // Desfaz dupla serialização se houver
                 }
                 if (temp && typeof temp === 'object') {
                   parsedAddress = { ...parsedAddress, ...temp };
@@ -440,12 +463,19 @@ export const db = {
             }
           }
 
+          // --- REGRA DE PRESERVAÇÃO DE ENDEREÇO LOCAL ---
+          // Se o endereço retornado do Supabase estiver vazio/incompleto ou for um placeholder, mas tivermos um endereço local válido, preservamos o local.
+          const local = localEsts.find(l => l.id === e.id);
+          if (isAddressEmptyOrPlaceholder(parsedAddress) && local && local.address && !isAddressEmptyOrPlaceholder(local.address)) {
+            parsedAddress = { ...local.address };
+          }
+
           return {
             id: e.id,
             name: e.name,
-            email: e.email || undefined,
+            email: e.email || local?.email,
             active: e.active,
-            phone: e.phone || '',
+            phone: e.phone || local?.phone || '',
             address: parsedAddress,
             createdAt: e.created_at,
             updatedAt: e.updated_at
@@ -459,7 +489,7 @@ export const db = {
       console.warn('Erro ao sincronizar tabela "establishments" do Supabase:', err);
     }
 
-    // 3. Sincronizar Escalas (Schedules)
+    // 3. Sincronizar Escalas (Schedules) com Preservação de Dados Locais
     try {
       const { data: schData, error } = await supabase.from('schedules').select('*');
       if (error) throw error;
@@ -489,7 +519,7 @@ export const db = {
       console.warn('Erro ao sincronizar tabela "schedules" do Supabase:', err);
     }
 
-    // 4. Sincronizar Corridas (Deliveries)
+    // 4. Sincronizar Corridas (Deliveries) com Lógica de Mesclagem Robusta
     try {
       const { data: delData, error } = await supabase.from('deliveries').select('*');
       if (error) throw error;
@@ -499,6 +529,7 @@ export const db = {
         const mappedDeliveries: Delivery[] = delData.map(d => {
           const local = localDeliveries.find(l => l.id === d.id);
           
+          // Decodificação segura do order_number que pode conter metadados serializados
           let orderNumber = d.order_number || undefined;
           let notes = d.notes || undefined;
           let customerChat = d.customer_chat || undefined;
@@ -512,6 +543,7 @@ export const db = {
               customerChat = parsed.customerChat || undefined;
               updatedAt = parsed.updatedAt || d.updated_at;
             } catch (e) {
+              // Fallback se falhar
               if (d.order_number.includes('|')) {
                 const parts = d.order_number.split('|');
                 orderNumber = parts[0] || undefined;
@@ -521,6 +553,7 @@ export const db = {
             }
           }
 
+          // --- REGRA DE OURO DE MESCLAGEM (PREVENÇÃO DE RETORNO A PENDENTE) ---
           let finalStatus: 'pending' | 'active' | 'rejected' | 'cancelled' = d.status;
           
           if (local) {
@@ -528,10 +561,11 @@ export const db = {
             const isLocalResolved = ['active', 'rejected', 'cancelled'].includes(local.status);
 
             if (isRemoteResolved && local.status === 'pending') {
-              finalStatus = d.status;
+              finalStatus = d.status; // Mantém o status resolvido do servidor
             } else if (!isRemoteResolved && isLocalResolved) {
-              finalStatus = local.status;
+              finalStatus = local.status; // Se o local resolveu primeiro, mantém o local
             } else {
+              // Se ambos têm o mesmo nível de resolução, decide pela data de atualização mais recente
               const localTime = local.updatedAt ? new Date(local.updatedAt).getTime() : 0;
               const remoteTime = updatedAt ? new Date(updatedAt).getTime() : 0;
               finalStatus = localTime > remoteTime ? local.status : d.status;
@@ -555,6 +589,7 @@ export const db = {
           };
         });
 
+        // Adiciona corridas locais que ainda não foram enviadas para o servidor
         const remoteIds = new Set(mappedDeliveries.map(d => d.id));
         const unsyncedLocal = localDeliveries.filter(l => !remoteIds.has(l.id));
         
@@ -584,9 +619,10 @@ export const db = {
         localStorage.setItem(KEYS.PARTNER_REQUESTS, JSON.stringify([...mappedReqs, ...unsyncedLocal]));
       }
     } catch (err) {
-      console.warn('Erro ao sincronizar tabela "partner_requests" do Supabase:', err);
+      console.warn('Erro ao sincronizar tabela "partner_requests" do Supabase (pode não existir ainda):', err);
     }
 
+    // Dispara evento global para atualizar as telas em tempo real
     window.dispatchEvent(new Event('db-sync-complete'));
   },
 
@@ -657,7 +693,7 @@ export const db = {
 
         const result = await safeUpsert('partner_requests', rawPayload);
         if (!result.success) {
-          console.warn(`[Sync] Tabela partner_requests falhou:`, result.error);
+          console.warn(`[Sync] Tabela partner_requests pode não existir ou falhou:`, result.error);
         }
       }
     } catch (e) {
@@ -698,6 +734,7 @@ export const db = {
       const deliveries = this.getDeliveries();
       for (const d of deliveries) {
         try {
+          // Serializa metadados no order_number para garantir compatibilidade total de colunas
           const serializedOrderNumber = JSON.stringify({
             orderNumber: d.orderNumber || '',
             notes: d.notes || '',
