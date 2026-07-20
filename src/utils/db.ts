@@ -294,8 +294,33 @@ export const db = {
     return Object.values(this.getRiderLocationsRecord());
   },
 
+  // --- FORÇAR ENVIO DE DADOS LOCAIS PENDENTES ---
+  async pushLocalDataToSupabase() {
+    const localUsers = this.getUsers();
+    const localEsts = this.getEstablishments();
+    const localRequests = this.getPartnerRequests();
+
+    if (localUsers.length > 0) {
+      await this.syncUsersToSupabase(localUsers);
+    }
+    if (localEsts.length > 0) {
+      await this.syncEstablishmentsToSupabase(localEsts);
+    }
+    if (localRequests.length > 0) {
+      await this.syncPartnerRequestsToSupabase(localRequests);
+    }
+    await this.syncToSupabase();
+  },
+
   // --- SUPABASE SYNCHRONIZATION ---
   async pullFromSupabase() {
+    // 0. PRIMEIRO PASSO (PUSH): Envia qualquer alteração local pendente para o Supabase
+    try {
+      await this.pushLocalDataToSupabase();
+    } catch (err) {
+      console.warn('Erro ao enviar dados locais pendentes para o Supabase:', err);
+    }
+
     // 1. Sincronizar Usuários
     try {
       const { data: usersData, error } = await supabase.from('users').select('*');
