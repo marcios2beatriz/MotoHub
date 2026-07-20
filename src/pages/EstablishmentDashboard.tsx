@@ -184,31 +184,40 @@ export default function EstablishmentDashboard() {
     const allEsts = db.getEstablishments();
     let currentEst = allEsts.find(e => e.id === estId);
 
+    // Fallback 1: Buscar por e-mail do estabelecimento correspondente ao e-mail do gerente
+    if (!currentEst) {
+      currentEst = allEsts.find(e => e.email && e.email.toLowerCase() === freshUser.email.toLowerCase());
+    }
+
+    // Fallback 2: Buscar por prefixo do e-mail
     if (!currentEst) {
       const emailPrefix = freshUser.email.split('@')[0].toLowerCase();
       currentEst = allEsts.find(e => 
         e.name.toLowerCase().includes(emailPrefix) || 
         emailPrefix.includes(e.name.toLowerCase().replace(/\s+/g, ''))
       );
+    }
 
-      if (!currentEst && freshUser.name) {
-        const cleanName = freshUser.name.replace('Gerente ', '').toLowerCase().trim();
-        currentEst = allEsts.find(e => 
-          e.name.toLowerCase().trim() === cleanName || 
-          cleanName.includes(e.name.toLowerCase().trim()) ||
-          e.name.toLowerCase().trim().includes(cleanName)
-        );
-      }
-
-      if (currentEst) {
-        estId = currentEst.id;
-        freshUser.establishmentId = estId;
-        db.setCurrentUser(freshUser);
-      }
+    // Fallback 3: Buscar por nome do gerente
+    if (!currentEst && freshUser.name) {
+      const cleanName = freshUser.name.replace('Gerente ', '').toLowerCase().trim();
+      currentEst = allEsts.find(e => 
+        e.name.toLowerCase().trim() === cleanName || 
+        cleanName.includes(e.name.toLowerCase().trim()) ||
+        e.name.toLowerCase().trim().includes(cleanName)
+      );
     }
 
     if (!currentEst) return;
     setEstablishment(currentEst);
+
+    // Garante que o ID do estabelecimento esteja vinculado ao usuário gerente em qualquer dispositivo
+    if (currentEst && freshUser.establishmentId !== currentEst.id) {
+      freshUser.establishmentId = currentEst.id;
+      db.setCurrentUser(freshUser);
+      const updatedUsers = db.getUsers().map(u => u.id === freshUser.id ? { ...u, establishmentId: currentEst.id } : u);
+      localStorage.setItem('delivery_system_users', JSON.stringify(updatedUsers));
+    }
 
     const currentEstName = currentEst.name.toLowerCase().trim();
     const matchingEstIds = allEsts

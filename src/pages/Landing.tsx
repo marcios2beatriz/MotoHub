@@ -106,6 +106,7 @@ export default function Landing() {
     const newEst: Establishment = {
       id: estId,
       name: estForm.establishmentName,
+      email: estForm.email, // Salva o e-mail diretamente no estabelecimento para sincronização perfeita
       address: {
         street: estForm.address,
         number: 'S/N',
