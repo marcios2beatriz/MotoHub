@@ -1,11 +1,19 @@
--- Script de Configuração Completa do Banco de Dados Supabase
--- Copie este código e cole no SQL Editor do seu painel do Supabase, depois clique em "Run".
+-- Script de Configuração Limpa e Completa do Banco de Dados Supabase
+-- ATENÇÃO: Este script apaga as tabelas antigas e as recria com todas as colunas corretas.
 
--- 1. Habilitar extensão de UUID se necessário
+-- 1. Desativar chaves estrangeiras temporariamente para permitir o DROP limpo
+drop table if exists public.rider_locations cascade;
+drop table if exists public.deliveries cascade;
+drop table if exists public.schedules cascade;
+drop table if exists public.users cascade;
+drop table if exists public.establishments cascade;
+drop table if exists public.partner_requests cascade;
+
+-- 2. Habilitar extensão de UUID se necessário
 create extension if not exists "uuid-ossp";
 
--- 2. Tabela de Estabelecimentos
-create table if not exists public.establishments (
+-- 3. Tabela de Estabelecimentos
+create table public.establishments (
   id text primary key,
   name text not null,
   email text,
@@ -23,8 +31,8 @@ create table if not exists public.establishments (
   updated_at timestamp with time zone default timezone('utc'::text, now())
 );
 
--- 3. Tabela de Usuários
-create table if not exists public.users (
+-- 4. Tabela de Usuários
+create table public.users (
   id text primary key,
   name text not null,
   email text not null unique,
@@ -39,8 +47,8 @@ create table if not exists public.users (
   updated_at timestamp with time zone default timezone('utc'::text, now())
 );
 
--- 4. Tabela de Escalas (Schedules)
-create table if not exists public.schedules (
+-- 5. Tabela de Escalas (Schedules)
+create table public.schedules (
   id text primary key,
   rider_id text references public.users(id) on delete cascade,
   establishment_id text references public.establishments(id) on delete cascade,
@@ -54,8 +62,8 @@ create table if not exists public.schedules (
   updated_at timestamp with time zone default timezone('utc'::text, now())
 );
 
--- 5. Tabela de Corridas (Deliveries)
-create table if not exists public.deliveries (
+-- 6. Tabela de Corridas (Deliveries)
+create table public.deliveries (
   id text primary key,
   rider_id text references public.users(id) on delete cascade,
   establishment_id text references public.establishments(id) on delete cascade,
@@ -72,8 +80,8 @@ create table if not exists public.deliveries (
   updated_at timestamp with time zone default timezone('utc'::text, now())
 );
 
--- 6. Tabela de Solicitações de Parceria (Partner Requests)
-create table if not exists public.partner_requests (
+-- 7. Tabela de Solicitações de Parceria (Partner Requests)
+create table public.partner_requests (
   id text primary key,
   establishment_name text not null,
   owner_name text not null,
@@ -83,8 +91,8 @@ create table if not exists public.partner_requests (
   created_at timestamp with time zone default timezone('utc'::text, now())
 );
 
--- 7. Tabela de Localizações dos Motoboys (Rider Locations)
-create table if not exists public.rider_locations (
+-- 8. Tabela de Localizações dos Motoboys (Rider Locations)
+create table public.rider_locations (
   rider_id text primary key references public.users(id) on delete cascade,
   rider_name text not null,
   latitude numeric not null,
