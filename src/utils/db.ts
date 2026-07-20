@@ -108,9 +108,20 @@ const KEYS = {
   PARTNER_REQUESTS: 'delivery_system_partner_requests'
 };
 
+// Cache global de colunas inexistentes por tabela para evitar requisições redundantes e lentidão
+const missingColumnsCache: Record<string, Set<string>> = {};
+
 // Função de Auto-Cura para Upsert no Supabase
 async function safeUpsert(tableName: string, rawPayload: Record<string, any>): Promise<{ success: boolean; error?: any }> {
   const payload = { ...rawPayload };
+  
+  // Remove colunas que já sabemos que não existem nesta tabela
+  if (missingColumnsCache[tableName]) {
+    missingColumnsCache[tableName].forEach(col => {
+      delete payload[col];
+    });
+  }
+
   const maxRetries = 10;
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
@@ -122,12 +133,24 @@ async function safeUpsert(tableName: string, rawPayload: Record<string, any>): P
 
     const msg = error.message || '';
     // Detecta se o erro é de coluna inexistente no banco de dados
-    // Exemplo: "Could not find the 'created_at' column of 'users' in the schema cache"
-    const match = msg.match(/Could not find the '([^']+)' column/);
+    // Exemplos:
+    // - "Could not find the 'created_at' column of 'users' in the schema cache"
+    // - "column \"updated_at\" of relation \"users\" does not exist"
+    // - "column \"notes\" does not exist"
+    const match = msg.match(/Could not find the '([^']+)' column/) || 
+                  msg.match(/column "([^"]+)"/) || 
+                  msg.match(/column '([^']+)'/);
     
     if (match && match[1]) {
       const missingCol = match[1];
       console.warn(`[Auto-Cura] Removendo coluna inexistente '${missingCol}' da tabela '${tableName}' e tentando novamente.`);
+      
+      // Adiciona ao cache para evitar tentar enviar esta coluna no futuro
+      if (!missingColumnsCache[tableName]) {
+        missingColumnsCache[tableName] = new Set();
+      }
+      missingColumnsCache[tableName].add(missingCol);
+
       delete payload[missingCol];
       continue; // Tenta novamente com o payload podado
     }
@@ -149,6 +172,18 @@ function mergeChatStrings(localChat: string | undefined, remoteChat: string | un
   
   const uniqueLines = Array.from(new Set([...localLines, ...remoteLines]));
   return uniqueLines.join('\n');
+}
+
+// Helper para verificar se um endereço está vazio ou contém apenas placeholders padrão
+function isAddressEmptyOrPlaceholder(addr: any): boolean {
+  if (!addr) return true;
+  const street = (addr.street || '').toLowerCase().trim();
+  const neighborhood = (addr.neighborhood || '').toLowerCase().trim();
+  
+  const isEmpty = !street || !neighborhood;
+  const isPlaceholder = street === 'sem rua' || street === 'a definir' || neighborhood === 'sem bairro' || neighborhood === 'a definir';
+  
+  return isEmpty || isPlaceholder;
 }
 
 export const db = {
@@ -429,10 +464,9 @@ export const db = {
           }
 
           // --- REGRA DE PRESERVAÇÃO DE ENDEREÇO LOCAL ---
-          // Se o endereço retornado do Supabase estiver vazio/incompleto, mas tivermos um endereço local válido, preservamos o local.
+          // Se o endereço retornado do Supabase estiver vazio/incompleto ou for um placeholder, mas tivermos um endereço local válido, preservamos o local.
           const local = localEsts.find(l => l.id === e.id);
-          const isRemoteAddressEmpty = !parsedAddress.street && !parsedAddress.neighborhood;
-          if (isRemoteAddressEmpty && local && local.address && local.address.street) {
+          if (isAddressEmptyOrPlaceholder(parsedAddress) && local && local.address && !isAddressEmptyOrPlaceholder(local.address)) {
             parsedAddress = { ...local.address };
           }
 
