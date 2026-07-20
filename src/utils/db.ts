@@ -108,6 +108,47 @@ const KEYS = {
   PARTNER_REQUESTS: 'delivery_system_partner_requests'
 };
 
+// Cache de colunas detectadas para evitar requisições repetidas
+const detectedColumnsCache: Record<string, string[]> = {};
+
+// Função auxiliar para descobrir quais colunas realmente existem em uma tabela do Supabase
+async function getTableColumns(tableName: string): Promise<string[]> {
+  if (detectedColumnsCache[tableName]) {
+    return detectedColumnsCache[tableName];
+  }
+
+  try {
+    // Faz uma consulta vazia limitando a 1 registro para obter as chaves do objeto retornado
+    const { data, error } = await supabase.from(tableName).select('*').limit(1);
+    if (error) throw error;
+    
+    if (data && data.length > 0) {
+      const cols = Object.keys(data[0]);
+      detectedColumnsCache[tableName] = cols;
+      return cols;
+    } else {
+      // Se a tabela estiver vazia, tenta inserir um registro temporário com ID inválido para forçar o retorno do schema ou usa fallback
+      detectedColumnsCache[tableName] = [];
+      return [];
+    }
+  } catch (e) {
+    console.warn(`Não foi possível autodetectar colunas para a tabela ${tableName}:`, e);
+    return [];
+  }
+}
+
+// Filtra um objeto mantendo apenas as chaves que existem na lista de colunas válidas
+function filterPayload(payload: Record<string, any>, validColumns: string[]): Record<string, any> {
+  if (validColumns.length === 0) return payload; // Se não detectou, envia tudo como fallback
+  const filtered: Record<string, any> = {};
+  for (const key of Object.keys(payload)) {
+    if (validColumns.includes(key)) {
+      filtered[key] = payload[key];
+    }
+  }
+  return filtered;
+}
+
 // Helper para mesclar strings de chat sem duplicar mensagens
 function mergeChatStrings(localChat: string | undefined, remoteChat: string | undefined): string {
   if (!localChat) return remoteChat || '';
@@ -562,10 +603,12 @@ export const db = {
   },
 
   async syncUsersToSupabase(users: User[]) {
+    const validCols = await getTableColumns('users');
+    
     for (const u of users) {
       try {
-        // Tentativa 1: Payload completo com todas as colunas customizadas
-        const { error } = await supabase.from('users').upsert({
+        // Mapeia o payload local para o formato do banco de dados
+        const rawPayload: Record<string, any> = {
           id: u.id,
           name: u.name,
           email: u.email,
@@ -578,36 +621,14 @@ export const db = {
           establishment_id: u.establishmentId || null,
           created_at: u.createdAt || new Date().toISOString(),
           updated_at: new Date().toISOString()
-        });
-        if (!error) continue;
+        };
 
-        console.warn(`Primeira tentativa de sincronizar usuário ${u.id} falhou:`, error.message);
+        // Filtra dinamicamente mantendo apenas as colunas que realmente existem no Supabase
+        const filteredPayload = filterPayload(rawPayload, validCols);
 
-        // Tentativa 2: Omitir colunas que podem não existir no schema remoto (como must_reset_password, password_hash, created_at, updated_at)
-        const { error: error2 } = await supabase.from('users').upsert({
-          id: u.id,
-          name: u.name,
-          email: u.email,
-          role: u.role,
-          active: u.active,
-          phone: u.phone,
-          cpf: u.cpf,
-          establishment_id: u.establishmentId || null
-        });
-        if (!error2) continue;
-
-        console.warn(`Segunda tentativa de sincronizar usuário ${u.id} falhou:`, error2.message);
-
-        // Tentativa 3: Apenas colunas essenciais garantidas
-        const { error: error3 } = await supabase.from('users').upsert({
-          id: u.id,
-          name: u.name,
-          email: u.email,
-          role: u.role,
-          active: u.active
-        });
-        if (error3) {
-          console.error(`Todas as tentativas de sincronizar o usuário ${u.id} falharam:`, error3);
+        const { error } = await supabase.from('users').upsert(filteredPayload);
+        if (error) {
+          console.error(`Erro ao sincronizar usuário ${u.id} com payload filtrado:`, error.message);
         }
       } catch (e) {
         console.error(`Exceção ao sincronizar usuário ${u.id}:`, e);
@@ -616,56 +637,28 @@ export const db = {
   },
 
   async syncEstablishmentsToSupabase(ests: Establishment[]) {
+    const validCols = await getTableColumns('establishments');
+
     for (const e of ests) {
       try {
-        // Tentativa 1: Enviar endereço como objeto JSON (ideal para colunas jsonb) e incluir email e datas
-        const { error } = await supabase.from('establishments').upsert({
+        // Mapeia o payload local para o formato do banco de dados
+        const rawPayload: Record<string, any> = {
           id: e.id,
           name: e.name,
-          email: e.email || undefined,
+          email: e.email || null,
           active: e.active,
           phone: e.phone || '',
-          address: e.address, // Objeto direto
+          address: typeof e.address === 'object' ? JSON.stringify(e.address) : e.address,
           created_at: e.createdAt || new Date().toISOString(),
           updated_at: new Date().toISOString()
-        });
-        if (!error) continue;
+        };
 
-        console.warn(`Primeira tentativa de sincronizar estabelecimento ${e.id} falhou:`, error.message);
+        // Filtra dinamicamente mantendo apenas as colunas que realmente existem no Supabase
+        const filteredPayload = filterPayload(rawPayload, validCols);
 
-        // Tentativa 2: Enviar endereço stringificado (para colunas text) e incluir email e datas
-        const { error: error2 } = await supabase.from('establishments').upsert({
-          id: e.id,
-          name: e.name,
-          email: e.email || undefined,
-          active: e.active,
-          phone: e.phone || '',
-          address: JSON.stringify(e.address), // Stringificado
-          created_at: e.createdAt || new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        });
-        if (!error2) continue;
-
-        console.warn(`Segunda tentativa de sincronizar estabelecimento ${e.id} falhou:`, error2.message);
-
-        // Tentativa 3: Omitir endereço e datas (apenas id, name, active, phone, email)
-        const { error: error3 } = await supabase.from('establishments').upsert({
-          id: e.id,
-          name: e.name,
-          email: e.email || undefined,
-          active: e.active,
-          phone: e.phone || ''
-        });
-        if (!error3) continue;
-
-        // Tentativa 4: Apenas id, name, active
-        const { error: error4 } = await supabase.from('establishments').upsert({
-          id: e.id,
-          name: e.name,
-          active: e.active
-        });
-        if (error4) {
-          console.error(`Todas as tentativas de sincronizar o estabelecimento ${e.id} falharam:`, error4);
+        const { error } = await supabase.from('establishments').upsert(filteredPayload);
+        if (error) {
+          console.error(`Erro ao sincronizar estabelecimento ${e.id} com payload filtrado:`, error.message);
         }
       } catch (err) {
         console.error(`Exceção ao sincronizar estabelecimento ${e.id}:`, err);
@@ -674,9 +667,15 @@ export const db = {
   },
 
   async syncPartnerRequestsToSupabase(requests: PartnerRequest[]) {
+    const validCols = await getTableColumns('partner_requests');
+    if (validCols.length === 0) {
+      console.warn('Tabela partner_requests não existe ou está inacessível no Supabase. Sincronização ignorada.');
+      return;
+    }
+
     try {
       for (const r of requests) {
-        await supabase.from('partner_requests').upsert({
+        const rawPayload: Record<string, any> = {
           id: r.id,
           establishment_name: r.establishmentName,
           owner_name: r.ownerName,
@@ -684,7 +683,10 @@ export const db = {
           address: r.address,
           status: r.status,
           created_at: r.createdAt
-        });
+        };
+
+        const filteredPayload = filterPayload(rawPayload, validCols);
+        await supabase.from('partner_requests').upsert(filteredPayload);
       }
     } catch (e) {
       console.error('Erro ao sincronizar solicitações de parceria com Supabase:', e);
@@ -695,9 +697,11 @@ export const db = {
     try {
       // 1. Sincronizar Escalas (Schedules)
       const schedules = this.getSchedules();
+      const validScheduleCols = await getTableColumns('schedules');
+
       for (const s of schedules) {
         try {
-          const { error } = await supabase.from('schedules').upsert({
+          const rawPayload: Record<string, any> = {
             id: s.id,
             rider_id: s.riderId,
             establishment_id: s.establishmentId,
@@ -709,21 +713,12 @@ export const db = {
             created_by: s.createdBy || null,
             created_at: s.createdAt || new Date().toISOString(),
             updated_at: s.updatedAt || new Date().toISOString()
-          });
+          };
+
+          const filteredPayload = filterPayload(rawPayload, validScheduleCols);
+          const { error } = await supabase.from('schedules').upsert(filteredPayload);
           if (error) {
-            // Tentativa 2: Omitir datas e chat
-            const { error: error2 } = await supabase.from('schedules').upsert({
-              id: s.id,
-              rider_id: s.riderId,
-              establishment_id: s.establishmentId,
-              date: s.date,
-              shift: s.shift,
-              start_time: s.startTime,
-              end_time: s.endTime
-            });
-            if (error2) {
-              console.warn(`Falha ao sincronizar escala ${s.id}:`, error2.message);
-            }
+            console.warn(`Falha ao sincronizar escala ${s.id}:`, error.message);
           }
         } catch (e) {
           console.error(`Erro ao sincronizar escala ${s.id}:`, e);
@@ -732,6 +727,8 @@ export const db = {
 
       // 2. Sincronizar Corridas (Deliveries)
       const deliveries = this.getDeliveries();
+      const validDeliveryCols = await getTableColumns('deliveries');
+
       for (const d of deliveries) {
         try {
           // Serializa metadados no order_number para garantir compatibilidade total de colunas
@@ -742,7 +739,7 @@ export const db = {
             updatedAt: d.updatedAt || new Date().toISOString()
           });
 
-          const { error } = await supabase.from('deliveries').upsert({
+          const rawPayload: Record<string, any> = {
             id: d.id,
             rider_id: d.riderId,
             establishment_id: d.establishment_id,
@@ -756,21 +753,12 @@ export const db = {
             customer_chat: d.customerChat || null,
             updated_at: d.updatedAt || new Date().toISOString(),
             paid: d.paid || false
-          });
+          };
+
+          const filteredPayload = filterPayload(rawPayload, validDeliveryCols);
+          const { error } = await supabase.from('deliveries').upsert(filteredPayload);
           if (error) {
-            // Tentativa 2: Omitir datas, notes, customer_chat, paid
-            const { error: error2 } = await supabase.from('deliveries').upsert({
-              id: d.id,
-              rider_id: d.riderId,
-              establishment_id: d.establishment_id,
-              date: d.date,
-              time: d.time,
-              value: d.value,
-              status: d.status
-            });
-            if (error2) {
-              console.warn(`Falha ao sincronizar corrida ${d.id}:`, error2.message);
-            }
+            console.warn(`Falha ao sincronizar corrida ${d.id}:`, error.message);
           }
         } catch (e) {
           console.error(`Erro ao sincronizar corrida ${d.id}:`, e);
