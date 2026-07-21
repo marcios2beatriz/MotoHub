@@ -47,6 +47,7 @@ export default function RiderDashboard() {
   const watchIdRef = useRef<number | null>(null);
   const fallbackIntervalRef = useRef<any>(null);
   const wakeLockRef = useRef<any>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   // Refs para armazenar o estado anterior das notas e chats para evitar notificações duplicadas
   const prevNotesRef = useRef<Record<string, string>>({});
@@ -251,11 +252,37 @@ export default function RiderDashboard() {
     }
   };
 
+  // Inicia um áudio silencioso em loop para manter o navegador ativo em segundo plano
+  const startSilentAudio = () => {
+    try {
+      if (!audioRef.current) {
+        const audio = document.createElement('audio');
+        // WAV de 1 segundo de silêncio absoluto em base64
+        audio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==';
+        audio.loop = true;
+        audio.volume = 0.01; // Quase inaudível
+        audioRef.current = audio;
+      }
+      audioRef.current.play().catch(e => {
+        console.log('Autoplay bloqueado. Aguardando interação do usuário para iniciar áudio de fundo:', e);
+      });
+    } catch (err) {
+      console.warn('Erro ao iniciar áudio silencioso:', err);
+    }
+  };
+
+  const stopSilentAudio = () => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+    }
+  };
+
   const startGpsTracking = () => {
     if (!user || user.role !== 'rider') return;
     
-    // Ativar Wake Lock para manter a tela ligada e o GPS ativo
+    // Ativar Wake Lock e áudio silencioso para manter o GPS ativo em segundo plano
     requestWakeLock();
+    startSilentAudio();
 
     if (watchIdRef.current !== null) {
       navigator.geolocation.clearWatch(watchIdRef.current);
@@ -314,13 +341,20 @@ export default function RiderDashboard() {
   useEffect(() => {
     startGpsTracking();
 
-    // Re-solicitar Wake Lock se a página voltar a ficar visível
+    // Re-solicitar Wake Lock e áudio silencioso se a página voltar a ficar visível
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         requestWakeLock();
+        startSilentAudio();
       }
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    // Adiciona um listener global de clique para garantir que o áudio silencioso seja ativado após interação do usuário
+    const handleUserInteraction = () => {
+      startSilentAudio();
+    };
+    document.addEventListener('click', handleUserInteraction);
 
     return () => {
       if (watchIdRef.current !== null) {
@@ -330,7 +364,9 @@ export default function RiderDashboard() {
         clearInterval(fallbackIntervalRef.current);
       }
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      document.removeEventListener('click', handleUserInteraction);
       releaseWakeLock();
+      stopSilentAudio();
     };
   }, [user]);
 

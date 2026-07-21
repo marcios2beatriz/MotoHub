@@ -712,6 +712,30 @@ export const db = {
       console.warn('Erro ao sincronizar tabela "partner_requests" do Supabase:', err);
     }
 
+    // 6. Sincronizar Localizações dos Motoboys (Rider Locations) do Supabase para outros computadores
+    try {
+      const { data: locData, error } = await supabase.from('rider_locations').select('*');
+      if (error) throw error;
+      if (locData) {
+        const mappedLocs: Record<string, RiderLocation> = {};
+        locData.forEach(l => {
+          const rId = l.rider_id || l.riderId;
+          if (rId) {
+            mappedLocs[rId] = {
+              riderId: rId,
+              riderName: l.rider_name || l.riderName || '',
+              lat: parseFloat(l.latitude !== undefined ? l.latitude : l.lat),
+              lng: parseFloat(l.longitude !== undefined ? l.longitude : l.lng),
+              updatedAt: l.updated_at || l.updatedAt || new Date().toISOString()
+            };
+          }
+        });
+        localStorage.setItem(KEYS.RIDER_LOCATIONS, JSON.stringify(mappedLocs));
+      }
+    } catch (err) {
+      console.warn('Erro ao sincronizar tabela "rider_locations" do Supabase:', err);
+    }
+
     // Dispara evento global para atualizar as telas em tempo real
     window.dispatchEvent(new Event('db-sync-complete'));
   },
