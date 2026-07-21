@@ -1,6 +1,5 @@
 "use client";
 
-// MotoHub Delivery - Trigger Commit para atualização de build e correção de tipos do TS
 import React, { useEffect } from 'react';
 import { HashRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import Landing from './pages/Landing';

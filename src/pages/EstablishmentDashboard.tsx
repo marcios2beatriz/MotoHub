@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { db, User, Establishment, Schedule, Delivery, RiderLocation } from '../utils/db';
+import { db, User, Establishment, Schedule, Delivery, RiderLocation, Notification } from '../utils/db';
 import { 
   Bike, 
   LogOut, 
@@ -26,14 +26,16 @@ import {
   MessageSquare
 } from 'lucide-react';
 
+// Leaflet imports
 import L from 'leaflet';
 import DeliveryNotesModal from '../components/DeliveryNotesModal';
 import ScheduleChatModal from '../components/ScheduleChatModal';
 import { sendDeviceNotification, playNotificationSound } from '../utils/notifications';
 
+// Dicionário de CEPs conhecidos para precisão absoluta e instantânea
 const KNOWN_CEPS: { [key: string]: { lat: number; lng: number } } = {
-  '58433488': { lat: -7.2311, lng: -35.9245 },
-  '58429900': { lat: -7.2150, lng: -35.9130 },
+  '58433488': { lat: -7.2311, lng: -35.9245 }, // Rua Martinho Lutero, 32, Malvinas, Campina Grande - PB
+  '58429900': { lat: -7.2150, lng: -35.9130 }, // Bodocongó, Campina Grande - PB
 };
 
 export default function EstablishmentDashboard() {
@@ -51,15 +53,22 @@ export default function EstablishmentDashboard() {
   });
   const [establishment, setEstablishment] = useState<Establishment | null>(null);
   
+  // Data states
   const [scheduledRiders, setScheduledRiders] = useState<User[]>([]);
   const [todaySchedules, setTodaySchedules] = useState<Schedule[]>([]);
   const [todayDeliveries, setTodayDeliveries] = useState<Delivery[]>([]);
   const [riderLocations, setRiderLocations] = useState<RiderLocation[]>([]);
   const [estCoords, setEstCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  // Map expansion state
   const [isMapExpanded, setIsMapExpanded] = useState(false);
 
+  // Ref para armazenar o estado anterior das notas e chats para evitar notificações duplicadas
   const prevNotesRef = useRef<Record<string, string>>({});
+  const prevScheduleChatRef = useRef<Record<string, string>>({});
 
+  // Form state
   const [showDeliveryModal, setShowDeliveryModal] = useState(false);
   const [editingDelivery, setEditingDelivery] = useState<Delivery | null>(null);
   const [deliveryForm, setDeliveryForm] = useState({
@@ -69,13 +78,16 @@ export default function EstablishmentDashboard() {
     notes: ''
   });
 
+  // IDs dos Modais Ativos para Sincronização em Tempo Real
   const [notesDeliveryId, setNotesDeliveryId] = useState<string | null>(null);
   const [activeScheduleChatId, setActiveScheduleChatId] = useState<string | null>(null);
 
+  // Map reference
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const markersRef = useRef<{ [key: string]: L.Marker }>({});
   
+  // Ref para controlar se já fizemos o enquadramento inicial do mapa
   const hasSetInitialBoundsRef = useRef(false);
   const hasCenteredEstRef = useRef(false);
 
@@ -84,24 +96,33 @@ export default function EstablishmentDashboard() {
     navigate('/login');
   };
 
-  const isScheduleForCurrentEst = (s: Schedule, currentEstName: string, matchingEstIds: string[]) => {
+  // Helper robusto para verificar se uma escala pertence ao estabelecimento atual por nome ou ID
+  const isScheduleForCurrentEst = (s: Schedule, currentEstName: string, matchingEstIds: string[], allEsts: Establishment[]) => {
     if (!currentEstName) return false;
     if (matchingEstIds.includes(s.establishmentId)) return true;
     const destEst = db.resolveEstablishment(s.establishmentId);
     if (destEst) {
       const destName = destEst.name.toLowerCase().trim();
       return destName === currentEstName || 
+             destName === currentEstName || 
              destName.includes(currentEstName) || 
-             currentEstName.includes(destName);
+             currentEstName.includes(destName) ||
+             destName.replace(/\s+/g, '') === currentEstName.replace(/\s+/g, '');
     }
     return false;
   };
 
-  const isDeliveryForCurrentEst = (d: Delivery, currentEstName: string, matchingEstIds: string[]) => {
+  // Helper ultra-robusto para verificar se uma corrida pertence ao estabelecimento atual por nome ou ID
+  const isDeliveryForCurrentEst = (d: Delivery, currentEstName: string, matchingEstIds: string[], allEsts: Establishment[]) => {
     if (!currentEstName) return false;
+    
+    // 1. Se o ID do estabelecimento da corrida bate diretamente com os IDs do estabelecimento atual
     if (matchingEstIds.includes(d.establishmentId)) return true;
     
+    // 2. Tenta resolver o estabelecimento da corrida
     let destEst = db.resolveEstablishment(d.establishmentId);
+    
+    // 3. Se não resolveu, mas tem ID de escala, tenta resolver pela escala
     if (!destEst && d.scheduleId) {
       const sch = db.getSchedules().find(s => s.id === d.scheduleId);
       if (sch) {
@@ -109,12 +130,15 @@ export default function EstablishmentDashboard() {
       }
     }
     
+    // 4. Se resolveu o estabelecimento, compara os nomes de forma robusta
     if (destEst) {
       const destName = destEst.name.toLowerCase().trim();
       return destName === currentEstName || 
              destName.includes(currentEstName) || 
-             currentEstName.includes(destName);
+             currentEstName.includes(destName) ||
+             destName.replace(/\s+/g, '') === currentEstName.replace(/\s+/g, '');
     }
+    
     return false;
   };
 
@@ -122,38 +146,70 @@ export default function EstablishmentDashboard() {
     const currentUser = db.getCurrentUser();
     if (!currentUser) return;
 
-    const freshUser = db.getUsers().find(u => u.id === currentUser.id) || currentUser;
+    const freshUser = db.getUsers().find(u => u.email.toLowerCase() === currentUser.email.toLowerCase()) || currentUser;
     let estId = freshUser.establishmentId;
 
     const allEsts = db.getEstablishments();
     let currentEst = allEsts.find(e => e.id === estId);
 
+    // Fallback 1: Buscar por e-mail do estabelecimento correspondente ao e-mail do gerente
     if (!currentEst) {
       currentEst = allEsts.find(e => e.email && e.email.toLowerCase() === freshUser.email.toLowerCase());
     }
 
+    // Fallback 2: Buscar por prefixo do e-mail
+    if (!currentEst) {
+      const emailPrefix = freshUser.email.split('@')[0].toLowerCase();
+      if (emailPrefix && emailPrefix !== 'gerente' && emailPrefix !== 'admin') {
+        currentEst = allEsts.find(e => 
+          e.name.toLowerCase().includes(emailPrefix) || 
+          emailPrefix.includes(e.name.toLowerCase().replace(/\s+/g, ''))
+        );
+      }
+    }
+
+    // Fallback 3: Buscar por nome do gerente (evitando strings vazias ou muito curtas)
     if (!currentEst && freshUser.name) {
       const cleanName = freshUser.name.replace('Gerente ', '').toLowerCase().trim();
       if (cleanName && cleanName.length > 2) {
-        currentEst = allEsts.find(e => e.name.toLowerCase().trim().includes(cleanName));
+        currentEst = allEsts.find(e => 
+          e.name.toLowerCase().trim() === cleanName || 
+          e.name.toLowerCase().trim().includes(cleanName) ||
+          cleanName.includes(e.name.toLowerCase().trim())
+        );
       }
     }
 
     if (!currentEst) return;
     setEstablishment(currentEst);
 
+    // Garante que o ID do estabelecimento esteja vinculado ao usuário gerente em qualquer dispositivo
+    if (currentEst && freshUser.establishmentId !== currentEst.id) {
+      freshUser.establishmentId = currentEst.id;
+      db.setCurrentUser(freshUser);
+      const updatedUsers = db.getUsers().map(u => u.id === freshUser.id ? { ...u, establishmentId: currentEst.id } : u);
+      localStorage.setItem('delivery_system_users', JSON.stringify(updatedUsers));
+    }
+
     const currentEstName = currentEst.name.toLowerCase().trim();
     const matchingEstIds = allEsts
-      .filter(e => e.name.toLowerCase().trim().includes(currentEstName) || currentEstName.includes(e.name.toLowerCase().trim()))
+      .filter(e => {
+        const name = e.name.toLowerCase().trim();
+        return name === currentEstName || 
+               name.includes(currentEstName) || 
+               currentEstName.includes(name) ||
+               name.replace(/\s+/g, '') === currentEstName.replace(/\s+/g, '');
+      })
       .map(e => e.id);
 
     const todayStr = db.getLocalDateString();
     const allSchedules = db.getSchedules();
     
-    const estSchedules = allSchedules.filter(s => isScheduleForCurrentEst(s, currentEstName, matchingEstIds) && s.date === todayStr);
+    const estSchedules = allSchedules.filter(s => isScheduleForCurrentEst(s, currentEstName, matchingEstIds, allEsts) && s.date === todayStr);
     setTodaySchedules(estSchedules);
 
     const allUsers = db.getUsers();
+    
     const riders = allUsers.filter(u => 
       estSchedules.some(s => {
         if (s.riderId === u.id) return true;
@@ -164,7 +220,7 @@ export default function EstablishmentDashboard() {
     setScheduledRiders(riders);
 
     const allDeliveries = db.getDeliveries();
-    const estDeliveriesToday = allDeliveries.filter(d => isDeliveryForCurrentEst(d, currentEstName, matchingEstIds) && d.date === todayStr);
+    const estDeliveriesToday = allDeliveries.filter(d => isDeliveryForCurrentEst(d, currentEstName, matchingEstIds, allEsts) && d.date === todayStr);
     setTodayDeliveries(estDeliveriesToday);
 
     const locations = db.getRiderLocations();
@@ -177,13 +233,20 @@ export default function EstablishmentDashboard() {
       return;
     }
 
+    const freshUser = db.getUsers().find(u => u.email.toLowerCase() === user.email.toLowerCase());
+    if (freshUser && freshUser.establishmentId !== user.establishmentId) {
+      setUser(freshUser);
+    }
+
     db.pullFromSupabase().then(() => loadData());
 
     const interval = setInterval(() => {
       db.pullFromSupabase().then(() => loadData());
     }, 5000);
 
-    const handleSyncComplete = () => loadData();
+    const handleSyncComplete = () => {
+      loadData();
+    };
     window.addEventListener('db-sync-complete', handleSyncComplete);
 
     return () => {
@@ -204,11 +267,32 @@ export default function EstablishmentDashboard() {
           newLines.forEach(line => {
             const isMe = line.includes('- Estabelecimento') || line.includes(`(${user?.name})`);
             if (!isMe) {
+              const rider = db.resolveUser(d.riderId);
               const sender = line.includes('- Motoboy') ? 'Motoboy' : 'Cliente';
               const messageText = line.substring(line.indexOf(']: ') + 3);
               
-              sendDeviceNotification(`Nova mensagem de ${sender}`, `Pedido #${d.orderNumber || d.id.slice(-4)}: "${messageText}"`);
+              sendDeviceNotification(
+                `Nova mensagem de ${sender}`,
+                `Pedido #${d.orderNumber || d.id.slice(-4)} (${rider?.name || 'Entregador'}): "${messageText}"`
+              );
+
               playNotificationSound();
+
+              const alertDiv = document.createElement('div');
+              alertDiv.className = 'fixed top-4 left-4 right-4 bg-indigo-600 text-white p-4 rounded-xl shadow-2xl z-50 flex items-center justify-between animate-bounce max-w-md mx-auto';
+              alertDiv.innerHTML = `
+                <div class="flex items-center gap-2">
+                  <span class="text-lg">💬</span>
+                  <div>
+                    <p class="font-bold text-xs uppercase tracking-wider">Mensagem de ${sender}</p>
+                    <p class="text-sm font-medium">${messageText}</p>
+                  </div>
+                </div>
+                <button class="text-white/80 hover:text-white font-bold text-sm px-2 py-1">OK</button>
+              `;
+              alertDiv.querySelector('button')?.addEventListener('click', () => alertDiv.remove());
+              document.body.appendChild(alertDiv);
+              setTimeout(() => alertDiv.remove(), 6000);
             }
           });
         }
@@ -217,230 +301,341 @@ export default function EstablishmentDashboard() {
     });
   }, [todayDeliveries, user]);
 
-  // Geocodificação do Estabelecimento
   useEffect(() => {
-    if (!establishment) return;
-    
-    const cepClean = establishment.address?.zipCode ? establishment.address.zipCode.replace(/\D/g, '') : '';
-    if (cepClean && KNOWN_CEPS[cepClean]) {
-      setEstCoords(KNOWN_CEPS[cepClean]);
-      return;
-    }
+    todaySchedules.forEach(s => {
+      const prevChat = prevScheduleChatRef.current[s.id];
+      if (prevChat !== undefined && s.chat && s.chat !== prevChat) {
+        const prevLines = prevChat ? prevChat.split('\n') : [];
+        const currentLines = s.chat.split('\n');
 
-    const addressQuery = `${establishment.address?.street || ''}, ${establishment.address?.neighborhood || ''}, Campina Grande, PB, Brazil`;
-    fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(addressQuery)}`)
-      .then(res => res.json())
-      .then(data => {
-        if (data && data[0]) {
-          setEstCoords({
-            lat: parseFloat(data[0].lat),
-            lng: parseFloat(data[0].lon)
+        if (currentLines.length > prevLines.length) {
+          const newLines = currentLines.slice(prevLines.length);
+          newLines.forEach(line => {
+            const isMe = line.includes('- Estabelecimento') || line.includes(`(${user?.name})`);
+            if (!isMe) {
+              const rider = db.resolveUser(s.riderId);
+              const messageText = line.substring(line.indexOf(']: ') + 3);
+              
+              sendDeviceNotification(
+                `Mensagem de Turno de ${rider?.name || 'Motoboy'}`,
+                `"${messageText}"`
+              );
+
+              playNotificationSound();
+
+              const alertDiv = document.createElement('div');
+              alertDiv.className = 'fixed top-4 left-4 right-4 bg-indigo-600 text-white p-4 rounded-xl shadow-2xl z-50 flex items-center justify-between animate-bounce max-w-md mx-auto';
+              alertDiv.innerHTML = `
+                <div class="flex items-center gap-2">
+                  <span class="text-lg">💬</span>
+                  <div>
+                    <p class="font-bold text-xs uppercase tracking-wider">Mensagem de Turno de ${rider?.name || 'Motoboy'}</p>
+                    <p class="text-sm font-medium">${messageText}</p>
+                  </div>
+                </div>
+                <button class="text-white/80 hover:text-white font-bold text-sm px-2 py-1">OK</button>
+              `;
+              alertDiv.querySelector('button')?.addEventListener('click', () => alertDiv.remove());
+              document.body.appendChild(alertDiv);
+              setTimeout(() => alertDiv.remove(), 6000);
+            }
           });
-        } else {
-          setEstCoords({ lat: -7.2245, lng: -35.8890 });
         }
-      })
-      .catch(() => {
-        setEstCoords({ lat: -7.2245, lng: -35.8890 });
-      });
-  }, [establishment]);
+      }
+      prevScheduleChatRef.current[s.id] = s.chat || '';
+    });
+  }, [todaySchedules, user]);
 
-  // Inicialização e Atualização do Mapa Leaflet
   useEffect(() => {
-    if (!mapContainerRef.current) return;
+    if (!establishment || !mapContainerRef.current) return;
 
-    if (!mapRef.current) {
-      mapRef.current = L.map(mapContainerRef.current, {
-        zoomControl: true,
-        attributionControl: false
-      }).setView([-7.2245, -35.8890], 14);
-
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-        maxZoom: 19
-      }).addTo(mapRef.current);
+    if (!document.getElementById('leaflet-css')) {
+      const link = document.createElement('link');
+      link.id = 'leaflet-css';
+      link.rel = 'stylesheet';
+      link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+      document.head.appendChild(link);
     }
 
-    const map = mapRef.current;
+    const defaultLat = -7.2247;
+    const defaultLng = -35.8878;
 
-    // Ícone do Estabelecimento
-    const estIcon = L.divIcon({
-      html: `
-        <div class="relative flex items-center justify-center">
-          <div class="absolute w-10 h-10 bg-indigo-500/30 rounded-full animate-ping"></div>
-          <div class="relative bg-indigo-600 text-white p-2.5 rounded-xl shadow-lg border-2 border-white flex items-center justify-center">
-            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
-          </div>
-        </div>
-      `,
-      className: '',
-      iconSize: [40, 40],
-      iconAnchor: [20, 20]
-    });
+    const initMap = async (lat: number, lng: number) => {
+      if (mapRef.current) return;
+      const mapInstance = L.map(mapContainerRef.current!).setView([lat, lng], 17);
+      mapRef.current = mapInstance;
 
-    if (estCoords) {
-      if (markersRef.current['establishment']) {
-        markersRef.current['establishment'].setLatLng([estCoords.lat, estCoords.lng]);
-      } else {
-        markersRef.current['establishment'] = L.marker([estCoords.lat, estCoords.lng], { icon: estIcon })
-          .addTo(map)
-          .bindPopup(`<div class="font-sans font-semibold text-gray-800">${establishment?.name || 'Seu Estabelecimento'}</div>`);
-      }
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(mapInstance);
 
-      if (!hasCenteredEstRef.current) {
-        map.setView([estCoords.lat, estCoords.lng], 14);
-        hasCenteredEstRef.current = true;
-      }
-    }
-
-    const scheduledRiderIds = scheduledRiders.map(r => r.id);
-    const scheduledRiderEmails = scheduledRiders.map(r => r.email.toLowerCase());
-
-    const activeLocations = riderLocations.filter(loc => {
-      const resolvedRider = db.resolveUser(loc.riderId);
-      if (!resolvedRider) return false;
-      return scheduledRiderIds.includes(resolvedRider.id) || 
-             scheduledRiderEmails.includes(resolvedRider.email.toLowerCase());
-    });
-
-    const currentMarkerKeys = new Set<string>(['establishment']);
-
-    activeLocations.forEach(loc => {
-      const resolvedRider = db.resolveUser(loc.riderId);
-      if (!resolvedRider) return;
-
-      const markerKey = `rider-${resolvedRider.id}`;
-      currentMarkerKeys.add(markerKey);
-
-      const riderIcon = L.divIcon({
-        html: `
-          <div class="relative flex items-center justify-center">
-            <div class="absolute w-10 h-10 bg-emerald-500/20 rounded-full animate-pulse"></div>
-            <div class="relative bg-emerald-500 text-white p-2 rounded-full shadow-md border-2 border-white flex items-center justify-center">
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="5.5" cy="17.5" r="2.5"/><circle cx="18.5" cy="17.5" r="2.5"/><path d="M15 6h1a2 2 0 0 1 2 2v2"/><path d="M12 15.2V8a2 2 0 0 0-2-2H4"/><path d="M12 12H9"/></svg>
-            </div>
-          </div>
-        `,
-        className: '',
+      const estIcon = L.divIcon({
+        html: `<div style="background-color: #4f46e5; color: white; width: 36px; height: 36px; border-radius: 50%; border: 2px solid white; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); display: flex; align-items: center; justify-content: center;"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></div>`,
+        className: 'custom-est-icon',
         iconSize: [36, 36],
         iconAnchor: [18, 18]
       });
 
-      const lastUpdate = new Date(loc.updatedAt);
-      const timeStr = lastUpdate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      L.marker([lat, lng], { icon: estIcon })
+        .addTo(mapInstance)
+        .bindPopup(`<b>${establishment.name}</b><br/>Seu Estabelecimento`)
+        .openPopup();
 
-      const popupContent = `
-        <div class="font-sans p-1">
-          <div class="font-bold text-gray-900 text-sm flex items-center gap-1">
-            <span class="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
-            ${resolvedRider.name}
-          </div>
-          <div class="text-xs text-gray-500 mt-1">Último sinal: ${timeStr}</div>
-          <div class="text-xs text-indigo-600 font-medium mt-0.5">${resolvedRider.phone || 'Sem telefone'}</div>
-        </div>
-      `;
+      setEstCoords({ lat, lng });
+    };
 
-      if (markersRef.current[markerKey]) {
-        markersRef.current[markerKey].setLatLng([loc.lat, loc.lng]);
-        markersRef.current[markerKey].getPopup()?.setContent(popupContent);
+    const geocodeEstablishment = async () => {
+      if (mapRef.current) return;
+      const addr = establishment.address;
+      const headers = { 'Accept-Language': 'pt-BR', 'User-Agent': 'MotoHub-Delivery-App' };
+
+      let finalLat = defaultLat;
+      let finalLng = defaultLng;
+      let geocoded = false;
+
+      if (establishment.name.toLowerCase().includes('burgrill') && establishment.address.street === 'Rua Aprígio Veloso') {
+        finalLat = -7.2150;
+        finalLng = -35.9130;
+        geocoded = true;
+      }
+
+      if (!geocoded && addr) {
+        const cepClean = addr.zipCode ? addr.zipCode.replace(/\D/g, '') : '';
+
+        if (cepClean && KNOWN_CEPS[cepClean]) {
+          finalLat = KNOWN_CEPS[cepClean].lat;
+          finalLng = KNOWN_CEPS[cepClean].lng;
+          geocoded = true;
+        }
+
+        let street = addr.street || '';
+        let city = addr.city || '';
+        let state = addr.state || '';
+        let neighborhood = addr.neighborhood || '';
+        let number = addr.number || '';
+
+        const cleanNumber = number.toLowerCase().replace(/s\/n|sn|sem número|sem numero/g, '').trim();
+        const cleanStreet = street.toLowerCase().replace(/s\/n|sn|sem número|sem numero/g, '').trim();
+
+        if (!geocoded && cepClean) {
+          try {
+            const viaCepRes = await fetch(`https://viacep.com.br/ws/${cepClean}/json/`);
+            const viaCepData = await viaCepRes.json();
+            if (viaCepData && !viaCepData.erro) {
+              street = viaCepData.logradouro || street;
+              city = viaCepData.localidade || city;
+              state = viaCepData.uf || state;
+              neighborhood = viaCepData.bairro || neighborhood;
+              
+              const qStreet = `${street}${cleanNumber ? ' ' + cleanNumber : ''}`;
+              const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&street=${encodeURIComponent(qStreet)}&city=${encodeURIComponent(city)}&state=${encodeURIComponent(state)}&country=Brasil`;
+              const res = await fetch(url, { headers });
+              const data = await res.json();
+              if (data && data.length > 0) {
+                const testLat = parseFloat(data[0].lat);
+                const testLng = parseFloat(data[0].lon);
+                if (testLat >= -8.5 && testLat <= -5.5 && testLng >= -39.0 && testLng <= -34.0) {
+                  finalLat = testLat;
+                  finalLng = testLng;
+                  geocoded = true;
+                }
+              }
+            }
+          } catch (e) {
+            console.warn('Erro ao geocodificar via ViaCEP:', e);
+          }
+        }
+
+        if (!geocoded && cepClean) {
+          try {
+            const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&postalcode=${cepClean}&country=Brasil`;
+            const res = await fetch(url, { headers });
+            const data = await res.json();
+            if (data && data.length > 0) {
+              const testLat = parseFloat(data[0].lat);
+              const testLng = parseFloat(data[0].lon);
+              if (testLat >= -8.5 && testLat <= -5.5 && testLng >= -39.0 && testLng <= -34.0) {
+                finalLat = testLat;
+                finalLng = testLng;
+                geocoded = true;
+              }
+            }
+          } catch (e) {
+            console.warn('Erro ao geocodificar por CEP estruturado:', e);
+          }
+        }
+
+        if (!geocoded) {
+          const queryFull = `${cleanStreet}, ${cleanNumber}, ${neighborhood}, ${city}, ${state}, Brasil`;
+          try {
+            const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(queryFull)}`, { headers });
+            const data = await res.json();
+            if (data && data.length > 0) {
+              const testLat = parseFloat(data[0].lat);
+              const testLng = parseFloat(data[0].lon);
+              if (testLat >= -8.5 && testLat <= -5.5 && testLng >= -39.0 && testLng <= -34.0) {
+                finalLat = testLat;
+                finalLng = testLng;
+                geocoded = true;
+              }
+            }
+          } catch (e) {
+            console.warn('Erro ao geocodificar por endereço completo:', e);
+          }
+        }
+      }
+
+      await initMap(finalLat, finalLng);
+    };
+
+    geocodeEstablishment();
+
+    return () => {
+      if (mapRef.current) {
+        mapRef.current.remove();
+        mapRef.current = null;
+        markersRef.current = {};
+        hasSetInitialBoundsRef.current = false;
+        hasCenteredEstRef.current = false;
+      }
+    };
+  }, [establishment?.id]);
+
+  useEffect(() => {
+    const currentMap = mapRef.current;
+    if (!currentMap) return;
+
+    const scheduledRiderIds = scheduledRiders.map(r => r.id);
+
+    Object.keys(markersRef.current).forEach(riderId => {
+      if (!scheduledRiderIds.includes(riderId)) {
+        markersRef.current[riderId].remove();
+        delete markersRef.current[riderId];
+      }
+    });
+
+    riderLocations.forEach(loc => {
+      if (!scheduledRiderIds.includes(loc.riderId)) return;
+
+      const riderName = loc.riderName;
+      const existingMarker = markersRef.current[loc.riderId];
+
+      if (existingMarker) {
+        existingMarker.setLatLng([loc.lat, loc.lng]);
       } else {
-        markersRef.current[markerKey] = L.marker([loc.lat, loc.lng], { icon: riderIcon })
-          .addTo(map)
-          .bindPopup(popupContent);
+        const riderIcon = L.divIcon({
+          html: `<div style="background-color: #10b981; color: white; width: 36px; height: 36px; border-radius: 50%; border: 2px solid white; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); display: flex; align-items: center; justify-content: center;"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="18" r="3" /><circle cx="18" cy="18" r="3" /><path d="M18 18v-3l-3-4H9l-3 4v3" /><rect x="8" y="6" width="5" height="5" rx="1" /><path d="M15 11l1.5-4.5H19" /></svg></div>`,
+          className: 'custom-rider-icon',
+          iconSize: [36, 36],
+          iconAnchor: [18, 18]
+        });
+
+        const marker = L.marker([loc.lat, loc.lng], { icon: riderIcon })
+          .addTo(currentMap)
+          .bindPopup(`<b>${riderName}</b><br/>Entregador em Rota`);
+
+        markersRef.current[loc.riderId] = marker;
       }
     });
 
-    Object.keys(markersRef.current).forEach(key => {
-      if (!currentMarkerKeys.has(key)) {
-        markersRef.current[key].remove();
-        delete markersRef.current[key];
+    if (!hasSetInitialBoundsRef.current) {
+      const points: L.LatLngExpression[] = [];
+      if (estCoords) {
+        points.push([estCoords.lat, estCoords.lng]);
       }
-    });
+      
+      riderLocations.forEach(loc => {
+        if (scheduledRiderIds.includes(loc.riderId)) {
+          points.push([loc.lat, loc.lng]);
+        }
+      });
 
-    if (activeLocations.length > 0 && estCoords && !hasSetInitialBoundsRef.current) {
-      const points: L.LatLngExpression[] = [[estCoords.lat, estCoords.lng]];
-      activeLocations.forEach(loc => points.push([loc.lat, loc.lng]));
-      map.fitBounds(L.latLngBounds(points), { padding: [50, 50] });
-      hasSetInitialBoundsRef.current = true;
+      if (points.length >= 2) {
+        const bounds = L.latLngBounds(points);
+        currentMap.fitBounds(bounds, { padding: [50, 50], maxZoom: 17 });
+        hasSetInitialBoundsRef.current = true;
+      } else if (points.length === 1 && !hasCenteredEstRef.current) {
+        currentMap.setView(points[0], 17);
+        hasCenteredEstRef.current = true;
+      }
     }
+  }, [scheduledRiders, riderLocations, estCoords]);
 
-    setTimeout(() => {
-      map.invalidateSize();
-    }, 200);
-
-  }, [riderLocations, scheduledRiders, estCoords, isMapExpanded, establishment]);
+  useEffect(() => {
+    if (mapRef.current) {
+      setTimeout(() => {
+        mapRef.current?.invalidateSize();
+      }, 300);
+    }
+  }, [isMapExpanded]);
 
   const handleRecenterMap = () => {
-    if (!mapRef.current || !estCoords) return;
-    
-    const points: L.LatLngExpression[] = [[estCoords.lat, estCoords.lng]];
-    
-    const scheduledRiderIds = scheduledRiders.map(r => r.id);
-    const scheduledRiderEmails = scheduledRiders.map(r => r.email.toLowerCase());
+    const currentMap = mapRef.current;
+    if (!currentMap) return;
 
-    const activeLocations = riderLocations.filter(loc => {
-      const resolvedRider = db.resolveUser(loc.riderId);
-      if (!resolvedRider) return false;
-      return scheduledRiderIds.includes(resolvedRider.id) || 
-             scheduledRiderEmails.includes(resolvedRider.email.toLowerCase());
+    const scheduledRiderIds = scheduledRiders.map(r => r.id);
+    const points: L.LatLngExpression[] = [];
+    if (estCoords) {
+      points.push([estCoords.lat, estCoords.lng]);
+    }
+    
+    riderLocations.forEach(loc => {
+      if (scheduledRiderIds.includes(loc.riderId)) {
+        points.push([loc.lat, loc.lng]);
+      }
     });
 
-    activeLocations.forEach(loc => points.push([loc.lat, loc.lng]));
-    
-    if (points.length > 1) {
-      mapRef.current.fitBounds(L.latLngBounds(points), { padding: [50, 50] });
-    } else {
-      mapRef.current.setView([estCoords.lat, estCoords.lng], 15);
+    if (points.length >= 2) {
+      const bounds = L.latLngBounds(points);
+      currentMap.fitBounds(bounds, { padding: [50, 50], maxZoom: 17 });
+    } else if (points.length === 1) {
+      currentMap.setView(points[0], 17);
     }
   };
 
-  const handleCreateOrUpdateDelivery = (e: React.FormEvent) => {
+  const handleSaveDelivery = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!establishment) return;
-
-    const val = parseFloat(deliveryForm.value.replace(',', '.'));
-    if (isNaN(val)) {
-      alert('Por favor, insira um valor válido.');
+    const val = parseFloat(deliveryForm.value);
+    if (isNaN(val) || val <= 0) {
+      alert('Erro: O valor da corrida deve ser maior que zero.');
       return;
     }
 
-    const activeSchedule = todaySchedules.find(s => {
-      if (s.riderId === deliveryForm.riderId) return true;
-      const riderOfSch = db.resolveUser(s.riderId);
-      const selectedRider = db.resolveUser(deliveryForm.riderId);
-      return riderOfSch && selectedRider && riderOfSch.email.toLowerCase() === selectedRider.email.toLowerCase();
-    });
+    const estId = establishment?.id || user?.establishmentId;
+    if (!estId) return;
+
+    const todayStr = db.getLocalDateString();
+    const activeSchedule = todaySchedules.find(s => s.riderId === deliveryForm.riderId);
+    const allDeliveries = db.getDeliveries();
+    const nowStr = new Date().toISOString();
 
     if (editingDelivery) {
-      const updated = db.getDeliveries().map(d => {
-        if (d.id === editingDelivery.id) {
-          return {
-            ...d,
-            riderId: deliveryForm.riderId,
-            scheduleId: activeSchedule?.id || d.scheduleId,
-            value: val,
-            orderNumber: deliveryForm.orderNumber,
-            notes: deliveryForm.notes,
-            updatedAt: new Date().toISOString()
-          };
-        }
-        return d;
-      });
+      const updated = allDeliveries.map(d => d.id === editingDelivery.id ? {
+        ...d,
+        riderId: deliveryForm.riderId,
+        value: val,
+        orderNumber: deliveryForm.orderNumber.trim() || undefined,
+        notes: deliveryForm.notes.trim() || undefined,
+        scheduleId: activeSchedule?.id || d.scheduleId,
+        updatedAt: nowStr
+      } : d);
       db.setDeliveries(updated);
+      alert('Corrida editada com sucesso!');
     } else {
       const newDelivery: Delivery = {
-        id: 'del_' + Math.random().toString(36).substr(2, 9),
-        establishmentId: establishment.id,
+        id: 'd_' + Date.now(),
         riderId: deliveryForm.riderId,
-        scheduleId: activeSchedule?.id || '',
-        value: val,
-        status: 'pending',
-        date: db.getLocalDateString(),
+        establishmentId: estId,
+        date: todayStr,
         time: new Date().toTimeString().slice(0, 5),
-        orderNumber: deliveryForm.orderNumber,
-        notes: deliveryForm.notes || '',
-        updatedAt: new Date().toISOString()
+        value: val,
+        status: 'active',
+        scheduleId: activeSchedule?.id,
+        orderNumber: deliveryForm.orderNumber.trim() || undefined,
+        notes: deliveryForm.notes.trim() || undefined,
+        updatedAt: nowStr
       };
-      db.setDeliveries([...db.getDeliveries(), newDelivery]);
+      db.setDeliveries([...allDeliveries, newDelivery]);
     }
 
     setShowDeliveryModal(false);
@@ -449,257 +644,496 @@ export default function EstablishmentDashboard() {
     loadData();
   };
 
-  const handleDeleteDelivery = (id: string) => {
-    if (confirm('Tem certeza que deseja excluir esta corrida?')) {
-      const updated = db.getDeliveries().filter(d => d.id !== id);
+  const handleCancelDelivery = (id: string) => {
+    if (confirm('Deseja realmente cancelar esta corrida?')) {
+      const allDeliveries = db.getDeliveries();
+      const nowStr = new Date().toISOString();
+      const updated = allDeliveries.map(d => d.id === id ? { ...d, status: 'cancelled' as const, updatedAt: nowStr } : d);
       db.setDeliveries(updated);
       loadData();
     }
   };
 
-  const handleEditDelivery = (d: Delivery) => {
-    setEditingDelivery(d);
-    setDeliveryForm({
-      riderId: d.riderId,
-      value: d.value.toString(),
-      orderNumber: d.orderNumber || '',
-      notes: d.notes || ''
-    });
-    setShowDeliveryModal(true);
+  const handleApproveDelivery = (id: string) => {
+    const allDeliveries = db.getDeliveries();
+    const delivery = allDeliveries.find(d => d.id === id);
+    if (!delivery) return;
+
+    const nowStr = new Date().toISOString();
+    const updated = allDeliveries.map(d => d.id === id ? { ...d, status: 'active' as const, updatedAt: nowStr } : d);
+    db.setDeliveries(updated);
+
+    const allNotif = db.getNotifications();
+    const newNotif: Notification = {
+      id: 'n_' + Date.now(),
+      riderId: delivery.riderId,
+      title: '✅ Corrida Aprovada!',
+      message: `Sua corrida no valor de R$ ${Number(delivery.value || 0).toFixed(2)} foi aprovada pelo estabelecimento ${establishment?.name}.`,
+      date: new Date().toISOString(),
+      read: false
+    };
+    db.setNotifications([...allNotif, newNotif]);
+
+    loadData();
+    alert('Corrida aprovada com sucesso!');
   };
 
-  const totalValue = todayDeliveries.reduce((acc, d) => acc + d.value, 0);
-  const completedDeliveries = todayDeliveries.filter(d => d.status === 'completed');
-  const completedValue = completedDeliveries.reduce((acc, d) => acc + d.value, 0);
+  const handleRejectDelivery = (id: string) => {
+    const reason = prompt('Digite o motivo da rejeição (opcional):');
+    if (reason !== null) {
+      const allDeliveries = db.getDeliveries();
+      const delivery = allDeliveries.find(d => d.id === id);
+      if (!delivery) return;
+
+      const nowStr = new Date().toISOString();
+      const updatedNotes = delivery.notes 
+        ? `${delivery.notes} | Rejeitado: ${reason}` 
+        : `Motivo da rejeição: ${reason}`;
+
+      const updated = allDeliveries.map(d => d.id === id ? { 
+        ...d, 
+        status: 'rejected' as const, 
+        notes: updatedNotes,
+        updatedAt: nowStr 
+      } : d);
+      db.setDeliveries(updated);
+
+      const allNotif = db.getNotifications();
+      const newNotif: Notification = {
+        id: 'n_' + Date.now(),
+        riderId: delivery.riderId,
+        title: '❌ Corrida Rejeitada',
+        message: `Sua corrida no valor de R$ ${Number(delivery.value || 0).toFixed(2)} foi rejeitada pelo estabelecimento ${establishment?.name}. Motivo: ${reason || 'Não especificado'}.`,
+        date: new Date().toISOString(),
+        read: false
+      };
+      db.setNotifications([...allNotif, newNotif]);
+
+      loadData();
+    }
+  };
+
+  const handleSaveNotes = (deliveryId: string, updatedNotes: string) => {
+    const allDeliveries = db.getDeliveries();
+    const updated = allDeliveries.map(d => d.id === deliveryId ? {
+      ...d,
+      notes: updatedNotes,
+      updatedAt: new Date().toISOString()
+    } : d);
+    db.setDeliveries(updated);
+    loadData();
+  };
+
+  const handleSaveScheduleChat = (scheduleId: string, updatedChat: string) => {
+    const allSchedules = db.getSchedules();
+    const updated = allSchedules.map(s => s.id === scheduleId ? {
+      ...s,
+      chat: updatedChat,
+      updatedAt: new Date().toISOString()
+    } : s);
+    db.setSchedules(updated);
+    loadData();
+  };
+
+  const handleCopyTrackingLink = (deliveryId: string) => {
+    const link = `${window.location.origin}/#/track/${deliveryId}`;
+    navigator.clipboard.writeText(link).then(() => {
+      setCopiedId(deliveryId);
+      setTimeout(() => setCopiedId(null), 2000);
+    });
+  };
+
+  const getRiderTotalEarnings = (riderId: string) => {
+    return todayDeliveries
+      .filter(d => d.riderId === riderId && d.status === 'active')
+      .reduce((sum, d) => sum + Number(d.value || 0), 0);
+  };
+
+  const getRiderDeliveryCount = (riderId: string) => {
+    return todayDeliveries.filter(d => d.riderId === riderId && d.status === 'active').length;
+  };
+
+  const totalEstEarningsToday = todayDeliveries
+    .filter(d => d.status === 'active')
+    .reduce((sum, d) => sum + Number(d.value || 0), 0);
+
+  const allDeliveries = db.getDeliveries();
+  
+  const matchingEstIds = establishment 
+    ? db.getEstablishments()
+        .filter(e => e.name.toLowerCase().trim() === establishment.name.toLowerCase().trim())
+        .map(e => e.id)
+    : [];
+
+  const currentEstName = establishment ? establishment.name.toLowerCase().trim() : '';
+  const allEsts = db.getEstablishments();
+
+  const pendingDeliveries = allDeliveries.filter(d => isDeliveryForCurrentEst(d, currentEstName, matchingEstIds, allEsts) && d.status === 'pending');
+  const processedDeliveries = todayDeliveries.filter(d => d.status !== 'pending');
+
+  const activeNotesDelivery = allDeliveries.find(d => d.id === notesDeliveryId) || null;
+  const activeScheduleChat = todaySchedules.find(s => s.id === activeScheduleChatId) || null;
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-12">
+    <div className="min-h-screen bg-slate-50 flex flex-col">
       {/* Header */}
-      <header className="bg-white border-b border-slate-100 sticky top-0 z-30 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="bg-indigo-600 text-white p-2 rounded-xl">
-              <Bike className="w-6 h-6" />
+      <header className="bg-slate-900 text-white shadow-md sticky top-0 z-20">
+        <div className="max-w-7xl mx-auto px-4 py-3 flex justify-between items-center">
+          <div className="flex items-center space-x-3">
+            <div className="bg-indigo-600 p-1.5 rounded-lg">
+              <Bike className="h-5 w-5 text-white" />
             </div>
             <div>
-              <h1 className="font-bold text-slate-900 text-lg leading-tight">
-                {establishment?.name || 'Carregando...'}
-              </h1>
-              <p className="text-xs text-slate-500 font-medium">Painel do Estabelecimento</p>
+              <h1 className="text-base font-bold leading-tight">{establishment?.name || 'Painel Estabelecimento'}</h1>
+              <p className="text-xs text-slate-400">Lançamento de Corridas e Rastreamento</p>
             </div>
           </div>
-          <button 
-            onClick={handleLogout}
-            className="flex items-center gap-2 px-3 py-1.5 text-sm font-semibold text-rose-600 hover:bg-rose-50 rounded-xl transition-all"
-          >
-            <LogOut className="w-4 h-4" />
-            Sair
-          </button>
+          <div className="flex items-center space-x-3">
+            <button 
+              onClick={handleLogout}
+              className="p-2 hover:bg-slate-800 rounded-lg transition-colors flex items-center space-x-1 text-sm text-red-400"
+            >
+              <LogOut className="h-5 w-5" />
+              <span>Sair</span>
+            </button>
+          </div>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6 space-y-6">
-        {/* Métricas */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Corridas</span>
-              <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl"><Hash className="w-4 h-4" /></div>
+      {/* Main Content */}
+      <main className="max-w-7xl w-full mx-auto px-4 py-6 flex-1 grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Left Column: Scheduled Riders & Delivery Launching */}
+        <div className="lg:col-span-2 space-y-6">
+          {/* Overview Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-4">
+              <div className="p-3 bg-indigo-100 text-indigo-600 rounded-lg">
+                <Users className="h-6 w-6" />
+              </div>
+              <div>
+                <p className="text-xs text-slate-500 font-medium uppercase">Motoboys Escalados</p>
+                <p className="text-2xl font-bold text-slate-800">{scheduledRiders.length}</p>
+              </div>
             </div>
-            <p className="text-2xl font-black text-slate-900 mt-2">{todayDeliveries.length}</p>
-          </div>
 
-          <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Concluídas</span>
-              <div className="p-2 bg-emerald-50 text-emerald-600 rounded-xl"><Check className="w-4 h-4" /></div>
+            <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-4">
+              <div className="p-3 bg-emerald-100 text-emerald-600 rounded-lg">
+                <DollarSign className="h-6 w-6" />
+              </div>
+              <div>
+                <p className="text-xs text-slate-500 font-medium uppercase">Total Hoje</p>
+                <p className="text-2xl font-bold text-slate-800">R$ {Number(totalEstEarningsToday || 0).toFixed(2)}</p>
+              </div>
             </div>
-            <p className="text-2xl font-black text-slate-900 mt-2">{completedDeliveries.length}</p>
-          </div>
 
-          <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Valor Total</span>
-              <div className="p-2 bg-amber-50 text-amber-600 rounded-xl"><DollarSign className="w-4 h-4" /></div>
+            <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-4">
+              <div className="p-3 bg-blue-100 text-blue-600 rounded-lg">
+                <Bike className="h-6 w-6" />
+              </div>
+              <div>
+                <p className="text-xs text-slate-500 font-medium uppercase">Corridas Hoje</p>
+                <p className="text-2xl font-bold text-slate-800">
+                  {todayDeliveries.filter(d => d.status === 'active').length}
+                </p>
+              </div>
             </div>
-            <p className="text-2xl font-black text-slate-900 mt-2">R$ {totalValue.toFixed(2)}</p>
           </div>
 
-          <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Valor Concluído</span>
-              <div className="p-2 bg-blue-50 text-blue-600 rounded-xl"><TrendingUp className="w-4 h-4" /></div>
-            </div>
-            <p className="text-2xl font-black text-slate-900 mt-2">R$ {completedValue.toFixed(2)}</p>
-          </div>
-        </div>
-
-        {/* Mapa de Rastreamento */}
-        <div className={`bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden transition-all duration-300 ${isMapExpanded ? 'fixed inset-0 z-50 m-0 rounded-none' : 'relative h-[400px]'}`}>
-          <div className="absolute top-3 right-3 z-[1000] flex gap-2">
-            <button 
-              onClick={handleRecenterMap}
-              className="bg-white text-slate-700 hover:bg-slate-50 p-2.5 rounded-xl shadow-lg border border-slate-100 transition-all flex items-center justify-center"
-              title="Centralizar Mapa"
-            >
-              <Navigation className="w-5 h-5" />
-            </button>
-            <button 
-              onClick={() => setIsMapExpanded(!isMapExpanded)}
-              className="bg-white text-slate-700 hover:bg-slate-50 p-2.5 rounded-xl shadow-lg border border-slate-100 transition-all flex items-center justify-center"
-            >
-              {isMapExpanded ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
-            </button>
-          </div>
-          <div ref={mapContainerRef} className="w-full h-full" />
-        </div>
-
-        {/* Seção de Escalas e Corridas */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Escalas do Dia */}
-          <div className="lg:col-span-1 bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="font-bold text-slate-900 flex items-center gap-2">
-                <Users className="w-5 h-5 text-indigo-600" />
-                Motoboys Escalados
+          {/* Pending Deliveries Approval Section */}
+          {pendingDeliveries.length > 0 && (
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
+              <h2 className="text-lg font-bold text-slate-800 flex items-center space-x-2">
+                <Clock className="h-5 w-5 text-indigo-600 animate-pulse" />
+                <span>Corridas Pendentes de Aprovação ({pendingDeliveries.length})</span>
               </h2>
-              <span className="bg-indigo-50 text-indigo-700 text-xs font-bold px-2.5 py-1 rounded-full">
-                {scheduledRiders.length} hoje
-              </span>
-            </div>
 
-            <div className="space-y-3 max-h-[400px] overflow-y-auto pr-1">
-              {scheduledRiders.length === 0 ? (
-                <div className="text-center py-8 text-slate-400 text-sm">
-                  Nenhum motoboy escalado para hoje.
-                </div>
-              ) : (
-                scheduledRiders.map(rider => {
-                  const schedule = todaySchedules.find(s => {
-                    if (s.riderId === rider.id) return true;
-                    const riderOfSch = db.resolveUser(s.riderId);
-                    return riderOfSch && riderOfSch.email.toLowerCase() === rider.email.toLowerCase();
-                  });
-                  
+              <div className="divide-y divide-slate-100">
+                {pendingDeliveries.map(del => {
+                  const rider = db.resolveUser(del.riderId);
                   return (
-                    <div key={rider.id} className="p-3 bg-slate-50 rounded-xl border border-slate-100 flex items-center justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="font-bold text-slate-800 text-sm truncate">{rider.name}</p>
-                        <p className="text-xs text-slate-500 truncate">{rider.phone || 'Sem telefone'}</p>
-                        {schedule && (
-                          <span className="inline-block mt-1 text-[10px] font-bold bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-md">
-                            {schedule.shift}
-                          </span>
+                    <div key={del.id} className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="min-w-0 flex-1 pr-4">
+                        <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                          <p className="font-bold text-slate-800">{rider?.name || 'Motoboy'}</p>
+                          {del.orderNumber && (
+                            <span className="bg-slate-100 text-slate-500 text-[10px] font-bold px-2.5 py-0.5 rounded">
+                              #{del.orderNumber}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-slate-500 flex items-center space-x-1 mt-1">
+                          <Clock className="h-3.5 w-3.5" />
+                          <span>Lançada às {del.time} ({new Date(del.date + 'T00:00:00').toLocaleDateString('pt-BR')})</span>
+                        </p>
+                        {del.notes && (
+                          <p className="text-xs text-slate-600 bg-white border border-slate-100 rounded px-2 py-1 mt-1.5 italic truncate max-w-[300px]">
+                            Obs: {del.notes.split('\n').pop()?.replace(/\[.*?\]: /, '') || del.notes}
+                          </p>
                         )}
                       </div>
-                      {schedule && (
-                        <button
-                          onClick={() => setActiveScheduleChatId(schedule.id)}
-                          className="p-2 bg-white hover:bg-indigo-50 text-indigo-600 rounded-xl border border-slate-100 transition-all relative"
-                          title="Chat do Turno"
-                        >
-                          <MessageSquare className="w-4 h-4" />
-                          {schedule.chat && (
-                            <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-indigo-600 rounded-full border-2 border-white"></span>
-                          )}
-                        </button>
-                      )}
+                      <div className="flex items-center space-x-3 self-end sm:self-center flex-shrink-0">
+                        <span className="font-bold text-slate-700 text-lg">R$ {Number(del.value || 0).toFixed(2)}</span>
+                        <div className="flex items-center space-x-1">
+                          <button
+                            onClick={() => setNotesDeliveryId(del.id)}
+                            className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
+                            title="Chat de Observações"
+                          >
+                            <MessageSquare className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={() => handleCopyTrackingLink(del.id)}
+                            className={`px-2 py-1 rounded text-xs font-bold flex items-center gap-1 transition-colors ${
+                              copiedId === del.id 
+                                ? 'bg-emerald-100 text-emerald-800' 
+                                : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700'
+                            }`}
+                            title="Copiar Link de Rastreamento"
+                          >
+                            <Share2 className="h-3.5 w-3.5" />
+                            <span>{copiedId === del.id ? 'Copiado!' : 'Rastrear'}</span>
+                          </button>
+                          <button
+                            onClick={() => {
+                              setEditingDelivery(del);
+                              setDeliveryForm({
+                                riderId: del.riderId,
+                                value: del.value.toString(),
+                                orderNumber: del.orderNumber || '',
+                                notes: del.notes || ''
+                              });
+                              setShowDeliveryModal(true);
+                            }}
+                            className="bg-slate-100 hover:bg-slate-200 text-slate-700 p-1.5 rounded-lg transition-colors flex items-center space-x-1 text-xs font-bold"
+                            title="Editar Corrida Pendente"
+                          >
+                            <Edit2 className="h-4 w-4" />
+                            <span className="hidden sm:inline">Editar</span>
+                          </button>
+                          <button
+                            onClick={() => handleApproveDelivery(del.id)}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white p-1.5 rounded-lg transition-colors flex items-center space-x-1 text-xs font-bold"
+                            title="Aprovar Corrida"
+                          >
+                            <Check className="h-4 w-4" />
+                            <span className="hidden sm:inline">Aprovar</span>
+                          </button>
+                          <button
+                            onClick={() => handleRejectDelivery(del.id)}
+                            className="bg-red-600 hover:bg-red-700 text-white p-1.5 rounded-lg transition-colors flex items-center space-x-1 text-xs font-bold"
+                            title="Rejeitar Corrida"
+                          >
+                            <X className="h-4 w-4" />
+                            <span className="hidden sm:inline">Rejeitar</span>
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   );
-                })
-              )}
+                })}
+              </div>
             </div>
-          </div>
+          )}
 
-          {/* Corridas do Dia */}
-          <div className="lg:col-span-2 bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="font-bold text-slate-900 flex items-center gap-2">
-                <Bike className="w-5 h-5 text-indigo-600" />
-                Corridas de Hoje
+          {/* Scheduled Riders List */}
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
+            <div className="flex justify-between items-center">
+              <h2 className="text-lg font-bold text-slate-800 flex items-center space-x-2">
+                <Users className="h-5 w-5 text-indigo-600" />
+                <span>Motoboys Escalados Hoje</span>
               </h2>
               <button
                 onClick={() => {
+                  if (scheduledRiders.length === 0) {
+                    alert('Não há motoboys escalados para hoje.');
+                    return;
+                  }
                   setEditingDelivery(null);
-                  setDeliveryForm({ riderId: '', value: '', orderNumber: '', notes: '' });
+                  setDeliveryForm({ riderId: scheduledRiders[0].id, value: '', orderNumber: '', notes: '' });
                   setShowDeliveryModal(true);
                 }}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1"
+                className="flex items-center space-x-1.5 bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
               >
-                <Plus className="w-4 h-4" />
-                Nova Corrida
+                <Plus className="h-4 w-4" />
+                <span>Lançar Corrida</span>
               </button>
             </div>
 
+            {scheduledRiders.length === 0 ? (
+              <div className="text-center py-8 text-slate-400 text-sm">
+                Nenhum motoboy escalado para hoje. Fale com o administrador para criar escalas.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {scheduledRiders.map(rider => {
+                  const total = getRiderTotalEarnings(rider.id);
+                  const count = getRiderDeliveryCount(rider.id);
+                  const isOnline = riderLocations.some(l => l.riderId === rider.id && (Date.now() - new Date(l.updatedAt).getTime() < 60000));
+                  const riderSchedule = todaySchedules.find(s => s.riderId === rider.id);
+
+                  return (
+                    <div key={rider.id} className="border border-slate-200 rounded-xl p-4 bg-slate-50/50 flex flex-col justify-between space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-2.5">
+                          <div className="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold text-sm">
+                            {rider.name.charAt(0).toUpperCase()}
+                          </div>
+                          <div>
+                            <p className="font-bold text-slate-800 text-sm">{rider.name}</p>
+                            <p className="text-xs text-slate-500">{rider.phone}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          {riderSchedule && (
+                            <button
+                              onClick={() => setActiveScheduleChatId(riderSchedule.id)}
+                              className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors relative"
+                              title="Chat de Turno"
+                            >
+                              <MessageSquare className="h-4 w-4" />
+                              {riderSchedule.chat && (
+                                <span className="absolute top-0 right-0 h-2 w-2 bg-indigo-600 rounded-full" />
+                              )}
+                            </button>
+                          )}
+                          <span className={`h-2.5 w-2.5 rounded-full ${isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`} title={isOnline ? 'Online' : 'Offline'} />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100">
+                        <div className="bg-white p-2 rounded-lg border border-slate-100 text-center">
+                          <p className="text-xs text-slate-400">Corridas</p>
+                          <p className="text-sm font-bold text-slate-700">{count}</p>
+                        </div>
+                        <div className="bg-white p-2 rounded-lg border border-slate-100 text-center">
+                          <p className="text-xs text-slate-400">Total</p>
+                          <p className="text-sm font-bold text-emerald-600">R$ {Number(total || 0).toFixed(2)}</p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Today's Deliveries History */}
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
+            <h2 className="text-lg font-bold text-slate-800 flex items-center space-x-2">
+              <TrendingUp className="h-5 w-5 text-indigo-600" />
+              <span>Histórico de Corridas de Hoje</span>
+            </h2>
+
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
+              <table className="w-full min-w-[500px] text-left border-collapse">
                 <thead>
-                  <tr className="border-b border-slate-100 text-slate-400 text-xs font-bold uppercase tracking-wider">
-                    <th className="pb-3">Pedido</th>
-                    <th className="pb-3">Motoboy</th>
-                    <th className="pb-3">Valor</th>
-                    <th className="pb-3">Status</th>
-                    <th className="pb-3 text-right">Ações</th>
+                  <tr className="border-b border-slate-200 text-slate-500 text-xs uppercase font-semibold">
+                    <th className="py-3 px-4">Motoboy</th>
+                    <th className="py-3 px-4">Nº Pedido</th>
+                    <th className="py-3 px-4">Horário</th>
+                    <th className="py-3 px-4">Valor</th>
+                    <th className="py-3 px-4">Status</th>
+                    <th className="py-3 px-4 text-right">Ações</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-50 text-sm">
-                  {todayDeliveries.length === 0 ? (
+                <tbody className="divide-y divide-slate-100 text-sm">
+                  {processedDeliveries.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="text-center py-8 text-slate-400">
+                      <td colSpan={6} className="py-8 text-center text-slate-400">
                         Nenhuma corrida lançada hoje.
                       </td>
                     </tr>
                   ) : (
-                    todayDeliveries.map(d => {
-                      const rider = db.resolveUser(d.riderId);
+                    processedDeliveries.map(del => {
+                      const rider = db.resolveUser(del.riderId);
                       return (
-                        <tr key={d.id} className="hover:bg-slate-50/50 transition-colors">
-                          <td className="py-3 font-semibold text-slate-700">
-                            #{d.orderNumber || d.id.slice(-4)}
+                        <tr key={del.id} className="hover:bg-slate-50/50">
+                          <td className="py-3 px-4">
+                            <p className="font-medium text-slate-800">{rider?.name || 'Motoboy'}</p>
+                            {del.notes && (
+                              <p className="text-xs text-slate-500 italic mt-0.5 truncate max-w-[200px]">
+                                Obs: {del.notes.split('\n').pop()?.replace(/\[.*?\]: /, '') || del.notes}
+                              </p>
+                            )}
                           </td>
-                          <td className="py-3 text-slate-600 font-medium">
-                            {rider?.name || 'Não atribuído'}
+                          <td className="py-3 px-4 text-slate-600 font-mono">
+                            {del.orderNumber ? (
+                              <span className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded text-xs font-semibold">
+                                #{del.orderNumber}
+                              </span>
+                            ) : (
+                              <span className="text-slate-400 text-xs">—</span>
+                            )}
                           </td>
-                          <td className="py-3 font-bold text-slate-900">
-                            R$ {d.value.toFixed(2)}
+                          <td className="py-3 px-4 text-slate-500 flex items-center space-x-1">
+                            <Clock className="h-3.5 w-3.5" />
+                            <span>{del.time}</span>
                           </td>
-                          <td className="py-3">
-                            <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold ${
-                              d.status === 'completed' ? 'bg-emerald-50 text-emerald-700' :
-                              d.status === 'accepted' ? 'bg-blue-50 text-blue-700' :
-                              d.status === 'active' ? 'bg-indigo-50 text-indigo-700' :
-                              'bg-amber-50 text-amber-700'
+                          <td className="py-3 px-4 font-bold text-emerald-600">R$ {Number(del.value || 0).toFixed(2)}</td>
+                          <td className="py-3 px-4">
+                            <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                              del.status === 'active' 
+                                ? 'bg-emerald-100 text-emerald-800' 
+                                : del.status === 'rejected'
+                                ? 'bg-red-100 text-red-800'
+                                : 'bg-slate-100 text-slate-800'
                             }`}>
-                              {d.status === 'completed' ? 'Concluída' :
-                               d.status === 'accepted' ? 'Em trânsito' : 
-                               d.status === 'active' ? 'Ativa' : 'Pendente'}
+                              {del.status === 'active' && 'Ativa'}
+                              {del.status === 'rejected' && 'Rejeitada'}
+                              {del.status === 'cancelled' && 'Cancelada'}
                             </span>
                           </td>
-                          <td className="py-3 text-right space-x-1">
-                            <button
-                              onClick={() => setNotesDeliveryId(d.id)}
-                              className="p-1.5 bg-slate-50 hover:bg-indigo-50 text-indigo-600 rounded-lg border border-slate-100 transition-all inline-flex items-center justify-center relative"
-                              title="Notas e Chat"
-                            >
-                              <MessageSquare className="w-4 h-4" />
-                              {d.notes && (
-                                <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-indigo-600 rounded-full"></span>
+                          <td className="py-3 px-4 text-right whitespace-nowrap">
+                            <div className="flex items-center justify-end space-x-1">
+                              <button
+                                onClick={() => setNotesDeliveryId(del.id)}
+                                className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
+                                title="Chat de Observações"
+                              >
+                                <MessageSquare className="h-4 w-4" />
+                              </button>
+                              {(del.status === 'active' || del.status === 'pending') && (
+                                <button
+                                  onClick={() => handleCopyTrackingLink(del.id)}
+                                  className={`px-2 py-1 rounded text-xs font-bold flex items-center gap-1 transition-colors ${
+                                    copiedId === del.id 
+                                      ? 'bg-emerald-100 text-emerald-800' 
+                                      : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700'
+                                  }`}
+                                  title="Copiar Link de Rastreamento"
+                                >
+                                  <Share2 className="h-3.5 w-3.5" />
+                                  <span>{copiedId === del.id ? 'Copiado!' : 'Rastrear'}</span>
+                                </button>
                               )}
-                            </button>
-                            <button
-                              onClick={() => handleEditDelivery(d)}
-                              className="p-1.5 bg-slate-50 hover:bg-amber-50 text-amber-600 rounded-lg border border-slate-100 transition-all inline-flex items-center justify-center"
-                              title="Editar"
-                            >
-                              <Edit2 className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => handleDeleteDelivery(d.id)}
-                              className="p-1.5 bg-slate-50 hover:bg-rose-50 text-rose-600 rounded-lg border border-slate-100 transition-all inline-flex items-center justify-center"
-                              title="Excluir"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                              {del.status === 'active' && (
+                                <>
+                                  <button
+                                    onClick={() => {
+                                      setEditingDelivery(del);
+                                      setDeliveryForm({
+                                        riderId: del.riderId,
+                                        value: del.value.toString(),
+                                        orderNumber: del.orderNumber || '',
+                                        notes: del.notes || ''
+                                      });
+                                      setShowDeliveryModal(true);
+                                    }}
+                                    className="text-slate-500 hover:bg-slate-100 p-1.5 rounded transition-colors"
+                                    title="Editar Corrida"
+                                  >
+                                    <Edit2 className="h-4 w-4" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleCancelDelivery(del.id)}
+                                    className="text-red-500 hover:bg-red-50 p-1.5 rounded transition-colors"
+                                    title="Cancelar Corrida"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </button>
+                                </>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       );
@@ -710,91 +1144,152 @@ export default function EstablishmentDashboard() {
             </div>
           </div>
         </div>
-      </main>
 
-      {/* Modal de Lançamento/Edição de Corrida */}
-      {showDeliveryModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100 animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between pb-4 border-b border-slate-100">
-              <h3 className="font-bold text-slate-900 text-lg">
-                {editingDelivery ? 'Editar Corrida' : 'Lançar Nova Corrida'}
-              </h3>
-              <button 
-                onClick={() => {
-                  setShowDeliveryModal(false);
-                  setEditingDelivery(null);
-                }}
-                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-50 transition-all"
-              >
-                <X className="w-5 h-5" />
-              </button>
+        {/* Right Column: Real-time GPS Tracking Map */}
+        <div className="space-y-6">
+          <div className={`bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col transition-all duration-300 ${
+            isMapExpanded 
+              ? 'fixed inset-4 z-50 h-[calc(100vh-32px)]' 
+              : 'h-[500px]'
+          }`}>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-bold text-slate-800 flex items-center space-x-2">
+                <MapIcon className="h-5 w-5 text-indigo-600" />
+                <span>Rastreamento em Tempo Real</span>
+              </h2>
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={handleRecenterMap}
+                  className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
+                  title="Centralizar Mapa"
+                >
+                  <Navigation className="h-4 w-4 text-indigo-600" />
+                </button>
+                <button 
+                  onClick={() => setIsMapExpanded(!isMapExpanded)}
+                  className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors flex items-center gap-1 text-xs font-semibold"
+                  title={isMapExpanded ? "Minimizar Mapa" : "Expandir Mapa"}
+                >
+                  {isMapExpanded ? (
+                    <>
+                      <Minimize2 className="h-4 w-4" />
+                      <span className="hidden sm:inline">Minimizar</span>
+                    </>
+                  ) : (
+                    <>
+                      <Maximize2 className="h-4 w-4" />
+                      <span className="hidden sm:inline">Expandir Mapa</span>
+                    </>
+                  )}
+                </button>
+                <button 
+                  onClick={loadData}
+                  className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
+                  title="Atualizar Mapa"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                </button>
+              </div>
             </div>
 
-            <form onSubmit={handleCreateOrUpdateDelivery} className="mt-4 space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Número do Pedido (Opcional)</label>
-                <input
-                  type="text"
-                  value={deliveryForm.orderNumber}
-                  onChange={e => setDeliveryForm({ ...deliveryForm, orderNumber: e.target.value })}
-                  placeholder="Ex: 1234"
-                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
-                />
-              </div>
+            {/* Map Container */}
+            <div 
+              ref={mapContainerRef} 
+              className="flex-1 rounded-xl border border-slate-200 overflow-hidden z-10"
+              style={{ minHeight: '300px' }}
+            />
 
+            <div className="mt-4 text-xs text-slate-500 flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </span>
+                <span>O mapa atualiza automaticamente a posição dos motoboys ativos.</span>
+              </div>
+              <div className="flex items-center gap-3 text-[10px] font-semibold">
+                <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-indigo-600 inline-block" /> Estabelecimento</span>
+                <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block" /> Motoboy</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      {/* MODAL: LANÇAR CORRIDA */}
+      {showDeliveryModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl max-w-md w-full p-6 space-y-4 shadow-xl">
+            <div className="flex justify-between items-center">
+              <h3 className="text-lg font-bold text-slate-800">
+                {editingDelivery ? 'Editar Corrida' : 'Lançar Nova Corrida'}
+              </h3>
+              <button onClick={() => { setShowDeliveryModal(false); setEditingDelivery(null); }} className="text-slate-400 hover:text-slate-600">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <form onSubmit={handleSaveDelivery} className="space-y-3">
               <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Motoboy Escalado</label>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Motoboy</label>
                 <select
                   required
                   value={deliveryForm.riderId}
-                  onChange={e => setDeliveryForm({ ...deliveryForm, riderId: e.target.value })}
-                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
+                  onChange={(e) => setDeliveryForm({ ...deliveryForm, riderId: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none"
                 >
-                  <option value="">Selecione um motoboy</option>
                   {scheduledRiders.map(r => (
                     <option key={r.id} value={r.id}>{r.name}</option>
                   ))}
                 </select>
               </div>
-
               <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Valor da Corrida (R$)</label>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nº do Pedido (Opcional)</label>
+                <div className="relative rounded-md shadow-sm">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <Hash className="h-4 w-4 text-slate-400" />
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Ex: 1042"
+                    value={deliveryForm.orderNumber}
+                    onChange={(e) => setDeliveryForm({ ...deliveryForm, orderNumber: e.target.value })}
+                    className="block w-full pl-9 pr-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Valor da Corrida (R$)</label>
                 <input
-                  type="text"
+                  type="number"
+                  step="0.01"
                   required
+                  placeholder="0.00"
                   value={deliveryForm.value}
-                  onChange={e => setDeliveryForm({ ...deliveryForm, value: e.target.value })}
-                  placeholder="Ex: 7,50"
-                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
+                  onChange={(e) => setDeliveryForm({ ...deliveryForm, value: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none"
                 />
               </div>
-
               <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Notas / Endereço de Entrega</label>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Observações (Opcional)</label>
                 <textarea
+                  placeholder="Ex: Troco para R$ 50,00, condomínio bloco B..."
                   value={deliveryForm.notes}
-                  onChange={e => setDeliveryForm({ ...deliveryForm, notes: e.target.value })}
-                  placeholder="Insira o endereço ou observações da entrega..."
-                  rows={3}
-                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all resize-none"
+                  onChange={(e) => setDeliveryForm({ ...deliveryForm, notes: e.target.value })}
+                  rows={2}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none resize-none"
                 />
               </div>
-
-              <div className="pt-4 border-t border-slate-100 flex gap-3">
+              <div className="flex justify-end space-x-2 pt-3">
                 <button
                   type="button"
-                  onClick={() => {
-                    setShowDeliveryModal(false);
-                    setEditingDelivery(null);
-                  }}
-                  className="flex-1 py-2.5 border border-slate-200 text-slate-600 hover:bg-slate-50 rounded-xl text-sm font-bold transition-all"
+                  onClick={() => { setShowDeliveryModal(false); setEditingDelivery(null); }}
+                  className="px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-bold transition-all shadow-md shadow-indigo-600/10"
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-medium"
                 >
                   {editingDelivery ? 'Salvar Alterações' : 'Lançar Corrida'}
                 </button>
@@ -804,40 +1299,25 @@ export default function EstablishmentDashboard() {
         </div>
       )}
 
-      {/* Modais de Notas e Chat */}
-      {notesDeliveryId && (
-        <DeliveryNotesModal 
-          isOpen={notesDeliveryId !== null}
-          onClose={() => setNotesDeliveryId(null)}
-          delivery={todayDeliveries.find(d => d.id === notesDeliveryId) || null}
-          userRole="establishment"
-          userName={user?.name || 'Gerente'}
-          onSaveNotes={(deliveryId, updatedNotes) => {
-            const updatedDeliveries = db.getDeliveries().map(d => 
-              d.id === deliveryId ? { ...d, notes: updatedNotes, updatedAt: new Date().toISOString() } : d
-            );
-            db.setDeliveries(updatedDeliveries);
-            loadData();
-          }}
-        />
-      )}
+      {/* MODAL DE OBSERVAÇÕES / CHAT */}
+      <DeliveryNotesModal
+        isOpen={!!notesDeliveryId}
+        onClose={() => setNotesDeliveryId(null)}
+        delivery={activeNotesDelivery}
+        userRole="establishment"
+        userName={user?.name || 'Gerente'}
+        onSaveNotes={handleSaveNotes}
+      />
 
-      {activeScheduleChatId && (
-        <ScheduleChatModal 
-          isOpen={activeScheduleChatId !== null}
-          onClose={() => setActiveScheduleChatId(null)}
-          schedule={todaySchedules.find(s => s.id === activeScheduleChatId) || null}
-          userRole="establishment"
-          userName={user?.name || 'Gerente'}
-          onSaveChat={(scheduleId, updatedChat) => {
-            const updatedSchedules = db.getSchedules().map(s => 
-              s.id === scheduleId ? { ...s, chat: updatedChat, updatedAt: new Date().toISOString() } : s
-            );
-            db.setSchedules(updatedSchedules);
-            loadData();
-          }}
-        />
-      )}
+      {/* MODAL DE CHAT DE TURNO */}
+      <ScheduleChatModal
+        isOpen={!!activeScheduleChatId}
+        onClose={() => setActiveScheduleChatId(null)}
+        schedule={activeScheduleChat}
+        userRole="establishment"
+        userName={user?.name || 'Gerente'}
+        onSaveChat={handleSaveScheduleChat}
+      />
     </div>
   );
 }
