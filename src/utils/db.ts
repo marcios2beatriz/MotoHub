@@ -18,6 +18,7 @@ export interface User {
   mustResetPassword?: boolean;
   establishmentId?: string;
   updatedAt?: string;
+  synced?: boolean;
 }
 
 export interface Establishment {
@@ -37,6 +38,7 @@ export interface Establishment {
   };
   createdAt?: string;
   updatedAt?: string;
+  synced?: boolean;
 }
 
 export interface Schedule {
@@ -51,6 +53,7 @@ export interface Schedule {
   createdBy?: string;
   createdAt?: string;
   updatedAt?: string;
+  synced?: boolean;
 }
 
 export interface Delivery {
@@ -67,6 +70,7 @@ export interface Delivery {
   customerChat?: string; // Chat com o cliente final
   updatedAt?: string;
   paid?: boolean;
+  synced?: boolean;
 }
 
 export interface Notification {
@@ -86,6 +90,7 @@ export interface PartnerRequest {
   address: string;
   status: 'pending' | 'contacted';
   createdAt: string;
+  synced?: boolean;
 }
 
 export interface RiderLocation {
@@ -501,11 +506,12 @@ export const db = {
               passwordHash: u.password_hash || local?.passwordHash || '',
               mustResetPassword: u.must_reset_password !== undefined ? u.must_reset_password : (local?.mustResetPassword || false),
               establishmentId: u.establishment_id || local?.establishmentId || undefined,
-              updatedAt: u.updated_at
+              updatedAt: u.updated_at,
+              synced: true
             };
           });
         const remoteIds = new Set(mappedUsers.map(u => u.id));
-        const unsyncedLocal = localUsers.filter(u => !remoteIds.has(u.id) && !deletedIds.has(u.id));
+        const unsyncedLocal = localUsers.filter(u => !remoteIds.has(u.id) && !deletedIds.has(u.id) && !u.synced);
         localStorage.setItem(KEYS.USERS, JSON.stringify([...mappedUsers, ...unsyncedLocal]));
       }
     } catch (err) {
@@ -567,11 +573,12 @@ export const db = {
               phone: e.phone || local?.phone || '',
               address: parsedAddress,
               createdAt: e.created_at,
-              updatedAt: e.updated_at
+              updatedAt: e.updated_at,
+              synced: true
             };
           });
         const remoteIds = new Set(mappedEsts.map(e => e.id));
-        const unsyncedLocal = localEsts.filter(e => !remoteIds.has(e.id) && !deletedIds.has(e.id));
+        const unsyncedLocal = localEsts.filter(e => !remoteIds.has(e.id) && !deletedIds.has(e.id) && !e.synced);
         localStorage.setItem(KEYS.ESTABLISHMENTS, JSON.stringify([...mappedEsts, ...unsyncedLocal]));
       }
     } catch (err) {
@@ -599,11 +606,12 @@ export const db = {
               chat: mergeChatStrings(local?.chat, s.chat),
               createdBy: s.created_by || undefined,
               createdAt: s.created_at,
-              updatedAt: s.updated_at
+              updatedAt: s.updated_at,
+              synced: true
             };
           });
         const remoteIds = new Set(mappedSchedules.map(s => s.id));
-        const unsyncedLocal = localSchedules.filter(s => !remoteIds.has(s.id) && !deletedIds.has(s.id));
+        const unsyncedLocal = localSchedules.filter(s => !remoteIds.has(s.id) && !deletedIds.has(s.id) && !s.synced);
         localStorage.setItem(KEYS.SCHEDULES, JSON.stringify([...mappedSchedules, ...unsyncedLocal]));
       }
     } catch (err) {
@@ -674,12 +682,13 @@ export const db = {
               notes: mergeChatStrings(local?.notes, notes),
               customerChat: mergeChatStrings(local?.customerChat, customerChat),
               updatedAt,
-              paid: d.paid || false
+              paid: d.paid || false,
+              synced: true
             };
           });
 
         const remoteIds = new Set(mappedDeliveries.map(d => d.id));
-        const unsyncedLocal = localDeliveries.filter(l => !remoteIds.has(l.id) && !deletedIds.has(l.id));
+        const unsyncedLocal = localDeliveries.filter(l => !remoteIds.has(l.id) && !deletedIds.has(l.id) && !l.synced);
         
         localStorage.setItem(KEYS.DELIVERIES, JSON.stringify([...mappedDeliveries, ...unsyncedLocal]));
       }
@@ -702,10 +711,11 @@ export const db = {
             phone: r.phone,
             address: r.address,
             status: r.status,
-            createdAt: r.created_at
+            createdAt: r.created_at,
+            synced: true
           }));
         const remoteIds = new Set(mappedReqs.map(r => r.id));
-        const unsyncedLocal = localReqs.filter(r => !remoteIds.has(r.id) && !deletedIds.has(r.id));
+        const unsyncedLocal = localReqs.filter(r => !remoteIds.has(r.id) && !deletedIds.has(r.id) && !r.synced);
         localStorage.setItem(KEYS.PARTNER_REQUESTS, JSON.stringify([...mappedReqs, ...unsyncedLocal]));
       }
     } catch (err) {
@@ -742,6 +752,8 @@ export const db = {
 
   async syncUsersToSupabase(users: User[]) {
     const deletedIds = new Set(this.getDeletedItems().map(x => x.id));
+    let updated = false;
+    const localUsers = this.getUsers();
     for (const u of users) {
       if (deletedIds.has(u.id)) continue;
       try {
@@ -761,17 +773,28 @@ export const db = {
         };
 
         const result = await safeUpsert('users', rawPayload);
-        if (!result.success) {
+        if (result.success) {
+          const localUser = localUsers.find(x => x.id === u.id);
+          if (localUser && !localUser.synced) {
+            localUser.synced = true;
+            updated = true;
+          }
+        } else {
           console.error(`[Sync] Falha ao sincronizar usuário ${u.id}:`, result.error);
         }
       } catch (e) {
         console.error(`Exceção ao sincronizar usuário ${u.id}:`, e);
       }
     }
+    if (updated) {
+      localStorage.setItem(KEYS.USERS, JSON.stringify(localUsers));
+    }
   },
 
   async syncEstablishmentsToSupabase(ests: Establishment[]) {
     const deletedIds = new Set(this.getDeletedItems().map(x => x.id));
+    let updated = false;
+    const localEsts = this.getEstablishments();
     for (const e of ests) {
       if (deletedIds.has(e.id)) continue;
       try {
@@ -795,17 +818,28 @@ export const db = {
         };
 
         const result = await safeUpsert('establishments', rawPayload);
-        if (!result.success) {
+        if (result.success) {
+          const localEst = localEsts.find(x => x.id === e.id);
+          if (localEst && !localEst.synced) {
+            localEst.synced = true;
+            updated = true;
+          }
+        } else {
           console.error(`[Sync] Falha ao sincronizar estabelecimento ${e.id}:`, result.error);
         }
       } catch (err) {
         console.error(`Exceção ao sincronizar estabelecimento ${e.id}:`, err);
       }
     }
+    if (updated) {
+      localStorage.setItem(KEYS.ESTABLISHMENTS, JSON.stringify(localEsts));
+    }
   },
 
   async syncPartnerRequestsToSupabase(requests: PartnerRequest[]) {
     const deletedIds = new Set(this.getDeletedItems().map(x => x.id));
+    let updated = false;
+    const localReqs = this.getPartnerRequests();
     try {
       for (const r of requests) {
         if (deletedIds.has(r.id)) continue;
@@ -820,17 +854,31 @@ export const db = {
         };
 
         const result = await safeUpsert('partner_requests', rawPayload);
-        if (!result.success) {
+        if (result.success) {
+          const localReq = localReqs.find(x => x.id === r.id);
+          if (localReq && !localReq.synced) {
+            localReq.synced = true;
+            updated = true;
+          }
+        } else {
           console.warn(`[Sync] Tabela partner_requests pode não existir ou falhou:`, result.error);
         }
       }
     } catch (e) {
       console.error('Erro ao sincronizar solicitações de parceria com Supabase:', e);
     }
+    if (updated) {
+      localStorage.setItem(KEYS.PARTNER_REQUESTS, JSON.stringify(localReqs));
+    }
   },
 
   async syncToSupabase() {
     const deletedIds = new Set(this.getDeletedItems().map(x => x.id));
+    let updatedSchedules = false;
+    let updatedDeliveries = false;
+    const localSchedules = this.getSchedules();
+    const localDeliveries = this.getDeliveries();
+
     try {
       // 1. Sincronizar Escalas (Schedules)
       const schedules = this.getSchedules();
@@ -852,7 +900,13 @@ export const db = {
           };
 
           const result = await safeUpsert('schedules', rawPayload);
-          if (!result.success) {
+          if (result.success) {
+            const localSch = localSchedules.find(x => x.id === s.id);
+            if (localSch && !localSch.synced) {
+              localSch.synced = true;
+              updatedSchedules = true;
+            }
+          } else {
             console.warn(`[Sync] Falha ao sincronizar escala ${s.id}:`, result.error);
           }
         } catch (e) {
@@ -889,7 +943,13 @@ export const db = {
           };
 
           const result = await safeUpsert('deliveries', rawPayload);
-          if (!result.success) {
+          if (result.success) {
+            const localDel = localDeliveries.find(x => x.id === d.id);
+            if (localDel && !localDel.synced) {
+              localDel.synced = true;
+              updatedDeliveries = true;
+            }
+          } else {
             console.warn(`[Sync] Falha ao sincronizar corrida ${d.id}:`, result.error);
           }
         } catch (e) {
@@ -898,6 +958,13 @@ export const db = {
       }
     } catch (err) {
       console.error('Erro ao enviar dados para o Supabase:', err);
+    }
+
+    if (updatedSchedules) {
+      localStorage.setItem(KEYS.SCHEDULES, JSON.stringify(localSchedules));
+    }
+    if (updatedDeliveries) {
+      localStorage.setItem(KEYS.DELIVERIES, JSON.stringify(localDeliveries));
     }
   }
 };
