@@ -48,6 +48,7 @@ export default function RiderDashboard() {
   const fallbackIntervalRef = useRef<any>(null);
   const wakeLockRef = useRef<any>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const lastCoordsRef = useRef<{ lat: number; lng: number } | null>(null);
 
   // Refs para armazenar o estado anterior das notas e chats para evitar notificações duplicadas
   const prevNotesRef = useRef<Record<string, string>>({});
@@ -306,9 +307,33 @@ export default function RiderDashboard() {
 
     const onSuccess = (pos: GeolocationPosition) => {
       const { latitude, longitude } = pos.coords;
-      setGpsCoords({ lat: latitude, lng: longitude });
+      
+      let finalLat = latitude;
+      let finalLng = longitude;
+
+      // Filtro de Estabilização de Coordenadas (Evita oscilação/interferência por ruído de GPS)
+      if (lastCoordsRef.current) {
+        const prev = lastCoordsRef.current;
+        // Distância aproximada em metros usando Haversine simplificado
+        const dy = (latitude - prev.lat) * 111000;
+        const dx = (longitude - prev.lng) * 111000 * Math.cos(latitude * Math.PI / 180);
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        // Se a variação for menor que 8 metros, consideramos ruído/oscilação e mantemos a coordenada anterior
+        if (distance < 8) {
+          finalLat = prev.lat;
+          finalLng = prev.lng;
+        } else {
+          // Filtro passa-baixa para suavizar a transição (80% nova, 20% anterior)
+          finalLat = prev.lat * 0.2 + latitude * 0.8;
+          finalLng = prev.lng * 0.2 + longitude * 0.8;
+        }
+      }
+
+      lastCoordsRef.current = { lat: finalLat, lng: finalLng };
+      setGpsCoords({ lat: finalLat, lng: finalLng });
       setGpsStatus('active');
-      db.updateRiderLocation(user.id, user.name, latitude, longitude);
+      db.updateRiderLocation(user.id, user.name, finalLat, finalLng);
     };
 
     const onError = (err: GeolocationPositionError) => {
