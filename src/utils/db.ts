@@ -96,6 +96,11 @@ export interface RiderLocation {
   updatedAt: string;
 }
 
+export interface DeletedItem {
+  id: string;
+  table: string;
+}
+
 // Chaves para o LocalStorage
 const KEYS = {
   USERS: 'delivery_system_users',
@@ -106,7 +111,8 @@ const KEYS = {
   CURRENT_USER: 'delivery_system_current_user',
   RIDER_LOCATIONS: 'delivery_system_rider_locations',
   PARTNER_REQUESTS: 'delivery_system_partner_requests',
-  MISSING_COLUMNS: 'delivery_system_missing_columns'
+  MISSING_COLUMNS: 'delivery_system_missing_columns',
+  DELETED_IDS: 'delivery_system_deleted_ids'
 };
 
 // Cache persistente de colunas inexistentes por tabela para evitar requisições redundantes e lentidão
@@ -118,6 +124,30 @@ const getMissingColumnsCache = (): Record<string, string[]> => {
 const saveMissingColumnsCache = (cache: Record<string, string[]>) => {
   localStorage.setItem(KEYS.MISSING_COLUMNS, JSON.stringify(cache));
 };
+
+// Helper para mesclar strings de chat sem duplicar mensagens
+function mergeChatStrings(localChat: string | undefined, remoteChat: string | undefined): string {
+  if (!localChat) return remoteChat || '';
+  if (!remoteChat) return localChat || '';
+  
+  const localLines = localChat.split('\n').map(l => l.trim()).filter(Boolean);
+  const remoteLines = remoteChat.split('\n').map(l => l.trim()).filter(Boolean);
+  
+  const uniqueLines = Array.from(new Set([...localLines, ...remoteLines]));
+  return uniqueLines.join('\n');
+}
+
+// Helper para verificar se um endereço está vazio ou contém apenas placeholders padrão
+function isAddressEmptyOrPlaceholder(addr: any): boolean {
+  if (!addr) return true;
+  const street = (addr.street || '').toLowerCase().trim();
+  const neighborhood = (addr.neighborhood || '').toLowerCase().trim();
+  
+  const isEmpty = !street || !neighborhood;
+  const isPlaceholder = street === 'sem rua' || street === 'a definir' || neighborhood === 'sem bairro' || neighborhood === 'a definir';
+  
+  return isEmpty || isPlaceholder;
+}
 
 // Função de Auto-Cura para Upsert no Supabase
 async function safeUpsert(tableName: string, rawPayload: Record<string, any>): Promise<{ success: boolean; error?: any }> {
@@ -168,30 +198,6 @@ async function safeUpsert(tableName: string, rawPayload: Record<string, any>): P
   }
 
   return { success: false, error: 'Limite de tentativas de auto-cura excedido' };
-}
-
-// Helper para mesclar strings de chat sem duplicar mensagens
-function mergeChatStrings(localChat: string | undefined, remoteChat: string | undefined): string {
-  if (!localChat) return remoteChat || '';
-  if (!remoteChat) return localChat || '';
-  
-  const localLines = localChat.split('\n').map(l => l.trim()).filter(Boolean);
-  const remoteLines = remoteChat.split('\n').map(l => l.trim()).filter(Boolean);
-  
-  const uniqueLines = Array.from(new Set([...localLines, ...remoteLines]));
-  return uniqueLines.join('\n');
-}
-
-// Helper para verificar se um endereço está vazio ou contém apenas placeholders padrão
-function isAddressEmptyOrPlaceholder(addr: any): boolean {
-  if (!addr) return true;
-  const street = (addr.street || '').toLowerCase().trim();
-  const neighborhood = (addr.neighborhood || '').toLowerCase().trim();
-  
-  const isEmpty = !street || !neighborhood;
-  const isPlaceholder = street === 'sem rua' || street === 'a definir' || neighborhood === 'sem bairro' || neighborhood === 'a definir';
-  
-  return isEmpty || isPlaceholder;
 }
 
 export const db = {
@@ -268,6 +274,39 @@ export const db = {
     return `${year}-${month}-${day}`;
   },
 
+  // --- REGISTRO DE EXCLUSÕES PENDENTES ---
+  getDeletedItems(): DeletedItem[] {
+    const data = localStorage.getItem(KEYS.DELETED_IDS);
+    return data ? JSON.parse(data) : [];
+  },
+  addDeletedItem(id: string, table: string) {
+    const items = this.getDeletedItems();
+    if (!items.some(x => x.id === id)) {
+      items.push({ id, table });
+      localStorage.setItem(KEYS.DELETED_IDS, JSON.stringify(items));
+    }
+  },
+  removeDeletedItem(id: string) {
+    const items = this.getDeletedItems().filter(x => x.id !== id);
+    localStorage.setItem(KEYS.DELETED_IDS, JSON.stringify(items));
+  },
+
+  async syncDeletions() {
+    const items = this.getDeletedItems();
+    for (const item of items) {
+      try {
+        const { error } = await supabase.from(item.table).delete().eq('id', item.id);
+        if (!error) {
+          this.removeDeletedItem(item.id);
+        } else {
+          console.warn(`[Sync] Falha ao deletar ${item.id} da tabela ${item.table}:`, error);
+        }
+      } catch (e) {
+        console.error(`Erro ao deletar ${item.id} da tabela ${item.table}:`, e);
+      }
+    }
+  },
+
   // --- RESOLVERS & HELPERS ULTRA-ROBUSTOS ---
   resolveUser(id: string): User | undefined {
     if (!id) return undefined;
@@ -311,51 +350,36 @@ export const db = {
   async deleteUser(id: string) {
     const users = this.getUsers().filter(u => u.id !== id);
     localStorage.setItem(KEYS.USERS, JSON.stringify(users));
-    try {
-      await supabase.from('users').delete().eq('id', id);
-    } catch (e) {
-      console.error('Erro ao deletar usuário do Supabase:', e);
-    }
+    this.addDeletedItem(id, 'users');
+    await this.syncDeletions();
   },
 
   async deleteEstablishment(id: string) {
     const ests = this.getEstablishments().filter(e => e.id !== id);
     localStorage.setItem(KEYS.ESTABLISHMENTS, JSON.stringify(ests));
-    try {
-      await supabase.from('establishments').delete().eq('id', id);
-    } catch (e) {
-      console.error('Erro ao deletar estabelecimento do Supabase:', e);
-    }
+    this.addDeletedItem(id, 'establishments');
+    await this.syncDeletions();
   },
 
   async deleteSchedule(id: string) {
     const schedules = this.getSchedules().filter(s => s.id !== id);
     localStorage.setItem(KEYS.SCHEDULES, JSON.stringify(schedules));
-    try {
-      await supabase.from('schedules').delete().eq('id', id);
-    } catch (e) {
-      console.error('Erro ao deletar escala do Supabase:', e);
-    }
+    this.addDeletedItem(id, 'schedules');
+    await this.syncDeletions();
   },
 
   async deletePartnerRequest(id: string) {
     const requests = this.getPartnerRequests().filter(r => r.id !== id);
     localStorage.setItem(KEYS.PARTNER_REQUESTS, JSON.stringify(requests));
-    try {
-      await supabase.from('partner_requests').delete().eq('id', id);
-    } catch (e) {
-      console.error('Erro ao deletar solicitação de parceria do Supabase:', e);
-    }
+    this.addDeletedItem(id, 'partner_requests');
+    await this.syncDeletions();
   },
 
   async deleteDelivery(id: string) {
     const deliveries = this.getDeliveries().filter(d => d.id !== id);
     localStorage.setItem(KEYS.DELIVERIES, JSON.stringify(deliveries));
-    try {
-      await supabase.from('deliveries').delete().eq('id', id);
-    } catch (e) {
-      console.error('Erro ao deletar corrida do Supabase:', e);
-    }
+    this.addDeletedItem(id, 'deliveries');
+    await this.syncDeletions();
   },
 
   // --- RIDER REAL-TIME LOCATION COM AUTO-CURA ---
@@ -436,6 +460,12 @@ export const db = {
     } catch (e) {
       console.warn('Erro ao empurrar escalas/corridas locais:', e);
     }
+
+    try {
+      await this.syncDeletions();
+    } catch (e) {
+      console.warn('Erro ao empurrar exclusões pendentes:', e);
+    }
   },
 
   // --- SUPABASE SYNCHRONIZATION ---
@@ -447,31 +477,35 @@ export const db = {
       console.warn('Erro ao enviar dados locais pendentes para o Supabase:', err);
     }
 
+    const deletedIds = new Set(this.getDeletedItems().map(x => x.id));
+
     // 1. Sincronizar Usuários
     try {
       const { data: usersData, error } = await supabase.from('users').select('*');
       if (error) throw error;
       if (usersData) {
         const localUsers = this.getUsers();
-        const mappedUsers: User[] = usersData.map(u => {
-          const local = localUsers.find(l => l.id === u.id);
-          return {
-            id: u.id,
-            name: u.name,
-            email: u.email,
-            role: u.role,
-            active: u.active,
-            createdAt: u.created_at,
-            phone: u.phone || local?.phone || '',
-            cpf: u.cpf || local?.cpf || '',
-            passwordHash: u.password_hash || local?.passwordHash || '',
-            mustResetPassword: u.must_reset_password !== undefined ? u.must_reset_password : (local?.mustResetPassword || false),
-            establishmentId: u.establishment_id || local?.establishmentId || undefined,
-            updatedAt: u.updated_at
-          };
-        });
+        const mappedUsers: User[] = usersData
+          .filter(u => !deletedIds.has(u.id))
+          .map(u => {
+            const local = localUsers.find(l => l.id === u.id);
+            return {
+              id: u.id,
+              name: u.name,
+              email: u.email,
+              role: u.role,
+              active: u.active,
+              createdAt: u.created_at,
+              phone: u.phone || local?.phone || '',
+              cpf: u.cpf || local?.cpf || '',
+              passwordHash: u.password_hash || local?.passwordHash || '',
+              mustResetPassword: u.must_reset_password !== undefined ? u.must_reset_password : (local?.mustResetPassword || false),
+              establishmentId: u.establishment_id || local?.establishmentId || undefined,
+              updatedAt: u.updated_at
+            };
+          });
         const remoteIds = new Set(mappedUsers.map(u => u.id));
-        const unsyncedLocal = localUsers.filter(u => !remoteIds.has(u.id));
+        const unsyncedLocal = localUsers.filter(u => !remoteIds.has(u.id) && !deletedIds.has(u.id));
         localStorage.setItem(KEYS.USERS, JSON.stringify([...mappedUsers, ...unsyncedLocal]));
       }
     } catch (err) {
@@ -484,58 +518,60 @@ export const db = {
       if (error) throw error;
       if (estsData) {
         const localEsts = this.getEstablishments();
-        const mappedEsts: Establishment[] = estsData.map(e => {
-          let parsedAddress = { street: '', number: '', complement: '', neighborhood: '', city: '', state: '', zipCode: '' };
-          
-          // Se o banco de dados retornou colunas individuais de endereço
-          if (e.street || e.neighborhood || e.city) {
-            parsedAddress = {
-              street: e.street || '',
-              number: e.number || '',
-              complement: e.complement || '',
-              neighborhood: e.neighborhood || '',
-              city: e.city || '',
-              state: e.state || '',
-              zipCode: e.zip_code || e.zipCode || ''
-            };
-          } else if (e.address) {
-            // Se retornou como coluna JSON única
-            if (typeof e.address === 'object') {
-              parsedAddress = { ...parsedAddress, ...e.address };
-            } else if (typeof e.address === 'string') {
-              try {
-                let temp = JSON.parse(e.address);
-                if (typeof temp === 'string') {
-                  temp = JSON.parse(temp);
+        const mappedEsts: Establishment[] = estsData
+          .filter(e => !deletedIds.has(e.id))
+          .map(e => {
+            let parsedAddress = { street: '', number: '', complement: '', neighborhood: '', city: '', state: '', zipCode: '' };
+            
+            // Se o banco de dados retornou colunas individuais de endereço
+            if (e.street || e.neighborhood || e.city) {
+              parsedAddress = {
+                street: e.street || '',
+                number: e.number || '',
+                complement: e.complement || '',
+                neighborhood: e.neighborhood || '',
+                city: e.city || '',
+                state: e.state || '',
+                zipCode: e.zip_code || e.zipCode || ''
+              };
+            } else if (e.address) {
+              // Se retornou como coluna JSON única
+              if (typeof e.address === 'object') {
+                parsedAddress = { ...parsedAddress, ...e.address };
+              } else if (typeof e.address === 'string') {
+                try {
+                  let temp = JSON.parse(e.address);
+                  if (typeof temp === 'string') {
+                    temp = JSON.parse(temp);
+                  }
+                  if (temp && typeof temp === 'object') {
+                    parsedAddress = { ...parsedAddress, ...temp };
+                  }
+                } catch (err) {
+                  console.warn('Erro ao parsear endereço do estabelecimento:', err);
                 }
-                if (temp && typeof temp === 'object') {
-                  parsedAddress = { ...parsedAddress, ...temp };
-                }
-              } catch (err) {
-                console.warn('Erro ao parsear endereço do estabelecimento:', err);
               }
             }
-          }
 
-          // Preservação de endereço local se o remoto estiver vazio
-          const local = localEsts.find(l => l.id === e.id);
-          if (isAddressEmptyOrPlaceholder(parsedAddress) && local && local.address && !isAddressEmptyOrPlaceholder(local.address)) {
-            parsedAddress = { ...local.address };
-          }
+            // Preservação de endereço local se o remoto estiver vazio
+            const local = localEsts.find(l => l.id === e.id);
+            if (isAddressEmptyOrPlaceholder(parsedAddress) && local && local.address && !isAddressEmptyOrPlaceholder(local.address)) {
+              parsedAddress = { ...local.address };
+            }
 
-          return {
-            id: e.id,
-            name: e.name,
-            email: e.email || local?.email,
-            active: e.active,
-            phone: e.phone || local?.phone || '',
-            address: parsedAddress,
-            createdAt: e.created_at,
-            updatedAt: e.updated_at
-          };
-        });
+            return {
+              id: e.id,
+              name: e.name,
+              email: e.email || local?.email,
+              active: e.active,
+              phone: e.phone || local?.phone || '',
+              address: parsedAddress,
+              createdAt: e.created_at,
+              updatedAt: e.updated_at
+            };
+          });
         const remoteIds = new Set(mappedEsts.map(e => e.id));
-        const unsyncedLocal = localEsts.filter(e => !remoteIds.has(e.id));
+        const unsyncedLocal = localEsts.filter(e => !remoteIds.has(e.id) && !deletedIds.has(e.id));
         localStorage.setItem(KEYS.ESTABLISHMENTS, JSON.stringify([...mappedEsts, ...unsyncedLocal]));
       }
     } catch (err) {
@@ -548,24 +584,26 @@ export const db = {
       if (error) throw error;
       if (schData) {
         const localSchedules = this.getSchedules();
-        const mappedSchedules: Schedule[] = schData.map(s => {
-          const local = localSchedules.find(l => l.id === s.id);
-          return {
-            id: s.id,
-            riderId: s.rider_id,
-            establishmentId: s.establishment_id,
-            date: s.date,
-            shift: s.shift,
-            startTime: s.start_time,
-            endTime: s.end_time,
-            chat: mergeChatStrings(local?.chat, s.chat),
-            createdBy: s.created_by || undefined,
-            createdAt: s.created_at,
-            updatedAt: s.updated_at
-          };
-        });
+        const mappedSchedules: Schedule[] = schData
+          .filter(s => !deletedIds.has(s.id))
+          .map(s => {
+            const local = localSchedules.find(l => l.id === s.id);
+            return {
+              id: s.id,
+              riderId: s.rider_id,
+              establishmentId: s.establishment_id,
+              date: s.date,
+              shift: s.shift,
+              startTime: s.start_time,
+              endTime: s.end_time,
+              chat: mergeChatStrings(local?.chat, s.chat),
+              createdBy: s.created_by || undefined,
+              createdAt: s.created_at,
+              updatedAt: s.updated_at
+            };
+          });
         const remoteIds = new Set(mappedSchedules.map(s => s.id));
-        const unsyncedLocal = localSchedules.filter(s => !remoteIds.has(s.id));
+        const unsyncedLocal = localSchedules.filter(s => !remoteIds.has(s.id) && !deletedIds.has(s.id));
         localStorage.setItem(KEYS.SCHEDULES, JSON.stringify([...mappedSchedules, ...unsyncedLocal]));
       }
     } catch (err) {
@@ -579,67 +617,69 @@ export const db = {
       if (delData) {
         const localDeliveries = this.getDeliveries();
         
-        const mappedDeliveries: Delivery[] = delData.map(d => {
-          const local = localDeliveries.find(l => l.id === d.id);
-          
-          let orderNumber = d.order_number || undefined;
-          let notes = d.notes || undefined;
-          let customerChat = d.customer_chat || undefined;
-          let updatedAt = d.updated_at;
+        const mappedDeliveries: Delivery[] = delData
+          .filter(d => !deletedIds.has(d.id))
+          .map(d => {
+            const local = localDeliveries.find(l => l.id === d.id);
+            
+            let orderNumber = d.order_number || undefined;
+            let notes = d.notes || undefined;
+            let customerChat = d.customer_chat || undefined;
+            let updatedAt = d.updated_at;
 
-          if (d.order_number && d.order_number.startsWith('{')) {
-            try {
-              const parsed = JSON.parse(d.order_number);
-              orderNumber = parsed.orderNumber || undefined;
-              notes = parsed.notes || undefined;
-              customerChat = parsed.customerChat || undefined;
-              updatedAt = parsed.updatedAt || d.updated_at;
-            } catch (e) {
-              if (d.order_number.includes('|')) {
-                const parts = d.order_number.split('|');
-                orderNumber = parts[0] || undefined;
-                notes = parts[1] || undefined;
-                customerChat = parts[2] || undefined;
+            if (d.order_number && d.order_number.startsWith('{')) {
+              try {
+                const parsed = JSON.parse(d.order_number);
+                orderNumber = parsed.orderNumber || undefined;
+                notes = parsed.notes || undefined;
+                customerChat = parsed.customerChat || undefined;
+                updatedAt = parsed.updatedAt || d.updated_at;
+              } catch (e) {
+                if (d.order_number.includes('|')) {
+                  const parts = d.order_number.split('|');
+                  orderNumber = parts[0] || undefined;
+                  notes = parts[1] || undefined;
+                  customerChat = parts[2] || undefined;
+                }
               }
             }
-          }
 
-          let finalStatus: 'pending' | 'active' | 'rejected' | 'cancelled' = d.status;
-          
-          if (local) {
-            const isRemoteResolved = ['active', 'rejected', 'cancelled'].includes(d.status);
-            const isLocalResolved = ['active', 'rejected', 'cancelled'].includes(local.status);
+            let finalStatus: 'pending' | 'active' | 'rejected' | 'cancelled' = d.status;
+            
+            if (local) {
+              const isRemoteResolved = ['active', 'rejected', 'cancelled'].includes(d.status);
+              const isLocalResolved = ['active', 'rejected', 'cancelled'].includes(local.status);
 
-            if (isRemoteResolved && local.status === 'pending') {
-              finalStatus = d.status;
-            } else if (!isRemoteResolved && isLocalResolved) {
-              finalStatus = local.status;
-            } else {
-              const localTime = local.updatedAt ? new Date(local.updatedAt).getTime() : 0;
-              const remoteTime = updatedAt ? new Date(updatedAt).getTime() : 0;
-              finalStatus = localTime > remoteTime ? local.status : d.status;
+              if (isRemoteResolved && local.status === 'pending') {
+                finalStatus = d.status;
+              } else if (!isRemoteResolved && isLocalResolved) {
+                finalStatus = local.status;
+              } else {
+                const localTime = local.updatedAt ? new Date(local.updatedAt).getTime() : 0;
+                const remoteTime = updatedAt ? new Date(updatedAt).getTime() : 0;
+                finalStatus = localTime > remoteTime ? local.status : d.status;
+              }
             }
-          }
 
-          return {
-            id: d.id,
-            riderId: d.rider_id,
-            establishmentId: d.establishment_id,
-            date: d.date,
-            time: d.time,
-            value: Number(d.value),
-            status: finalStatus,
-            scheduleId: d.schedule_id || undefined,
-            orderNumber,
-            notes: mergeChatStrings(local?.notes, notes),
-            customerChat: mergeChatStrings(local?.customerChat, customerChat),
-            updatedAt,
-            paid: d.paid || false
-          };
-        });
+            return {
+              id: d.id,
+              riderId: d.rider_id,
+              establishmentId: d.establishment_id,
+              date: d.date,
+              time: d.time,
+              value: Number(d.value),
+              status: finalStatus,
+              scheduleId: d.schedule_id || undefined,
+              orderNumber,
+              notes: mergeChatStrings(local?.notes, notes),
+              customerChat: mergeChatStrings(local?.customerChat, customerChat),
+              updatedAt,
+              paid: d.paid || false
+            };
+          });
 
         const remoteIds = new Set(mappedDeliveries.map(d => d.id));
-        const unsyncedLocal = localDeliveries.filter(l => !remoteIds.has(l.id));
+        const unsyncedLocal = localDeliveries.filter(l => !remoteIds.has(l.id) && !deletedIds.has(l.id));
         
         localStorage.setItem(KEYS.DELIVERIES, JSON.stringify([...mappedDeliveries, ...unsyncedLocal]));
       }
@@ -653,17 +693,19 @@ export const db = {
       if (error) throw error;
       if (reqsData) {
         const localReqs = this.getPartnerRequests();
-        const mappedReqs: PartnerRequest[] = reqsData.map(r => ({
-          id: r.id,
-          establishmentName: r.establishment_name,
-          ownerName: r.owner_name,
-          phone: r.phone,
-          address: r.address,
-          status: r.status,
-          createdAt: r.created_at
-        }));
+        const mappedReqs: PartnerRequest[] = reqsData
+          .filter(r => !deletedIds.has(r.id))
+          .map(r => ({
+            id: r.id,
+            establishmentName: r.establishment_name,
+            ownerName: r.owner_name,
+            phone: r.phone,
+            address: r.address,
+            status: r.status,
+            createdAt: r.created_at
+          }));
         const remoteIds = new Set(mappedReqs.map(r => r.id));
-        const unsyncedLocal = localReqs.filter(r => !remoteIds.has(r.id));
+        const unsyncedLocal = localReqs.filter(r => !remoteIds.has(r.id) && !deletedIds.has(r.id));
         localStorage.setItem(KEYS.PARTNER_REQUESTS, JSON.stringify([...mappedReqs, ...unsyncedLocal]));
       }
     } catch (err) {
@@ -675,7 +717,9 @@ export const db = {
   },
 
   async syncUsersToSupabase(users: User[]) {
+    const deletedIds = new Set(this.getDeletedItems().map(x => x.id));
     for (const u of users) {
+      if (deletedIds.has(u.id)) continue;
       try {
         const rawPayload = {
           id: u.id,
@@ -703,7 +747,9 @@ export const db = {
   },
 
   async syncEstablishmentsToSupabase(ests: Establishment[]) {
+    const deletedIds = new Set(this.getDeletedItems().map(x => x.id));
     for (const e of ests) {
+      if (deletedIds.has(e.id)) continue;
       try {
         const rawPayload = {
           id: e.id,
@@ -735,8 +781,10 @@ export const db = {
   },
 
   async syncPartnerRequestsToSupabase(requests: PartnerRequest[]) {
+    const deletedIds = new Set(this.getDeletedItems().map(x => x.id));
     try {
       for (const r of requests) {
+        if (deletedIds.has(r.id)) continue;
         const rawPayload = {
           id: r.id,
           establishment_name: r.establishmentName,
@@ -758,10 +806,12 @@ export const db = {
   },
 
   async syncToSupabase() {
+    const deletedIds = new Set(this.getDeletedItems().map(x => x.id));
     try {
       // 1. Sincronizar Escalas (Schedules)
       const schedules = this.getSchedules();
       for (const s of schedules) {
+        if (deletedIds.has(s.id)) continue;
         try {
           const rawPayload = {
             id: s.id,
@@ -789,6 +839,7 @@ export const db = {
       // 2. Sincronizar Corridas (Deliveries)
       const deliveries = this.getDeliveries();
       for (const d of deliveries) {
+        if (deletedIds.has(d.id)) continue;
         try {
           const serializedOrderNumber = JSON.stringify({
             orderNumber: d.orderNumber || '',
