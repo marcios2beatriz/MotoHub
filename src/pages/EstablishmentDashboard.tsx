@@ -56,11 +56,9 @@ export default function EstablishmentDashboard() {
   const [todayDeliveries, setTodayDeliveries] = useState<Delivery[]>([]);
   const [riderLocations, setRiderLocations] = useState<RiderLocation[]>([]);
   const [estCoords, setEstCoords] = useState<{ lat: number; lng: number } | null>(null);
-  const [copiedId, setCopiedId] = useState<string | null>(null);
   const [isMapExpanded, setIsMapExpanded] = useState(false);
 
   const prevNotesRef = useRef<Record<string, string>>({});
-  const prevScheduleChatRef = useRef<Record<string, string>>({});
 
   const [showDeliveryModal, setShowDeliveryModal] = useState(false);
   const [editingDelivery, setEditingDelivery] = useState<Delivery | null>(null);
@@ -124,7 +122,7 @@ export default function EstablishmentDashboard() {
     const currentUser = db.getCurrentUser();
     if (!currentUser) return;
 
-    const freshUser = db.getUsers().find(u => u.email.toLowerCase() === currentUser.email.toLowerCase()) || currentUser;
+    const freshUser = db.getUsers().find(u => u.id === currentUser.id) || currentUser;
     let estId = freshUser.establishmentId;
 
     const allEsts = db.getEstablishments();
@@ -143,13 +141,6 @@ export default function EstablishmentDashboard() {
 
     if (!currentEst) return;
     setEstablishment(currentEst);
-
-    if (freshUser.establishmentId !== currentEst.id) {
-      freshUser.establishmentId = currentEst.id;
-      db.setCurrentUser(freshUser);
-      const updatedUsers = db.getUsers().map(u => u.id === freshUser.id ? { ...u, establishmentId: currentEst.id } : u);
-      localStorage.setItem('delivery_system_users', JSON.stringify(updatedUsers));
-    }
 
     const currentEstName = currentEst.name.toLowerCase().trim();
     const matchingEstIds = allEsts
@@ -301,11 +292,9 @@ export default function EstablishmentDashboard() {
       }
     }
 
-    // RESOLUÇÃO ROBUSTA DE MOTOBOYS NO MAPA
     const scheduledRiderIds = scheduledRiders.map(r => r.id);
     const scheduledRiderEmails = scheduledRiders.map(r => r.email.toLowerCase());
 
-    // Filtra localizações de motoboys que estão escalados hoje
     const activeLocations = riderLocations.filter(loc => {
       const resolvedRider = db.resolveUser(loc.riderId);
       if (!resolvedRider) return false;
@@ -360,7 +349,6 @@ export default function EstablishmentDashboard() {
       }
     });
 
-    // Remove marcadores antigos de motoboys que não estão mais ativos ou escalados
     Object.keys(markersRef.current).forEach(key => {
       if (!currentMarkerKeys.has(key)) {
         markersRef.current[key].remove();
@@ -368,7 +356,6 @@ export default function EstablishmentDashboard() {
       }
     });
 
-    // Enquadramento automático inicial do mapa para englobar todos os pontos
     if (activeLocations.length > 0 && estCoords && !hasSetInitialBoundsRef.current) {
       const points: L.LatLngExpression[] = [[estCoords.lat, estCoords.lng]];
       activeLocations.forEach(loc => points.push([loc.lat, loc.lng]));
@@ -376,7 +363,6 @@ export default function EstablishmentDashboard() {
       hasSetInitialBoundsRef.current = true;
     }
 
-    // Força o Leaflet a recalcular o tamanho do container caso o mapa seja expandido
     setTimeout(() => {
       map.invalidateSize();
     }, 200);
@@ -482,12 +468,6 @@ export default function EstablishmentDashboard() {
     setShowDeliveryModal(true);
   };
 
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedId(text);
-    setTimeout(() => setCopiedId(null), 2000);
-  };
-
   const totalValue = todayDeliveries.reduce((acc, d) => acc + d.value, 0);
   const completedDeliveries = todayDeliveries.filter(d => d.status === 'completed');
   const completedValue = completedDeliveries.reduce((acc, d) => acc + d.value, 0);
@@ -519,26 +499,6 @@ export default function EstablishmentDashboard() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6 space-y-6">
-        {/* ID de Vinculação */}
-        {establishment && (
-          <div className="bg-gradient-to-r from-indigo-500 to-purple-600 rounded-2xl p-4 text-white shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
-              <h3 className="font-bold text-base">Código de Vinculação do Estabelecimento</h3>
-              <p className="text-xs text-indigo-100 mt-0.5">Compartilhe este código com o administrador para vincular novas escalas.</p>
-            </div>
-            <div className="flex items-center gap-2 bg-white/10 p-2 rounded-xl backdrop-blur-sm self-start sm:self-auto">
-              <code className="font-mono font-bold text-sm tracking-wider">{establishment.id}</code>
-              <button 
-                onClick={() => copyToClipboard(establishment.id)}
-                className="bg-white text-indigo-600 hover:bg-indigo-50 px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1"
-              >
-                {copiedId === establishment.id ? <Check className="w-3.5 h-3.5" /> : <Share2 className="w-3.5 h-3.5" />}
-                {copiedId === establishment.id ? 'Copiado!' : 'Copiar'}
-              </button>
-            </div>
-          </div>
-        )}
-
         {/* Métricas */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
