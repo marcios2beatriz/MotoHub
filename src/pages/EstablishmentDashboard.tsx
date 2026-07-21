@@ -231,13 +231,13 @@ export default function EstablishmentDashboard() {
   useEffect(() => {
     if (!establishment) return;
     
-    const cepClean = establishment.cep ? establishment.cep.replace(/\D/g, '') : '';
+    const cepClean = establishment.address?.zipCode ? establishment.address.zipCode.replace(/\D/g, '') : '';
     if (cepClean && KNOWN_CEPS[cepClean]) {
       setEstCoords(KNOWN_CEPS[cepClean]);
       return;
     }
 
-    const addressQuery = `${establishment.address || ''}, ${establishment.neighborhood || ''}, Campina Grande, PB, Brazil`;
+    const addressQuery = `${establishment.address?.street || ''}, ${establishment.address?.neighborhood || ''}, Campina Grande, PB, Brazil`;
     fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(addressQuery)}`)
       .then(res => res.json())
       .then(data => {
@@ -352,10 +352,10 @@ export default function EstablishmentDashboard() {
       `;
 
       if (markersRef.current[markerKey]) {
-        markersRef.current[markerKey].setLatLng([loc.latitude, loc.longitude]);
+        markersRef.current[markerKey].setLatLng([loc.lat, loc.lng]);
         markersRef.current[markerKey].getPopup()?.setContent(popupContent);
       } else {
-        markersRef.current[markerKey] = L.marker([loc.latitude, loc.longitude], { icon: riderIcon })
+        markersRef.current[markerKey] = L.marker([loc.lat, loc.lng], { icon: riderIcon })
           .addTo(map)
           .bindPopup(popupContent);
       }
@@ -372,7 +372,7 @@ export default function EstablishmentDashboard() {
     // Enquadramento automático inicial do mapa para englobar todos os pontos
     if (activeLocations.length > 0 && estCoords && !hasSetInitialBoundsRef.current) {
       const points: L.LatLngExpression[] = [[estCoords.lat, estCoords.lng]];
-      activeLocations.forEach(loc => points.push([loc.latitude, loc.longitude]));
+      activeLocations.forEach(loc => points.push([loc.lat, loc.lng]));
       map.fitBounds(L.latLngBounds(points), { padding: [50, 50] });
       hasSetInitialBoundsRef.current = true;
     }
@@ -399,7 +399,7 @@ export default function EstablishmentDashboard() {
              scheduledRiderEmails.includes(resolvedRider.email.toLowerCase());
     });
 
-    activeLocations.forEach(loc => points.push([loc.latitude, loc.longitude]));
+    activeLocations.forEach(loc => points.push([loc.lat, loc.lng]));
     
     if (points.length > 1) {
       mapRef.current.fitBounds(L.latLngBounds(points), { padding: [50, 50] });
@@ -434,7 +434,8 @@ export default function EstablishmentDashboard() {
             scheduleId: activeSchedule?.id || d.scheduleId,
             value: val,
             orderNumber: deliveryForm.orderNumber,
-            notes: deliveryForm.notes
+            notes: deliveryForm.notes,
+            updatedAt: new Date().toISOString()
           };
         }
         return d;
@@ -449,9 +450,10 @@ export default function EstablishmentDashboard() {
         value: val,
         status: 'pending',
         date: db.getLocalDateString(),
-        createdAt: new Date().toISOString(),
+        time: new Date().toTimeString().slice(0, 5),
         orderNumber: deliveryForm.orderNumber,
-        notes: deliveryForm.notes || ''
+        notes: deliveryForm.notes || '',
+        updatedAt: new Date().toISOString()
       };
       db.setDeliveries([...db.getDeliveries(), newDelivery]);
     }

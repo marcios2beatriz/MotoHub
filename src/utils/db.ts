@@ -60,7 +60,7 @@ export interface Delivery {
   date: string; // YYYY-MM-DD
   time: string; // HH:MM
   value: number;
-  status: 'pending' | 'active' | 'rejected' | 'cancelled';
+  status: 'pending' | 'active' | 'accepted' | 'completed' | 'rejected' | 'cancelled';
   scheduleId?: string;
   orderNumber?: string;
   notes?: string; // Chat/Observações com o estabelecimento
@@ -624,10 +624,10 @@ export const db = {
             }
           }
 
-          let finalStatus: 'pending' | 'active' | 'rejected' | 'cancelled' = d.status;
+          let finalStatus: 'pending' | 'active' | 'accepted' | 'completed' | 'rejected' | 'cancelled' = d.status;
           if (local) {
-            const isRemoteResolved = ['active', 'rejected', 'cancelled'].includes(d.status);
-            const isLocalResolved = ['active', 'rejected', 'cancelled'].includes(local.status);
+            const isRemoteResolved = ['active', 'accepted', 'completed', 'rejected', 'cancelled'].includes(d.status);
+            const isLocalResolved = ['active', 'accepted', 'completed', 'rejected', 'cancelled'].includes(local.status);
 
             if (isRemoteResolved && local.status === 'pending') {
               finalStatus = d.status;
