@@ -120,8 +120,6 @@ export default function AdminDashboard() {
     const rawRequests = db.getPartnerRequests();
 
     // --- LÓGICA DE AUTO-RECUPERAÇÃO (FALLBACK) ---
-    // Se a tabela partner_requests estiver vazia ou inacessível, nós geramos solicitações virtuais
-    // a partir de estabelecimentos inativos para garantir que o Admin consiga aprová-los!
     const inactiveEsts = currentEsts.filter(e => !e.active);
     const virtualRequests: PartnerRequest[] = inactiveEsts.map(e => {
       const manager = currentUsers.find(u => u.establishmentId === e.id);
@@ -141,7 +139,6 @@ export default function AdminDashboard() {
       };
     });
 
-    // Mescla as solicitações reais com as virtuais (evitando duplicados por nome)
     const mergedRequests = [...rawRequests];
     virtualRequests.forEach(vr => {
       const exists = mergedRequests.some(r => r.establishmentName.toLowerCase().trim() === vr.establishmentName.toLowerCase().trim());
@@ -150,11 +147,18 @@ export default function AdminDashboard() {
       }
     });
 
-    setUsers(currentUsers);
-    setEstablishments(currentEsts);
-    setSchedules(currentSchedules);
-    setDeliveries(currentDeliveries);
-    setPartnerRequests(mergedRequests);
+    // ORDENAÇÃO ESTÁVEL PARA EVITAR QUE OS ITENS FIQUEM PULANDO DE LUGAR
+    const sortedUsers = [...currentUsers].sort((a, b) => a.name.localeCompare(b.name));
+    const sortedEsts = [...currentEsts].sort((a, b) => a.name.localeCompare(b.name));
+    const sortedSchedules = [...currentSchedules].sort((a, b) => b.date.localeCompare(a.date) || a.shift.localeCompare(b.shift) || a.id.localeCompare(b.id));
+    const sortedDeliveries = [...currentDeliveries].sort((a, b) => b.date.localeCompare(a.date) || b.time.localeCompare(a.time) || b.id.localeCompare(a.id));
+    const sortedRequests = [...mergedRequests].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
+    setUsers(sortedUsers);
+    setEstablishments(sortedEsts);
+    setSchedules(sortedSchedules);
+    setDeliveries(sortedDeliveries);
+    setPartnerRequests(sortedRequests);
   };
 
   useEffect(() => {
@@ -419,11 +423,13 @@ export default function AdminDashboard() {
 
   const handleSaveSchedule = (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // BLOQUEIO COMPLETO DE CONFLITO DE ESCALA (Requisito de não permitir duplicar motoboy no mesmo dia e turno)
     const conflict = schedules.find(s => s.riderId === scheduleForm.riderId && s.date === scheduleForm.date && s.shift === scheduleForm.shift);
-    if (conflict && !scheduleConflictWarning) {
+    if (conflict) {
       const rider = users.find(r => r.id === scheduleForm.riderId);
       const est = establishments.find(es => es.id === conflict.establishmentId);
-      setScheduleConflictWarning(`Aviso: O motoboy ${rider?.name} já está escalado no estabelecimento ${est?.name} neste mesmo dia e turno!`);
+      alert(`Erro: O motoboy ${rider?.name} já possui uma escala ativa no estabelecimento ${est?.name} neste mesmo dia e turno! Não é possível duplicar a escala.`);
       return;
     }
 
@@ -500,8 +506,14 @@ export default function AdminDashboard() {
     const newSchedules: Schedule[] = [];
     const newNotifs: Notification[] = [];
 
-    weeklyPreview.forEach((day) => {
-      if (!day.enabled) return;
+    // FILTRA APENAS OS DIAS QUE NÃO POSSUEM CONFLITO
+    const validDays = weeklyPreview.filter(day => day.enabled && !day.conflict);
+    if (validDays.length === 0) {
+      alert('Erro: Todos os dias selecionados possuem conflitos de escala para este motoboy. Nenhuma escala foi criada.');
+      return;
+    }
+
+    validDays.forEach((day) => {
       const id = 's_' + Date.now() + '_' + day.date;
       newSchedules.push({
         id,
@@ -531,6 +543,7 @@ export default function AdminDashboard() {
     setShowWeeklyModal(false);
     setWeeklyStep('form');
     loadData();
+    alert(`${newSchedules.length} escala(s) criada(s) com sucesso! Dias com conflito foram ignorados.`);
   };
 
   const handleSaveDelivery = (e: React.FormEvent) => {
@@ -612,7 +625,6 @@ export default function AdminDashboard() {
 
   const handleDeleteRequest = async (id: string) => {
     if (id.startsWith('req_virtual_')) {
-      // Se for uma solicitação virtual, exclui o estabelecimento inativo correspondente
       const estId = id.replace('req_virtual_', '');
       if (confirm('Deseja realmente excluir este estabelecimento pendente definitivamente?')) {
         await db.deleteEstablishment(estId);
@@ -642,7 +654,6 @@ export default function AdminDashboard() {
       const updatedUsers = db.getUsers().map(u => u.establishmentId === est.id ? { ...u, active: true, updatedAt: new Date().toISOString() } : u);
       db.setUsers(updatedUsers);
       
-      // Se for uma solicitação real, atualiza o status dela
       if (!req.id.startsWith('req_virtual_')) {
         const updatedRequests = partnerRequests.map(r => r.id === req.id ? { ...r, status: 'contacted' as const } : r);
         db.setPartnerRequests(updatedRequests);
