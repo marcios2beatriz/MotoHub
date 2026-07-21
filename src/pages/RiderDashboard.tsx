@@ -113,9 +113,14 @@ export default function RiderDashboard() {
 
     const allEsts = db.getEstablishments().filter(e => e.active);
     
-    setSchedules(allSchedules);
-    setDeliveries(allDeliveries);
-    setNotifications(allNotifications);
+    // ORDENAÇÃO ESTÁVEL PARA EVITAR QUE OS CARDS FIQUEM OSCILANDO DE POSIÇÃO DURANTE AS SINCRONIZAÇÕES
+    const sortedSchedules = [...allSchedules].sort((a, b) => a.date.localeCompare(b.date) || a.shift.localeCompare(b.shift) || a.id.localeCompare(b.id));
+    const sortedDeliveries = [...allDeliveries].sort((a, b) => b.date.localeCompare(a.date) || b.time.localeCompare(a.time) || b.id.localeCompare(a.id));
+    const sortedNotifications = [...allNotifications].sort((a, b) => b.date.localeCompare(a.date));
+
+    setSchedules(sortedSchedules);
+    setDeliveries(sortedDeliveries);
+    setNotifications(sortedNotifications);
     setEstablishments(allEsts);
   };
 
@@ -452,7 +457,7 @@ export default function RiderDashboard() {
 
     return schedules.filter(s => {
       return s.date >= todayStr && s.date <= limitDateStr;
-    }).sort((a, b) => a.date.localeCompare(b.date));
+    }).sort((a, b) => a.date.localeCompare(b.date) || a.shift.localeCompare(b.shift) || a.id.localeCompare(b.id));
   };
 
   const filteredFutureSchedules = getFutureSchedules().filter(s => {
