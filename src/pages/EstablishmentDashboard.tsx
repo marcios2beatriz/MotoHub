@@ -439,7 +439,7 @@ export default function EstablishmentDashboard() {
         }
         return d;
       });
-      db.saveDeliveries(updated);
+      db.setDeliveries(updated);
     } else {
       const newDelivery: Delivery = {
         id: 'del_' + Math.random().toString(36).substr(2, 9),
@@ -453,7 +453,7 @@ export default function EstablishmentDashboard() {
         orderNumber: deliveryForm.orderNumber,
         notes: deliveryForm.notes || ''
       };
-      db.saveDeliveries([...db.getDeliveries(), newDelivery]);
+      db.setDeliveries([...db.getDeliveries(), newDelivery]);
     }
 
     setShowDeliveryModal(false);
@@ -465,7 +465,7 @@ export default function EstablishmentDashboard() {
   const handleDeleteDelivery = (id: string) => {
     if (confirm('Tem certeza que deseja excluir esta corrida?')) {
       const updated = db.getDeliveries().filter(d => d.id !== id);
-      db.saveDeliveries(updated);
+      db.setDeliveries(updated);
       loadData();
     }
   };
@@ -844,15 +844,35 @@ export default function EstablishmentDashboard() {
       {/* Modais de Notas e Chat */}
       {notesDeliveryId && (
         <DeliveryNotesModal 
-          deliveryId={notesDeliveryId} 
-          onClose={() => setNotesDeliveryId(null)} 
+          isOpen={notesDeliveryId !== null}
+          onClose={() => setNotesDeliveryId(null)}
+          delivery={todayDeliveries.find(d => d.id === notesDeliveryId) || null}
+          userRole="establishment"
+          userName={user?.name || 'Gerente'}
+          onSaveNotes={(deliveryId, updatedNotes) => {
+            const updatedDeliveries = db.getDeliveries().map(d => 
+              d.id === deliveryId ? { ...d, notes: updatedNotes, updatedAt: new Date().toISOString() } : d
+            );
+            db.setDeliveries(updatedDeliveries);
+            loadData();
+          }}
         />
       )}
 
       {activeScheduleChatId && (
         <ScheduleChatModal 
-          scheduleId={activeScheduleChatId} 
-          onClose={() => setActiveScheduleChatId(null)} 
+          isOpen={activeScheduleChatId !== null}
+          onClose={() => setActiveScheduleChatId(null)}
+          schedule={todaySchedules.find(s => s.id === activeScheduleChatId) || null}
+          userRole="establishment"
+          userName={user?.name || 'Gerente'}
+          onSaveChat={(scheduleId, updatedChat) => {
+            const updatedSchedules = db.getSchedules().map(s => 
+              s.id === scheduleId ? { ...s, chat: updatedChat, updatedAt: new Date().toISOString() } : s
+            );
+            db.setSchedules(updatedSchedules);
+            loadData();
+          }}
         />
       )}
     </div>
