@@ -18,7 +18,6 @@ export interface User {
   mustResetPassword?: boolean;
   establishmentId?: string;
   updatedAt?: string;
-  synced?: boolean;
 }
 
 export interface Establishment {
@@ -38,7 +37,6 @@ export interface Establishment {
   };
   createdAt?: string;
   updatedAt?: string;
-  synced?: boolean;
 }
 
 export interface Schedule {
@@ -53,7 +51,6 @@ export interface Schedule {
   createdBy?: string;
   createdAt?: string;
   updatedAt?: string;
-  synced?: boolean;
 }
 
 export interface Delivery {
@@ -70,7 +67,6 @@ export interface Delivery {
   customerChat?: string; // Chat com o cliente final
   updatedAt?: string;
   paid?: boolean;
-  synced?: boolean;
 }
 
 export interface Notification {
@@ -90,7 +86,6 @@ export interface PartnerRequest {
   address: string;
   status: 'pending' | 'contacted';
   createdAt: string;
-  synced?: boolean;
 }
 
 export interface RiderLocation {
@@ -99,11 +94,6 @@ export interface RiderLocation {
   lat: number;
   lng: number;
   updatedAt: string;
-}
-
-export interface DeletedItem {
-  id: string;
-  table: string;
 }
 
 // Chaves para o LocalStorage
@@ -205,33 +195,32 @@ async function safeUpsert(tableName: string, rawPayload: Record<string, any>): P
 }
 
 export const db = {
-  // --- LOCAL STORAGE GETTERS & SETTERS ---
+  // --- LOCAL STORAGE GETTERS & SETTERS COM ESCRITA IMEDIATA NO SUPABASE ---
   getUsers(): User[] {
     const data = localStorage.getItem(KEYS.USERS);
     return data ? JSON.parse(data) : [];
   },
   setUsers(users: User[]) {
-    const current = this.getUsers();
-    const processed = users.map(u => {
-      const old = current.find(c => c.id === u.id);
-      if (!old) {
-        return { ...u, synced: false };
-      }
-      const changed = old.name !== u.name || 
-                      old.email !== u.email || 
-                      old.role !== u.role || 
-                      old.active !== u.active || 
-                      old.phone !== u.phone || 
-                      old.cpf !== u.cpf || 
-                      old.passwordHash !== u.passwordHash || 
-                      old.establishmentId !== u.establishmentId;
-      if (changed) {
-        return { ...u, synced: false };
-      }
-      return u;
+    localStorage.setItem(KEYS.USERS, JSON.stringify(users));
+    
+    // Sincroniza imediatamente cada usuário alterado ou novo
+    users.forEach(u => {
+      const rawPayload = {
+        id: u.id,
+        name: u.name,
+        email: u.email,
+        role: u.role,
+        active: u.active,
+        phone: u.phone,
+        cpf: u.cpf,
+        password_hash: u.passwordHash,
+        must_reset_password: u.mustResetPassword || false,
+        establishment_id: u.establishmentId || null,
+        created_at: u.createdAt || new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+      safeUpsert('users', rawPayload);
     });
-    localStorage.setItem(KEYS.USERS, JSON.stringify(processed));
-    this.syncUsersToSupabase(processed);
   },
 
   getEstablishments(): Establishment[] {
@@ -239,24 +228,29 @@ export const db = {
     return data ? JSON.parse(data) : [];
   },
   setEstablishments(ests: Establishment[]) {
-    const current = this.getEstablishments();
-    const processed = ests.map(e => {
-      const old = current.find(c => c.id === e.id);
-      if (!old) {
-        return { ...e, synced: false };
-      }
-      const changed = old.name !== e.name || 
-                      old.email !== e.email || 
-                      old.active !== e.active || 
-                      old.phone !== e.phone || 
-                      JSON.stringify(old.address) !== JSON.stringify(e.address);
-      if (changed) {
-        return { ...e, synced: false };
-      }
-      return e;
+    localStorage.setItem(KEYS.ESTABLISHMENTS, JSON.stringify(ests));
+    
+    // Sincroniza imediatamente cada estabelecimento alterado ou novo
+    ests.forEach(e => {
+      const rawPayload = {
+        id: e.id,
+        name: e.name,
+        email: e.email || null,
+        active: e.active,
+        phone: e.phone || '',
+        address: typeof e.address === 'object' ? JSON.stringify(e.address) : e.address,
+        street: e.address?.street || '',
+        number: e.address?.number || '',
+        complement: e.address?.complement || '',
+        neighborhood: e.address?.neighborhood || '',
+        city: e.address?.city || '',
+        state: e.address?.state || '',
+        zip_code: e.address?.zipCode || '',
+        created_at: e.createdAt || new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+      safeUpsert('establishments', rawPayload);
     });
-    localStorage.setItem(KEYS.ESTABLISHMENTS, JSON.stringify(processed));
-    this.syncEstablishmentsToSupabase(processed);
   },
 
   getSchedules(): Schedule[] {
@@ -264,26 +258,25 @@ export const db = {
     return data ? JSON.parse(data) : [];
   },
   setSchedules(schedules: Schedule[]) {
-    const current = this.getSchedules();
-    const processed = schedules.map(s => {
-      const old = current.find(c => c.id === s.id);
-      if (!old) {
-        return { ...s, synced: false };
-      }
-      const changed = old.riderId !== s.riderId || 
-                      old.establishmentId !== s.establishmentId || 
-                      old.date !== s.date || 
-                      old.shift !== s.shift || 
-                      old.startTime !== s.startTime || 
-                      old.endTime !== s.endTime || 
-                      old.chat !== s.chat;
-      if (changed) {
-        return { ...s, synced: false };
-      }
-      return s;
+    localStorage.setItem(KEYS.SCHEDULES, JSON.stringify(schedules));
+    
+    // Sincroniza imediatamente cada escala alterada ou nova
+    schedules.forEach(s => {
+      const rawPayload = {
+        id: s.id,
+        rider_id: s.riderId,
+        establishment_id: s.establishmentId,
+        date: s.date,
+        shift: s.shift,
+        start_time: s.startTime,
+        end_time: s.endTime,
+        chat: s.chat || null,
+        created_by: s.createdBy || null,
+        created_at: s.createdAt || new Date().toISOString(),
+        updated_at: s.updatedAt || new Date().toISOString()
+      };
+      safeUpsert('schedules', rawPayload);
     });
-    localStorage.setItem(KEYS.SCHEDULES, JSON.stringify(processed));
-    this.syncSchedulesToSupabase(processed);
   },
 
   getDeliveries(): Delivery[] {
@@ -291,26 +284,34 @@ export const db = {
     return data ? JSON.parse(data) : [];
   },
   setDeliveries(deliveries: Delivery[]) {
-    const current = this.getDeliveries();
-    const processed = deliveries.map(d => {
-      const old = current.find(c => c.id === d.id);
-      if (!old) {
-        return { ...d, synced: false };
-      }
-      const changed = old.status !== d.status || 
-                      old.value !== d.value || 
-                      old.notes !== d.notes || 
-                      old.customerChat !== d.customerChat ||
-                      old.paid !== d.paid ||
-                      old.riderId !== d.riderId ||
-                      old.establishmentId !== d.establishmentId;
-      if (changed) {
-        return { ...d, synced: false };
-      }
-      return d;
+    localStorage.setItem(KEYS.DELIVERIES, JSON.stringify(deliveries));
+    
+    // Sincroniza imediatamente cada corrida alterada ou nova
+    deliveries.forEach(d => {
+      const serializedOrderNumber = JSON.stringify({
+        orderNumber: d.orderNumber || '',
+        notes: d.notes || '',
+        customerChat: d.customerChat || '',
+        updatedAt: d.updatedAt || new Date().toISOString()
+      });
+
+      const rawPayload = {
+        id: d.id,
+        rider_id: d.riderId,
+        establishment_id: d.establishmentId,
+        date: d.date,
+        time: d.time,
+        value: d.value,
+        status: d.status,
+        schedule_id: d.scheduleId || null,
+        order_number: serializedOrderNumber,
+        notes: d.notes || null,
+        customer_chat: d.customerChat || null,
+        updated_at: d.updatedAt || new Date().toISOString(),
+        paid: d.paid || false
+      };
+      safeUpsert('deliveries', rawPayload);
     });
-    localStorage.setItem(KEYS.DELIVERIES, JSON.stringify(processed));
-    this.syncDeliveriesToSupabase(processed);
   },
 
   getNotifications(): Notification[] {
@@ -326,24 +327,21 @@ export const db = {
     return data ? JSON.parse(data) : [];
   },
   setPartnerRequests(requests: PartnerRequest[]) {
-    const current = this.getPartnerRequests();
-    const processed = requests.map(r => {
-      const old = current.find(c => c.id === r.id);
-      if (!old) {
-        return { ...r, synced: false };
-      }
-      const changed = old.status !== r.status || 
-                      old.establishmentName !== r.establishmentName || 
-                      old.ownerName !== r.ownerName || 
-                      old.phone !== r.phone || 
-                      old.address !== r.address;
-      if (changed) {
-        return { ...r, synced: false };
-      }
-      return r;
+    localStorage.setItem(KEYS.PARTNER_REQUESTS, JSON.stringify(requests));
+    
+    // Sincroniza imediatamente cada solicitação alterada ou nova
+    requests.forEach(r => {
+      const rawPayload = {
+        id: r.id,
+        establishment_name: r.establishmentName,
+        owner_name: r.ownerName,
+        phone: r.phone,
+        address: r.address,
+        status: r.status,
+        created_at: r.createdAt
+      };
+      safeUpsert('partner_requests', rawPayload);
     });
-    localStorage.setItem(KEYS.PARTNER_REQUESTS, JSON.stringify(processed));
-    this.syncPartnerRequestsToSupabase(processed);
   },
 
   getCurrentUser(): User | null {
@@ -477,54 +475,8 @@ export const db = {
     return Object.values(this.getRiderLocationsRecord());
   },
 
-  // --- FORÇAR ENVIO DE DADOS LOCAIS PENDENTES ---
-  async pushLocalDataToSupabase() {
-    const localUsers = this.getUsers();
-    const localEsts = this.getEstablishments();
-    const localRequests = this.getPartnerRequests();
-    const localSchedules = this.getSchedules();
-    const localDeliveries = this.getDeliveries();
-
-    try {
-      await this.syncEstablishmentsToSupabase(localEsts);
-    } catch (e) {
-      console.warn('Erro ao empurrar estabelecimentos locais:', e);
-    }
-
-    try {
-      await this.syncUsersToSupabase(localUsers);
-    } catch (e) {
-      console.warn('Erro ao empurrar usuários locais:', e);
-    }
-
-    try {
-      await this.syncPartnerRequestsToSupabase(localRequests);
-    } catch (e) {
-      console.warn('Erro ao empurrar solicitações locais:', e);
-    }
-
-    try {
-      await this.syncSchedulesToSupabase(localSchedules);
-    } catch (e) {
-      console.warn('Erro ao empurrar escalas locais:', e);
-    }
-
-    try {
-      await this.syncDeliveriesToSupabase(localDeliveries);
-    } catch (e) {
-      console.warn('Erro ao empurrar corridas locais:', e);
-    }
-  },
-
   // --- SUPABASE SYNCHRONIZATION (SOBRESCREVE TOTALMENTE O CACHE LOCAL) ---
   async pullFromSupabase() {
-    // 0. PRIMEIRO PASSO (PUSH): Envia qualquer alteração local pendente para o Supabase
-    try {
-      await this.pushLocalDataToSupabase();
-    } catch (err) {
-      console.warn('Erro ao enviar dados locais pendentes para o Supabase:', err);
-    }
-
     // 1. Sincronizar Usuários
     try {
       const { data: usersData, error } = await supabase.from('users').select('*');
@@ -545,8 +497,7 @@ export const db = {
             passwordHash: u.password_hash || local?.passwordHash || '',
             mustResetPassword: u.must_reset_password !== undefined ? u.must_reset_password : (local?.mustResetPassword || false),
             establishmentId: u.establishment_id || local?.establishmentId || undefined,
-            updatedAt: u.updated_at,
-            synced: true
+            updatedAt: u.updated_at
           };
         });
         localStorage.setItem(KEYS.USERS, JSON.stringify(mappedUsers));
@@ -605,8 +556,7 @@ export const db = {
             phone: e.phone || local?.phone || '',
             address: parsedAddress,
             createdAt: e.created_at,
-            updatedAt: e.updated_at,
-            synced: true
+            updatedAt: e.updated_at
           };
         });
         localStorage.setItem(KEYS.ESTABLISHMENTS, JSON.stringify(mappedEsts));
@@ -634,8 +584,7 @@ export const db = {
             chat: mergeChatStrings(local?.chat, s.chat),
             createdBy: s.created_by || undefined,
             createdAt: s.created_at,
-            updatedAt: s.updated_at,
-            synced: true
+            updatedAt: s.updated_at
           };
         });
         localStorage.setItem(KEYS.SCHEDULES, JSON.stringify(mappedSchedules));
@@ -704,8 +653,7 @@ export const db = {
             notes: mergeChatStrings(local?.notes, notes),
             customerChat: mergeChatStrings(local?.customerChat, customerChat),
             updatedAt,
-            paid: d.paid || false,
-            synced: true
+            paid: d.paid || false
           };
         });
         localStorage.setItem(KEYS.DELIVERIES, JSON.stringify(mappedDeliveries));
@@ -726,8 +674,7 @@ export const db = {
           phone: r.phone,
           address: r.address,
           status: r.status,
-          createdAt: r.created_at,
-          synced: true
+          createdAt: r.created_at
         }));
         localStorage.setItem(KEYS.PARTNER_REQUESTS, JSON.stringify(mappedReqs));
       }
@@ -761,204 +708,5 @@ export const db = {
 
     // Dispara evento global para atualizar as telas em tempo real
     window.dispatchEvent(new Event('db-sync-complete'));
-  },
-
-  async syncUsersToSupabase(users: User[]) {
-    const localUsers = this.getUsers();
-    let updated = false;
-    for (const u of users) {
-      if (u.synced) continue;
-      try {
-        const rawPayload = {
-          id: u.id,
-          name: u.name,
-          email: u.email,
-          role: u.role,
-          active: u.active,
-          phone: u.phone,
-          cpf: u.cpf,
-          password_hash: u.passwordHash,
-          must_reset_password: u.mustResetPassword || false,
-          establishment_id: u.establishmentId || null,
-          created_at: u.createdAt || new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        };
-
-        const result = await safeUpsert('users', rawPayload);
-        if (result.success) {
-          const localUser = localUsers.find(x => x.id === u.id);
-          if (localUser) {
-            localUser.synced = true;
-            updated = true;
-          }
-        }
-      } catch (e) {
-        console.error(`Erro ao sincronizar usuário ${u.id}:`, e);
-      }
-    }
-    if (updated) {
-      localStorage.setItem(KEYS.USERS, JSON.stringify(localUsers));
-    }
-  },
-
-  async syncEstablishmentsToSupabase(ests: Establishment[]) {
-    const localEsts = this.getEstablishments();
-    let updated = false;
-    for (const e of ests) {
-      if (e.synced) continue;
-      try {
-        const rawPayload = {
-          id: e.id,
-          name: e.name,
-          email: e.email || null,
-          active: e.active,
-          phone: e.phone || '',
-          address: typeof e.address === 'object' ? JSON.stringify(e.address) : e.address,
-          street: e.address?.street || '',
-          number: e.address?.number || '',
-          complement: e.address?.complement || '',
-          neighborhood: e.address?.neighborhood || '',
-          city: e.address?.city || '',
-          state: e.address?.state || '',
-          zip_code: e.address?.zipCode || '',
-          created_at: e.createdAt || new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        };
-
-        const result = await safeUpsert('establishments', rawPayload);
-        if (result.success) {
-          const localEst = localEsts.find(x => x.id === e.id);
-          if (localEst) {
-            localEst.synced = true;
-            updated = true;
-          }
-        }
-      } catch (err) {
-        console.error(`Erro ao sincronizar estabelecimento ${e.id}:`, err);
-      }
-    }
-    if (updated) {
-      localStorage.setItem(KEYS.ESTABLISHMENTS, JSON.stringify(localEsts));
-    }
-  },
-
-  async syncSchedulesToSupabase(schedules: Schedule[]) {
-    const localSchedules = this.getSchedules();
-    let updated = false;
-    for (const s of schedules) {
-      if (s.synced) continue;
-      try {
-        const rawPayload = {
-          id: s.id,
-          rider_id: s.riderId,
-          establishment_id: s.establishmentId,
-          date: s.date,
-          shift: s.shift,
-          start_time: s.startTime,
-          end_time: s.endTime,
-          chat: s.chat || null,
-          created_by: s.createdBy || null,
-          created_at: s.createdAt || new Date().toISOString(),
-          updated_at: s.updatedAt || new Date().toISOString()
-        };
-
-        const result = await safeUpsert('schedules', rawPayload);
-        if (result.success) {
-          const localSch = localSchedules.find(x => x.id === s.id);
-          if (localSch) {
-            localSch.synced = true;
-            updated = true;
-          }
-        }
-      } catch (e) {
-        console.error(`Erro ao sincronizar escala ${s.id}:`, e);
-      }
-    }
-    if (updated) {
-      localStorage.setItem(KEYS.SCHEDULES, JSON.stringify(localSchedules));
-    }
-  },
-
-  async syncDeliveriesToSupabase(deliveries: Delivery[]) {
-    const localDeliveries = this.getDeliveries();
-    let updated = false;
-    for (const d of deliveries) {
-      if (d.synced) continue;
-      try {
-        const serializedOrderNumber = JSON.stringify({
-          orderNumber: d.orderNumber || '',
-          notes: d.notes || '',
-          customerChat: d.customerChat || '',
-          updatedAt: d.updatedAt || new Date().toISOString()
-        });
-
-        const rawPayload = {
-          id: d.id,
-          rider_id: d.riderId,
-          establishment_id: d.establishmentId,
-          date: d.date,
-          time: d.time,
-          value: d.value,
-          status: d.status,
-          schedule_id: d.scheduleId || null,
-          order_number: serializedOrderNumber,
-          notes: d.notes || null,
-          customer_chat: d.customerChat || null,
-          updated_at: d.updatedAt || new Date().toISOString(),
-          paid: d.paid || false
-        };
-
-        const result = await safeUpsert('deliveries', rawPayload);
-        if (result.success) {
-          const localDel = localDeliveries.find(x => x.id === d.id);
-          if (localDel) {
-            localDel.synced = true;
-            updated = true;
-          }
-        }
-      } catch (e) {
-        console.error(`Erro ao sincronizar corrida ${d.id}:`, e);
-      }
-    }
-    if (updated) {
-      localStorage.setItem(KEYS.DELIVERIES, JSON.stringify(localDeliveries));
-    }
-  },
-
-  async syncPartnerRequestsToSupabase(requests: PartnerRequest[]) {
-    const localReqs = this.getPartnerRequests();
-    let updated = false;
-    for (const r of requests) {
-      if (r.synced) continue;
-      try {
-        const rawPayload = {
-          id: r.id,
-          establishment_name: r.establishmentName,
-          owner_name: r.ownerName,
-          phone: r.phone,
-          address: r.address,
-          status: r.status,
-          created_at: r.createdAt
-        };
-
-        const result = await safeUpsert('partner_requests', rawPayload);
-        if (result.success) {
-          const localReq = localReqs.find(x => x.id === r.id);
-          if (localReq) {
-            localReq.synced = true;
-            updated = true;
-          }
-        }
-      } catch (e) {
-        console.error(`Erro ao sincronizar solicitação ${r.id}:`, e);
-      }
-    }
-    if (updated) {
-      localStorage.setItem(KEYS.PARTNER_REQUESTS, JSON.stringify(localReqs));
-    }
-  },
-
-  async syncToSupabase() {
-    await this.pushLocalDataToSupabase();
   }
 };
