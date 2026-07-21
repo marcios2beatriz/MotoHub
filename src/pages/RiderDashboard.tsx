@@ -78,6 +78,9 @@ export default function RiderDashboard() {
   const [historyDateFrom, setHistoryDateFrom] = useState('');
   const [historyDateTo, setHistoryDateTo] = useState('');
 
+  // Filtro de status das corridas do dia
+  const [deliveryStatusFilter, setDeliveryStatusFilter] = useState<'all' | 'pending' | 'active' | 'rejected' | 'cancelled'>('all');
+
   // Helper ultra-robusto para resolver estabelecimento por ID ou nome aproximado
   const resolveEst = (id: string): Establishment | undefined => {
     return db.resolveEstablishment(id);
@@ -588,6 +591,12 @@ export default function RiderDashboard() {
   const scheduledEstsToday = getScheduledEstablishmentsToday();
   const todaySchedule = schedules.find(s => s.date === todayStr);
 
+  // Filtragem das corridas do dia com base no status selecionado
+  const filteredTodayDeliveries = todayDeliveries.filter(d => {
+    if (deliveryStatusFilter === 'all') return true;
+    return d.status === deliveryStatusFilter;
+  });
+
   // Derivação de Estados dos Chats em Tempo Real
   const activeNotesDelivery = deliveries.find(d => d.id === notesDeliveryId) || null;
   const activeCustomerChatDelivery = deliveries.find(d => d.id === customerChatDeliveryId) || null;
@@ -839,24 +848,37 @@ export default function RiderDashboard() {
             </div>
 
             {/* Corridas do Dia */}
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-              <div className="flex justify-between items-center mb-4">
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <h3 className="text-lg font-bold text-slate-800 flex items-center space-x-2">
                   <CheckCircle className="h-5 w-5 text-indigo-600" />
                   <span>Corridas de Hoje</span>
                 </h3>
-                <span className="bg-indigo-100 text-indigo-800 text-xs font-bold px-2.5 py-1 rounded-full">
-                  {todayDeliveries.length} {todayDeliveries.length === 1 ? 'corrida' : 'corridas'}
-                </span>
+                
+                {/* Filtro de Status */}
+                <div className="flex items-center space-x-2">
+                  <span className="text-xs text-slate-500 font-medium">Filtrar:</span>
+                  <select
+                    value={deliveryStatusFilter}
+                    onChange={(e) => setDeliveryStatusFilter(e.target.value as any)}
+                    className="px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-slate-50 font-semibold text-slate-700"
+                  >
+                    <option value="all">Todas ({todayDeliveries.length})</option>
+                    <option value="active">Aprovadas ({todayDeliveries.filter(d => d.status === 'active').length})</option>
+                    <option value="pending">Pendentes ({todayDeliveries.filter(d => d.status === 'pending').length})</option>
+                    <option value="rejected">Rejeitadas ({todayDeliveries.filter(d => d.status === 'rejected').length})</option>
+                    <option value="cancelled">Canceladas ({todayDeliveries.filter(d => d.status === 'cancelled').length})</option>
+                  </select>
+                </div>
               </div>
 
-              {todayDeliveries.length === 0 ? (
+              {filteredTodayDeliveries.length === 0 ? (
                 <div className="text-center py-8 text-slate-400">
-                  <p>Nenhuma corrida registrada hoje.</p>
+                  <p>Nenhuma corrida encontrada para este filtro.</p>
                 </div>
               ) : (
                 <div className="divide-y divide-slate-100">
-                  {todayDeliveries.map((delivery) => {
+                  {filteredTodayDeliveries.map((delivery) => {
                     const est = resolveEst(delivery.establishmentId);
                     return (
                       <div key={delivery.id} className="py-3 flex justify-between items-center">
