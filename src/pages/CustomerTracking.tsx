@@ -3,87 +3,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { db, Delivery, User, Establishment, RiderLocation } from '../utils/db';
-import { Bike, MapPin, Clock, ShieldCheck, RefreshCw, MessageSquare, Navigation, AlertCircle } from 'lucide-react';
+import { Bike, MapPin, Clock, ShieldCheck, RefreshCw, MessageSquare, Navigation } from 'lucide-react';
 import L from 'leaflet';
 import CustomerChatModal from '../components/CustomerChatModal';
 import { sendDeviceNotification } from '../utils/notifications';
 
-const KNOWN_CEPS: { [key: string]: { lat: number; lng: number } } = {
-  '58433488': { lat: -7.2311, lng: -35.9245 },
-  '58429900': { lat: -7.2150, lng: -35.9130 },
-};
-
-export default function CustomerTracking() {
-  const { deliveryId } = useParams<{ deliveryId: string }>();
-  const navigate = useNavigate();
-  const [delivery, setDelivery] = useState<Delivery | null>(null);
-  const [rider, setRider] = useState<User | null>(null);
-  const [establishment, setEstablishment] = useState<Establishment | null>(null);
-  const [riderLocation, setRiderLocation] = useState<RiderLocation | null>(null);
-  const [estCoords, setEstCoords] = useState<{ lat: number; lng: number } | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [isChatOpen, setIsChatOpen] = useState(false);
-  const [isExpired, setIsExpired] = useState(false);
-
-  const mapContainerRef = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<L.Map | null>(null);
-  const estMarkerRef = useRef<L.Marker | null>(null);
-  const riderMarkerRef = useRef<L.Marker | null>(null);
-  
-  const hasSetInitialBoundsRef = useRef(false);
-  const hasCenteredEstRef = useRef(false);
-  const prevChatRef = useRef<string>('');
-
-  const loadTrackingData = () => {
-    if (!deliveryId) return;
-    
-    const allDeliveries = db.getDeliveries();
-    const currentDelivery = allDeliveries.find(d => d.id === deliveryId);
-    
-    if (currentDelivery) {
-      const deliveryDateTime = new Date(`${currentDelivery.date}T${currentDelivery.time}:00`);
-      const timeDifferenceMs = Date.now() - deliveryDateTime.getTime();
-      const twoHoursInMs = 120 * 60 * 1000;
-      
-      if (timeDifferenceMs > twoHoursInMs) {
-        setIsExpired(true);
-        setLoading(false);
-        return;
-      }
-
-      setDelivery(currentDelivery);
-      
-      const allUsers = db.getUsers();
-      const currentRider = allUsers.find(u => u.id === currentDelivery.riderId);
-      if (currentRider) setRider(currentRider);
-
-      const allEsts = db.getEstablishments();
-      const currentEst = allEsts.find(e => e.id === currentDelivery.establishmentId);
-      if (currentEst) setEstablishment(currentEst);
-
-      const locations = db.getRiderLocations();
-      const currentLoc = locations.find(l => l.riderId === currentDelivery.riderId);
-      if (currentLoc) setRiderLocation(currentLoc);
-    }
-    setLoading(false);
-  };
-
-  useEffect(() => {
-    db.pullFromSupabase().then(() => loadTrackingData());
-
-    const interval = setInterval(() => {
-      <dyad-write path="src/pages/CustomerTracking.tsx" description="Completando o arquivo CustomerTracking.tsx com sincronização em tempo real e mapa de rastreamento do cliente">
-"use client";
-
-import React, { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { db, Delivery, User, Establishment, RiderLocation } from '../utils/db';
-import { Bike, MapPin, Clock, ShieldCheck, RefreshCw, MessageSquare, Navigation, AlertCircle } from 'lucide-react';
-import L from 'leaflet';
-import CustomerChatModal from '../components/CustomerChatModal';
-import { sendDeviceNotification } from '../utils/notifications';
-
-const KNOWN_CEPS: { [key: string]: { lat: number; lng: number } } = {
+const KNOWN_CEPS: Record<string, { lat: number; lng: number }> = {
   '58433488': { lat: -7.2311, lng: -35.9245 },
   '58429900': { lat: -7.2150, lng: -35.9130 },
 };
