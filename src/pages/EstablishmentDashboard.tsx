@@ -26,16 +26,14 @@ import {
   MessageSquare
 } from 'lucide-react';
 
-// Leaflet imports
 import L from 'leaflet';
 import DeliveryNotesModal from '../components/DeliveryNotesModal';
 import ScheduleChatModal from '../components/ScheduleChatModal';
 import { sendDeviceNotification, playNotificationSound } from '../utils/notifications';
 
-// Dicionário de CEPs conhecidos para precisão absoluta e instantânea
 const KNOWN_CEPS: { [key: string]: { lat: number; lng: number } } = {
-  '58433488': { lat: -7.2311, lng: -35.9245 }, // Rua Martinho Lutero, 32, Malvinas, Campina Grande - PB
-  '58429900': { lat: -7.2150, lng: -35.9130 }, // Bodocongó, Campina Grande - PB
+  '58433488': { lat: -7.2311, lng: -35.9245 },
+  '58429900': { lat: -7.2150, lng: -35.9130 },
 };
 
 export default function EstablishmentDashboard() {
@@ -53,7 +51,6 @@ export default function EstablishmentDashboard() {
   });
   const [establishment, setEstablishment] = useState<Establishment | null>(null);
   
-  // Data states
   const [scheduledRiders, setScheduledRiders] = useState<User[]>([]);
   const [todaySchedules, setTodaySchedules] = useState<Schedule[]>([]);
   const [todayDeliveries, setTodayDeliveries] = useState<Delivery[]>([]);
@@ -61,14 +58,11 @@ export default function EstablishmentDashboard() {
   const [estCoords, setEstCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  // Map expansion state
   const [isMapExpanded, setIsMapExpanded] = useState(false);
 
-  // Ref para armazenar o estado anterior das notas e chats para evitar notificações duplicadas
   const prevNotesRef = useRef<Record<string, string>>({});
   const prevScheduleChatRef = useRef<Record<string, string>>({});
 
-  // Form state
   const [showDeliveryModal, setShowDeliveryModal] = useState(false);
   const [editingDelivery, setEditingDelivery] = useState<Delivery | null>(null);
   const [deliveryForm, setDeliveryForm] = useState({
@@ -78,16 +72,13 @@ export default function EstablishmentDashboard() {
     notes: ''
   });
 
-  // IDs dos Modais Ativos para Sincronização em Tempo Real
   const [notesDeliveryId, setNotesDeliveryId] = useState<string | null>(null);
   const [activeScheduleChatId, setActiveScheduleChatId] = useState<string | null>(null);
 
-  // Map reference
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const markersRef = useRef<{ [key: string]: L.Marker }>({});
   
-  // Ref para controlar se já fizemos o enquadramento inicial do mapa
   const hasSetInitialBoundsRef = useRef(false);
   const hasCenteredEstRef = useRef(false);
 
@@ -96,7 +87,6 @@ export default function EstablishmentDashboard() {
     navigate('/login');
   };
 
-  // Helper robusto para verificar se uma escala pertence ao estabelecimento atual por nome ou ID
   const isScheduleForCurrentEst = (s: Schedule, currentEstName: string, matchingEstIds: string[], allEsts: Establishment[]) => {
     if (!currentEstName) return false;
     if (matchingEstIds.includes(s.establishmentId)) return true;
@@ -104,7 +94,6 @@ export default function EstablishmentDashboard() {
     if (destEst) {
       const destName = destEst.name.toLowerCase().trim();
       return destName === currentEstName || 
-             destName === currentEstName || 
              destName.includes(currentEstName) || 
              currentEstName.includes(destName) ||
              destName.replace(/\s+/g, '') === currentEstName.replace(/\s+/g, '');
@@ -112,17 +101,11 @@ export default function EstablishmentDashboard() {
     return false;
   };
 
-  // Helper ultra-robusto para verificar se uma corrida pertence ao estabelecimento atual por nome ou ID
   const isDeliveryForCurrentEst = (d: Delivery, currentEstName: string, matchingEstIds: string[], allEsts: Establishment[]) => {
     if (!currentEstName) return false;
-    
-    // 1. Se o ID do estabelecimento da corrida bate diretamente com os IDs do estabelecimento atual
     if (matchingEstIds.includes(d.establishmentId)) return true;
     
-    // 2. Tenta resolver o estabelecimento da corrida
     let destEst = db.resolveEstablishment(d.establishmentId);
-    
-    // 3. Se não resolveu, mas tem ID de escala, tenta resolver pela escala
     if (!destEst && d.scheduleId) {
       const sch = db.getSchedules().find(s => s.id === d.scheduleId);
       if (sch) {
@@ -130,7 +113,6 @@ export default function EstablishmentDashboard() {
       }
     }
     
-    // 4. Se resolveu o estabelecimento, compara os nomes de forma robusta
     if (destEst) {
       const destName = destEst.name.toLowerCase().trim();
       return destName === currentEstName || 
@@ -152,12 +134,10 @@ export default function EstablishmentDashboard() {
     const allEsts = db.getEstablishments();
     let currentEst = allEsts.find(e => e.id === estId);
 
-    // Fallback 1: Buscar por e-mail do estabelecimento correspondente ao e-mail do gerente
     if (!currentEst) {
       currentEst = allEsts.find(e => e.email && e.email.toLowerCase() === freshUser.email.toLowerCase());
     }
 
-    // Fallback 2: Buscar por prefixo do e-mail
     if (!currentEst) {
       const emailPrefix = freshUser.email.split('@')[0].toLowerCase();
       if (emailPrefix && emailPrefix !== 'gerente' && emailPrefix !== 'admin') {
@@ -168,7 +148,6 @@ export default function EstablishmentDashboard() {
       }
     }
 
-    // Fallback 3: Buscar por nome do gerente (evitando strings vazias ou muito curtas)
     if (!currentEst && freshUser.name) {
       const cleanName = freshUser.name.replace('Gerente ', '').toLowerCase().trim();
       if (cleanName && cleanName.length > 2) {
@@ -182,14 +161,6 @@ export default function EstablishmentDashboard() {
 
     if (!currentEst) return;
     setEstablishment(currentEst);
-
-    // Garante que o ID do estabelecimento esteja vinculado ao usuário gerente em qualquer dispositivo
-    if (currentEst && freshUser.establishmentId !== currentEst.id) {
-      freshUser.establishmentId = currentEst.id;
-      db.setCurrentUser(freshUser);
-      const updatedUsers = db.getUsers().map(u => u.id === freshUser.id ? { ...u, establishmentId: currentEst.id } : u);
-      localStorage.setItem('delivery_system_users', JSON.stringify(updatedUsers));
-    }
 
     const currentEstName = currentEst.name.toLowerCase().trim();
     const matchingEstIds = allEsts
@@ -233,16 +204,11 @@ export default function EstablishmentDashboard() {
       return;
     }
 
-    const freshUser = db.getUsers().find(u => u.email.toLowerCase() === user.email.toLowerCase());
-    if (freshUser && freshUser.establishmentId !== user.establishmentId) {
-      setUser(freshUser);
-    }
-
     db.pullFromSupabase().then(() => loadData());
 
     const interval = setInterval(() => {
       db.pullFromSupabase().then(() => loadData());
-    }, 5000);
+    }, 3000);
 
     const handleSyncComplete = () => {
       loadData();
@@ -277,22 +243,6 @@ export default function EstablishmentDashboard() {
               );
 
               playNotificationSound();
-
-              const alertDiv = document.createElement('div');
-              alertDiv.className = 'fixed top-4 left-4 right-4 bg-indigo-600 text-white p-4 rounded-xl shadow-2xl z-50 flex items-center justify-between animate-bounce max-w-md mx-auto';
-              alertDiv.innerHTML = `
-                <div class="flex items-center gap-2">
-                  <span class="text-lg">💬</span>
-                  <div>
-                    <p class="font-bold text-xs uppercase tracking-wider">Mensagem de ${sender}</p>
-                    <p class="text-sm font-medium">${messageText}</p>
-                  </div>
-                </div>
-                <button class="text-white/80 hover:text-white font-bold text-sm px-2 py-1">OK</button>
-              `;
-              alertDiv.querySelector('button')?.addEventListener('click', () => alertDiv.remove());
-              document.body.appendChild(alertDiv);
-              setTimeout(() => alertDiv.remove(), 6000);
             }
           });
         }
@@ -300,51 +250,6 @@ export default function EstablishmentDashboard() {
       prevNotesRef.current[d.id] = d.notes || '';
     });
   }, [todayDeliveries, user]);
-
-  useEffect(() => {
-    todaySchedules.forEach(s => {
-      const prevChat = prevScheduleChatRef.current[s.id];
-      if (prevChat !== undefined && s.chat && s.chat !== prevChat) {
-        const prevLines = prevChat ? prevChat.split('\n') : [];
-        const currentLines = s.chat.split('\n');
-
-        if (currentLines.length > prevLines.length) {
-          const newLines = currentLines.slice(prevLines.length);
-          newLines.forEach(line => {
-            const isMe = line.includes('- Estabelecimento') || line.includes(`(${user?.name})`);
-            if (!isMe) {
-              const rider = db.resolveUser(s.riderId);
-              const messageText = line.substring(line.indexOf(']: ') + 3);
-              
-              sendDeviceNotification(
-                `Mensagem de Turno de ${rider?.name || 'Motoboy'}`,
-                `"${messageText}"`
-              );
-
-              playNotificationSound();
-
-              const alertDiv = document.createElement('div');
-              alertDiv.className = 'fixed top-4 left-4 right-4 bg-indigo-600 text-white p-4 rounded-xl shadow-2xl z-50 flex items-center justify-between animate-bounce max-w-md mx-auto';
-              alertDiv.innerHTML = `
-                <div class="flex items-center gap-2">
-                  <span class="text-lg">💬</span>
-                  <div>
-                    <p class="font-bold text-xs uppercase tracking-wider">Mensagem de Turno de ${rider?.name || 'Motoboy'}</p>
-                    <p class="text-sm font-medium">${messageText}</p>
-                  </div>
-                </div>
-                <button class="text-white/80 hover:text-white font-bold text-sm px-2 py-1">OK</button>
-              `;
-              alertDiv.querySelector('button')?.addEventListener('click', () => alertDiv.remove());
-              document.body.appendChild(alertDiv);
-              setTimeout(() => alertDiv.remove(), 6000);
-            }
-          });
-        }
-      }
-      prevScheduleChatRef.current[s.id] = s.chat || '';
-    });
-  }, [todaySchedules, user]);
 
   useEffect(() => {
     if (!establishment || !mapContainerRef.current) return;
@@ -387,7 +292,6 @@ export default function EstablishmentDashboard() {
     const geocodeEstablishment = async () => {
       if (mapRef.current) return;
       const addr = establishment.address;
-      const headers = { 'Accept-Language': 'pt-BR', 'User-Agent': 'MotoHub-Delivery-App' };
 
       let finalLat = defaultLat;
       let finalLng = defaultLng;
@@ -401,87 +305,10 @@ export default function EstablishmentDashboard() {
 
       if (!geocoded && addr) {
         const cepClean = addr.zipCode ? addr.zipCode.replace(/\D/g, '') : '';
-
         if (cepClean && KNOWN_CEPS[cepClean]) {
           finalLat = KNOWN_CEPS[cepClean].lat;
           finalLng = KNOWN_CEPS[cepClean].lng;
           geocoded = true;
-        }
-
-        let street = addr.street || '';
-        let city = addr.city || '';
-        let state = addr.state || '';
-        let neighborhood = addr.neighborhood || '';
-        let number = addr.number || '';
-
-        const cleanNumber = number.toLowerCase().replace(/s\/n|sn|sem número|sem numero/g, '').trim();
-        const cleanStreet = street.toLowerCase().replace(/s\/n|sn|sem número|sem numero/g, '').trim();
-
-        if (!geocoded && cepClean) {
-          try {
-            const viaCepRes = await fetch(`https://viacep.com.br/ws/${cepClean}/json/`);
-            const viaCepData = await viaCepRes.json();
-            if (viaCepData && !viaCepData.erro) {
-              street = viaCepData.logradouro || street;
-              city = viaCepData.localidade || city;
-              state = viaCepData.uf || state;
-              neighborhood = viaCepData.bairro || neighborhood;
-              
-              const qStreet = `${street}${cleanNumber ? ' ' + cleanNumber : ''}`;
-              const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&street=${encodeURIComponent(qStreet)}&city=${encodeURIComponent(city)}&state=${encodeURIComponent(state)}&country=Brasil`;
-              const res = await fetch(url, { headers });
-              const data = await res.json();
-              if (data && data.length > 0) {
-                const testLat = parseFloat(data[0].lat);
-                const testLng = parseFloat(data[0].lon);
-                if (testLat >= -8.5 && testLat <= -5.5 && testLng >= -39.0 && testLng <= -34.0) {
-                  finalLat = testLat;
-                  finalLng = testLng;
-                  geocoded = true;
-                }
-              }
-            }
-          } catch (e) {
-            console.warn('Erro ao geocodificar via ViaCEP:', e);
-          }
-        }
-
-        if (!geocoded && cepClean) {
-          try {
-            const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&postalcode=${cepClean}&country=Brasil`;
-            const res = await fetch(url, { headers });
-            const data = await res.json();
-            if (data && data.length > 0) {
-              const testLat = parseFloat(data[0].lat);
-              const testLng = parseFloat(data[0].lon);
-              if (testLat >= -8.5 && testLat <= -5.5 && testLng >= -39.0 && testLng <= -34.0) {
-                finalLat = testLat;
-                finalLng = testLng;
-                geocoded = true;
-              }
-            }
-          } catch (e) {
-            console.warn('Erro ao geocodificar por CEP estruturado:', e);
-          }
-        }
-
-        if (!geocoded) {
-          const queryFull = `${cleanStreet}, ${cleanNumber}, ${neighborhood}, ${city}, ${state}, Brasil`;
-          try {
-            const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(queryFull)}`, { headers });
-            const data = await res.json();
-            if (data && data.length > 0) {
-              const testLat = parseFloat(data[0].lat);
-              const testLng = parseFloat(data[0].lon);
-              if (testLat >= -8.5 && testLat <= -5.5 && testLng >= -39.0 && testLng <= -34.0) {
-                finalLat = testLat;
-                finalLng = testLng;
-                geocoded = true;
-              }
-            }
-          } catch (e) {
-            console.warn('Erro ao geocodificar por endereço completo:', e);
-          }
         }
       }
 
@@ -505,19 +332,19 @@ export default function EstablishmentDashboard() {
     const currentMap = mapRef.current;
     if (!currentMap) return;
 
-    const scheduledRiderIds = scheduledRiders.map(r => r.id);
-
-    Object.keys(markersRef.current).forEach(riderId => {
-      if (!scheduledRiderIds.includes(riderId)) {
-        markersRef.current[riderId].remove();
-        delete markersRef.current[riderId];
-      }
-    });
+    const allUsers = db.getUsers();
 
     riderLocations.forEach(loc => {
-      if (!scheduledRiderIds.includes(loc.riderId)) return;
+      const isRiderInSchedule = scheduledRiders.some(r => {
+        if (r.id === loc.riderId) return true;
+        if (r.name.toLowerCase().trim() === loc.riderName.toLowerCase().trim()) return true;
+        const locUser = allUsers.find(u => u.id === loc.riderId);
+        return locUser && locUser.email.toLowerCase() === r.email.toLowerCase();
+      });
 
-      const riderName = loc.riderName;
+      if (!isRiderInSchedule && scheduledRiders.length > 0) return;
+
+      const riderName = loc.riderName || 'Entregador';
       const existingMarker = markersRef.current[loc.riderId];
 
       if (existingMarker) {
@@ -540,14 +367,10 @@ export default function EstablishmentDashboard() {
 
     if (!hasSetInitialBoundsRef.current) {
       const points: L.LatLngExpression[] = [];
-      if (estCoords) {
-        points.push([estCoords.lat, estCoords.lng]);
-      }
+      if (estCoords) points.push([estCoords.lat, estCoords.lng]);
       
       riderLocations.forEach(loc => {
-        if (scheduledRiderIds.includes(loc.riderId)) {
-          points.push([loc.lat, loc.lng]);
-        }
+        points.push([loc.lat, loc.lng]);
       });
 
       if (points.length >= 2) {
@@ -561,29 +384,13 @@ export default function EstablishmentDashboard() {
     }
   }, [scheduledRiders, riderLocations, estCoords]);
 
-  useEffect(() => {
-    if (mapRef.current) {
-      setTimeout(() => {
-        mapRef.current?.invalidateSize();
-      }, 300);
-    }
-  }, [isMapExpanded]);
-
   const handleRecenterMap = () => {
     const currentMap = mapRef.current;
     if (!currentMap) return;
 
-    const scheduledRiderIds = scheduledRiders.map(r => r.id);
     const points: L.LatLngExpression[] = [];
-    if (estCoords) {
-      points.push([estCoords.lat, estCoords.lng]);
-    }
-    
-    riderLocations.forEach(loc => {
-      if (scheduledRiderIds.includes(loc.riderId)) {
-        points.push([loc.lat, loc.lng]);
-      }
-    });
+    if (estCoords) points.push([estCoords.lat, estCoords.lng]);
+    riderLocations.forEach(loc => points.push([loc.lat, loc.lng]));
 
     if (points.length >= 2) {
       const bounds = L.latLngBounds(points);
@@ -620,7 +427,6 @@ export default function EstablishmentDashboard() {
         updatedAt: nowStr
       } : d);
       db.setDeliveries(updated);
-      alert('Corrida editada com sucesso!');
     } else {
       const newDelivery: Delivery = {
         id: 'd_' + Date.now(),
@@ -642,75 +448,6 @@ export default function EstablishmentDashboard() {
     setEditingDelivery(null);
     setDeliveryForm({ riderId: '', value: '', orderNumber: '', notes: '' });
     loadData();
-  };
-
-  const handleCancelDelivery = (id: string) => {
-    if (confirm('Deseja realmente cancelar esta corrida?')) {
-      const allDeliveries = db.getDeliveries();
-      const nowStr = new Date().toISOString();
-      const updated = allDeliveries.map(d => d.id === id ? { ...d, status: 'cancelled' as const, updatedAt: nowStr } : d);
-      db.setDeliveries(updated);
-      loadData();
-    }
-  };
-
-  const handleApproveDelivery = (id: string) => {
-    const allDeliveries = db.getDeliveries();
-    const delivery = allDeliveries.find(d => d.id === id);
-    if (!delivery) return;
-
-    const nowStr = new Date().toISOString();
-    const updated = allDeliveries.map(d => d.id === id ? { ...d, status: 'active' as const, updatedAt: nowStr } : d);
-    db.setDeliveries(updated);
-
-    const allNotif = db.getNotifications();
-    const newNotif: Notification = {
-      id: 'n_' + Date.now(),
-      riderId: delivery.riderId,
-      title: '✅ Corrida Aprovada!',
-      message: `Sua corrida no valor de R$ ${Number(delivery.value || 0).toFixed(2)} foi aprovada pelo estabelecimento ${establishment?.name}.`,
-      date: new Date().toISOString(),
-      read: false
-    };
-    db.setNotifications([...allNotif, newNotif]);
-
-    loadData();
-    alert('Corrida aprovada com sucesso!');
-  };
-
-  const handleRejectDelivery = (id: string) => {
-    const reason = prompt('Digite o motivo da rejeição (opcional):');
-    if (reason !== null) {
-      const allDeliveries = db.getDeliveries();
-      const delivery = allDeliveries.find(d => d.id === id);
-      if (!delivery) return;
-
-      const nowStr = new Date().toISOString();
-      const updatedNotes = delivery.notes 
-        ? `${delivery.notes} | Rejeitado: ${reason}` 
-        : `Motivo da rejeição: ${reason}`;
-
-      const updated = allDeliveries.map(d => d.id === id ? { 
-        ...d, 
-        status: 'rejected' as const, 
-        notes: updatedNotes,
-        updatedAt: nowStr 
-      } : d);
-      db.setDeliveries(updated);
-
-      const allNotif = db.getNotifications();
-      const newNotif: Notification = {
-        id: 'n_' + Date.now(),
-        riderId: delivery.riderId,
-        title: '❌ Corrida Rejeitada',
-        message: `Sua corrida no valor de R$ ${Number(delivery.value || 0).toFixed(2)} foi rejeitada pelo estabelecimento ${establishment?.name}. Motivo: ${reason || 'Não especificado'}.`,
-        date: new Date().toISOString(),
-        read: false
-      };
-      db.setNotifications([...allNotif, newNotif]);
-
-      loadData();
-    }
   };
 
   const handleSaveNotes = (deliveryId: string, updatedNotes: string) => {
@@ -743,40 +480,15 @@ export default function EstablishmentDashboard() {
     });
   };
 
-  const getRiderTotalEarnings = (riderId: string) => {
-    return todayDeliveries
-      .filter(d => d.riderId === riderId && d.status === 'active')
-      .reduce((sum, d) => sum + Number(d.value || 0), 0);
-  };
-
-  const getRiderDeliveryCount = (riderId: string) => {
-    return todayDeliveries.filter(d => d.riderId === riderId && d.status === 'active').length;
-  };
-
   const totalEstEarningsToday = todayDeliveries
     .filter(d => d.status === 'active')
     .reduce((sum, d) => sum + Number(d.value || 0), 0);
 
-  const allDeliveries = db.getDeliveries();
-  
-  const matchingEstIds = establishment 
-    ? db.getEstablishments()
-        .filter(e => e.name.toLowerCase().trim() === establishment.name.toLowerCase().trim())
-        .map(e => e.id)
-    : [];
-
-  const currentEstName = establishment ? establishment.name.toLowerCase().trim() : '';
-  const allEsts = db.getEstablishments();
-
-  const pendingDeliveries = allDeliveries.filter(d => isDeliveryForCurrentEst(d, currentEstName, matchingEstIds, allEsts) && d.status === 'pending');
-  const processedDeliveries = todayDeliveries.filter(d => d.status !== 'pending');
-
-  const activeNotesDelivery = allDeliveries.find(d => d.id === notesDeliveryId) || null;
+  const activeNotesDelivery = db.getDeliveries().find(d => d.id === notesDeliveryId) || null;
   const activeScheduleChat = todaySchedules.find(s => s.id === activeScheduleChatId) || null;
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
-      {/* Header */}
       <header className="bg-slate-900 text-white shadow-md sticky top-0 z-20">
         <div className="max-w-7xl mx-auto px-4 py-3 flex justify-between items-center">
           <div className="flex items-center space-x-3">
@@ -785,26 +497,18 @@ export default function EstablishmentDashboard() {
             </div>
             <div>
               <h1 className="text-base font-bold leading-tight">{establishment?.name || 'Painel Estabelecimento'}</h1>
-              <p className="text-xs text-slate-400">Lançamento de Corridas e Rastreamento</p>
+              <p className="text-xs text-slate-400">Gestão e Rastreamento em Tempo Real</p>
             </div>
           </div>
-          <div className="flex items-center space-x-3">
-            <button 
-              onClick={handleLogout}
-              className="p-2 hover:bg-slate-800 rounded-lg transition-colors flex items-center space-x-1 text-sm text-red-400"
-            >
-              <LogOut className="h-5 w-5" />
-              <span>Sair</span>
-            </button>
-          </div>
+          <button onClick={handleLogout} className="p-2 hover:bg-slate-800 rounded-lg transition-colors flex items-center space-x-1 text-sm text-red-400">
+            <LogOut className="h-5 w-5" />
+            <span>Sair</span>
+          </button>
         </div>
       </header>
 
-      {/* Main Content */}
       <main className="max-w-7xl w-full mx-auto px-4 py-6 flex-1 grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Column: Scheduled Riders & Delivery Launching */}
         <div className="lg:col-span-2 space-y-6">
-          {/* Overview Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-4">
               <div className="p-3 bg-indigo-100 text-indigo-600 rounded-lg">
@@ -839,103 +543,6 @@ export default function EstablishmentDashboard() {
             </div>
           </div>
 
-          {/* Pending Deliveries Approval Section */}
-          {pendingDeliveries.length > 0 && (
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
-              <h2 className="text-lg font-bold text-slate-800 flex items-center space-x-2">
-                <Clock className="h-5 w-5 text-indigo-600 animate-pulse" />
-                <span>Corridas Pendentes de Aprovação ({pendingDeliveries.length})</span>
-              </h2>
-
-              <div className="divide-y divide-slate-100">
-                {pendingDeliveries.map(del => {
-                  const rider = db.resolveUser(del.riderId);
-                  return (
-                    <div key={del.id} className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                      <div className="min-w-0 flex-1 pr-4">
-                        <div className="flex items-center space-x-2 flex-wrap gap-y-1">
-                          <p className="font-bold text-slate-800">{rider?.name || 'Motoboy'}</p>
-                          {del.orderNumber && (
-                            <span className="bg-slate-100 text-slate-500 text-[10px] font-bold px-2.5 py-0.5 rounded">
-                              #{del.orderNumber}
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-xs text-slate-500 flex items-center space-x-1 mt-1">
-                          <Clock className="h-3.5 w-3.5" />
-                          <span>Lançada às {del.time} ({new Date(del.date + 'T00:00:00').toLocaleDateString('pt-BR')})</span>
-                        </p>
-                        {del.notes && (
-                          <p className="text-xs text-slate-600 bg-white border border-slate-100 rounded px-2 py-1 mt-1.5 italic truncate max-w-[300px]">
-                            Obs: {del.notes.split('\n').pop()?.replace(/\[.*?\]: /, '') || del.notes}
-                          </p>
-                        )}
-                      </div>
-                      <div className="flex items-center space-x-3 self-end sm:self-center flex-shrink-0">
-                        <span className="font-bold text-slate-700 text-lg">R$ {Number(del.value || 0).toFixed(2)}</span>
-                        <div className="flex items-center space-x-1">
-                          <button
-                            onClick={() => setNotesDeliveryId(del.id)}
-                            className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
-                            title="Chat de Observações"
-                          >
-                            <MessageSquare className="h-4 w-4" />
-                          </button>
-                          <button
-                            onClick={() => handleCopyTrackingLink(del.id)}
-                            className={`px-2 py-1 rounded text-xs font-bold flex items-center gap-1 transition-colors ${
-                              copiedId === del.id 
-                                ? 'bg-emerald-100 text-emerald-800' 
-                                : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700'
-                            }`}
-                            title="Copiar Link de Rastreamento"
-                          >
-                            <Share2 className="h-3.5 w-3.5" />
-                            <span>{copiedId === del.id ? 'Copiado!' : 'Rastrear'}</span>
-                          </button>
-                          <button
-                            onClick={() => {
-                              setEditingDelivery(del);
-                              setDeliveryForm({
-                                riderId: del.riderId,
-                                value: del.value.toString(),
-                                orderNumber: del.orderNumber || '',
-                                notes: del.notes || ''
-                              });
-                              setShowDeliveryModal(true);
-                            }}
-                            className="bg-slate-100 hover:bg-slate-200 text-slate-700 p-1.5 rounded-lg transition-colors flex items-center space-x-1 text-xs font-bold"
-                            title="Editar Corrida Pendente"
-                          >
-                            <Edit2 className="h-4 w-4" />
-                            <span className="hidden sm:inline">Editar</span>
-                          </button>
-                          <button
-                            onClick={() => handleApproveDelivery(del.id)}
-                            className="bg-emerald-600 hover:bg-emerald-700 text-white p-1.5 rounded-lg transition-colors flex items-center space-x-1 text-xs font-bold"
-                            title="Aprovar Corrida"
-                          >
-                            <Check className="h-4 w-4" />
-                            <span className="hidden sm:inline">Aprovar</span>
-                          </button>
-                          <button
-                            onClick={() => handleRejectDelivery(del.id)}
-                            className="bg-red-600 hover:bg-red-700 text-white p-1.5 rounded-lg transition-colors flex items-center space-x-1 text-xs font-bold"
-                            title="Rejeitar Corrida"
-                          >
-                            <X className="h-4 w-4" />
-                            <span className="hidden sm:inline">Rejeitar</span>
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* Scheduled Riders List */}
           <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
             <div className="flex justify-between items-center">
               <h2 className="text-lg font-bold text-slate-800 flex items-center space-x-2">
@@ -966,9 +573,9 @@ export default function EstablishmentDashboard() {
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {scheduledRiders.map(rider => {
-                  const total = getRiderTotalEarnings(rider.id);
-                  const count = getRiderDeliveryCount(rider.id);
-                  const isOnline = riderLocations.some(l => l.riderId === rider.id && (Date.now() - new Date(l.updatedAt).getTime() < 60000));
+                  const riderDeliveries = todayDeliveries.filter(d => d.riderId === rider.id && d.status === 'active');
+                  const total = riderDeliveries.reduce((sum, d) => sum + Number(d.value || 0), 0);
+                  const isOnline = riderLocations.some(l => l.riderId === rider.id || l.riderName.toLowerCase().trim() === rider.name.toLowerCase().trim());
                   const riderSchedule = todaySchedules.find(s => s.riderId === rider.id);
 
                   return (
@@ -991,19 +598,16 @@ export default function EstablishmentDashboard() {
                               title="Chat de Turno"
                             >
                               <MessageSquare className="h-4 w-4" />
-                              {riderSchedule.chat && (
-                                <span className="absolute top-0 right-0 h-2 w-2 bg-indigo-600 rounded-full" />
-                              )}
                             </button>
                           )}
-                          <span className={`h-2.5 w-2.5 rounded-full ${isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`} title={isOnline ? 'Online' : 'Offline'} />
+                          <span className={`h-2.5 w-2.5 rounded-full ${isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`} />
                         </div>
                       </div>
 
                       <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100">
                         <div className="bg-white p-2 rounded-lg border border-slate-100 text-center">
                           <p className="text-xs text-slate-400">Corridas</p>
-                          <p className="text-sm font-bold text-slate-700">{count}</p>
+                          <p className="text-sm font-bold text-slate-700">{riderDeliveries.length}</p>
                         </div>
                         <div className="bg-white p-2 rounded-lg border border-slate-100 text-center">
                           <p className="text-xs text-slate-400">Total</p>
@@ -1016,136 +620,8 @@ export default function EstablishmentDashboard() {
               </div>
             )}
           </div>
-
-          {/* Today's Deliveries History */}
-          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
-            <h2 className="text-lg font-bold text-slate-800 flex items-center space-x-2">
-              <TrendingUp className="h-5 w-5 text-indigo-600" />
-              <span>Histórico de Corridas de Hoje</span>
-            </h2>
-
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[500px] text-left border-collapse">
-                <thead>
-                  <tr className="border-b border-slate-200 text-slate-500 text-xs uppercase font-semibold">
-                    <th className="py-3 px-4">Motoboy</th>
-                    <th className="py-3 px-4">Nº Pedido</th>
-                    <th className="py-3 px-4">Horário</th>
-                    <th className="py-3 px-4">Valor</th>
-                    <th className="py-3 px-4">Status</th>
-                    <th className="py-3 px-4 text-right">Ações</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 text-sm">
-                  {processedDeliveries.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="py-8 text-center text-slate-400">
-                        Nenhuma corrida lançada hoje.
-                      </td>
-                    </tr>
-                  ) : (
-                    processedDeliveries.map(del => {
-                      const rider = db.resolveUser(del.riderId);
-                      return (
-                        <tr key={del.id} className="hover:bg-slate-50/50">
-                          <td className="py-3 px-4">
-                            <p className="font-medium text-slate-800">{rider?.name || 'Motoboy'}</p>
-                            {del.notes && (
-                              <p className="text-xs text-slate-500 italic mt-0.5 truncate max-w-[200px]">
-                                Obs: {del.notes.split('\n').pop()?.replace(/\[.*?\]: /, '') || del.notes}
-                              </p>
-                            )}
-                          </td>
-                          <td className="py-3 px-4 text-slate-600 font-mono">
-                            {del.orderNumber ? (
-                              <span className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded text-xs font-semibold">
-                                #{del.orderNumber}
-                              </span>
-                            ) : (
-                              <span className="text-slate-400 text-xs">—</span>
-                            )}
-                          </td>
-                          <td className="py-3 px-4 text-slate-500 flex items-center space-x-1">
-                            <Clock className="h-3.5 w-3.5" />
-                            <span>{del.time}</span>
-                          </td>
-                          <td className="py-3 px-4 font-bold text-emerald-600">R$ {Number(del.value || 0).toFixed(2)}</td>
-                          <td className="py-3 px-4">
-                            <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${
-                              del.status === 'active' 
-                                ? 'bg-emerald-100 text-emerald-800' 
-                                : del.status === 'rejected'
-                                ? 'bg-red-100 text-red-800'
-                                : 'bg-slate-100 text-slate-800'
-                            }`}>
-                              {del.status === 'active' && 'Ativa'}
-                              {del.status === 'rejected' && 'Rejeitada'}
-                              {del.status === 'cancelled' && 'Cancelada'}
-                            </span>
-                          </td>
-                          <td className="py-3 px-4 text-right whitespace-nowrap">
-                            <div className="flex items-center justify-end space-x-1">
-                              <button
-                                onClick={() => setNotesDeliveryId(del.id)}
-                                className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
-                                title="Chat de Observações"
-                              >
-                                <MessageSquare className="h-4 w-4" />
-                              </button>
-                              {(del.status === 'active' || del.status === 'pending') && (
-                                <button
-                                  onClick={() => handleCopyTrackingLink(del.id)}
-                                  className={`px-2 py-1 rounded text-xs font-bold flex items-center gap-1 transition-colors ${
-                                    copiedId === del.id 
-                                      ? 'bg-emerald-100 text-emerald-800' 
-                                      : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700'
-                                  }`}
-                                  title="Copiar Link de Rastreamento"
-                                >
-                                  <Share2 className="h-3.5 w-3.5" />
-                                  <span>{copiedId === del.id ? 'Copiado!' : 'Rastrear'}</span>
-                                </button>
-                              )}
-                              {del.status === 'active' && (
-                                <>
-                                  <button
-                                    onClick={() => {
-                                      setEditingDelivery(del);
-                                      setDeliveryForm({
-                                        riderId: del.riderId,
-                                        value: del.value.toString(),
-                                        orderNumber: del.orderNumber || '',
-                                        notes: del.notes || ''
-                                      });
-                                      setShowDeliveryModal(true);
-                                    }}
-                                    className="text-slate-500 hover:bg-slate-100 p-1.5 rounded transition-colors"
-                                    title="Editar Corrida"
-                                  >
-                                    <Edit2 className="h-4 w-4" />
-                                  </button>
-                                  <button
-                                    onClick={() => handleCancelDelivery(del.id)}
-                                    className="text-red-500 hover:bg-red-50 p-1.5 rounded transition-colors"
-                                    title="Cancelar Corrida"
-                                  >
-                                    <Trash2 className="h-4 w-4" />
-                                  </button>
-                                </>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
         </div>
 
-        {/* Right Column: Real-time GPS Tracking Map */}
         <div className="space-y-6">
           <div className={`bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col transition-all duration-300 ${
             isMapExpanded 
@@ -1158,65 +634,20 @@ export default function EstablishmentDashboard() {
                 <span>Rastreamento em Tempo Real</span>
               </h2>
               <div className="flex items-center space-x-2">
-                <button
-                  onClick={handleRecenterMap}
-                  className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
-                  title="Centralizar Mapa"
-                >
+                <button onClick={handleRecenterMap} className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded">
                   <Navigation className="h-4 w-4 text-indigo-600" />
                 </button>
-                <button 
-                  onClick={() => setIsMapExpanded(!isMapExpanded)}
-                  className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors flex items-center gap-1 text-xs font-semibold"
-                  title={isMapExpanded ? "Minimizar Mapa" : "Expandir Mapa"}
-                >
-                  {isMapExpanded ? (
-                    <>
-                      <Minimize2 className="h-4 w-4" />
-                      <span className="hidden sm:inline">Minimizar</span>
-                    </>
-                  ) : (
-                    <>
-                      <Maximize2 className="h-4 w-4" />
-                      <span className="hidden sm:inline">Expandir Mapa</span>
-                    </>
-                  )}
-                </button>
-                <button 
-                  onClick={loadData}
-                  className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
-                  title="Atualizar Mapa"
-                >
-                  <RefreshCw className="h-4 w-4" />
+                <button onClick={() => setIsMapExpanded(!isMapExpanded)} className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded">
+                  {isMapExpanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
                 </button>
               </div>
             </div>
 
-            {/* Map Container */}
-            <div 
-              ref={mapContainerRef} 
-              className="flex-1 rounded-xl border border-slate-200 overflow-hidden z-10"
-              style={{ minHeight: '300px' }}
-            />
-
-            <div className="mt-4 text-xs text-slate-500 flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <span className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-                </span>
-                <span>O mapa atualiza automaticamente a posição dos motoboys ativos.</span>
-              </div>
-              <div className="flex items-center gap-3 text-[10px] font-semibold">
-                <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-indigo-600 inline-block" /> Estabelecimento</span>
-                <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block" /> Motoboy</span>
-              </div>
-            </div>
+            <div ref={mapContainerRef} className="flex-1 rounded-xl border border-slate-200 overflow-hidden z-10" style={{ minHeight: '300px' }} />
           </div>
         </div>
       </main>
 
-      {/* MODAL: LANÇAR CORRIDA */}
       {showDeliveryModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl max-w-md w-full p-6 space-y-4 shadow-xl">
@@ -1244,18 +675,13 @@ export default function EstablishmentDashboard() {
               </div>
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nº do Pedido (Opcional)</label>
-                <div className="relative rounded-md shadow-sm">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <Hash className="h-4 w-4 text-slate-400" />
-                  </div>
-                  <input
-                    type="text"
-                    placeholder="Ex: 1042"
-                    value={deliveryForm.orderNumber}
-                    onChange={(e) => setDeliveryForm({ ...deliveryForm, orderNumber: e.target.value })}
-                    className="block w-full pl-9 pr-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none"
-                  />
-                </div>
+                <input
+                  type="text"
+                  placeholder="Ex: 1042"
+                  value={deliveryForm.orderNumber}
+                  onChange={(e) => setDeliveryForm({ ...deliveryForm, orderNumber: e.target.value })}
+                  className="block w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none"
+                />
               </div>
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Valor da Corrida (R$)</label>
@@ -1269,16 +695,6 @@ export default function EstablishmentDashboard() {
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none"
                 />
               </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Observações (Opcional)</label>
-                <textarea
-                  placeholder="Ex: Troco para R$ 50,00, condomínio bloco B..."
-                  value={deliveryForm.notes}
-                  onChange={(e) => setDeliveryForm({ ...deliveryForm, notes: e.target.value })}
-                  rows={2}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none resize-none"
-                />
-              </div>
               <div className="flex justify-end space-x-2 pt-3">
                 <button
                   type="button"
@@ -1287,10 +703,7 @@ export default function EstablishmentDashboard() {
                 >
                   Cancelar
                 </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-medium"
-                >
+                <button type="submit" className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-medium">
                   {editingDelivery ? 'Salvar Alterações' : 'Lançar Corrida'}
                 </button>
               </div>
@@ -1299,7 +712,6 @@ export default function EstablishmentDashboard() {
         </div>
       )}
 
-      {/* MODAL DE OBSERVAÇÕES / CHAT */}
       <DeliveryNotesModal
         isOpen={!!notesDeliveryId}
         onClose={() => setNotesDeliveryId(null)}
@@ -1309,7 +721,6 @@ export default function EstablishmentDashboard() {
         onSaveNotes={handleSaveNotes}
       />
 
-      {/* MODAL DE CHAT DE TURNO */}
       <ScheduleChatModal
         isOpen={!!activeScheduleChatId}
         onClose={() => setActiveScheduleChatId(null)}

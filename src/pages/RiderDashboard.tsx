@@ -50,12 +50,10 @@ export default function RiderDashboard() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const lastCoordsRef = useRef<{ lat: number; lng: number } | null>(null);
 
-  // Refs para armazenar o estado anterior das notas e chats para evitar notificações duplicadas
   const prevNotesRef = useRef<Record<string, string>>({});
   const prevChatRef = useRef<Record<string, string>>({});
   const prevScheduleChatRef = useRef<Record<string, string>>({});
 
-  // Modal de Lançar/Editar Corrida
   const [showLaunchModal, setShowLaunchModal] = useState(false);
   const [editingDelivery, setEditingDelivery] = useState<Delivery | null>(null);
   const [launchForm, setLaunchForm] = useState({
@@ -65,24 +63,19 @@ export default function RiderDashboard() {
     notes: ''
   });
 
-  // IDs dos Modais Ativos para Sincronização em Tempo Real
   const [notesDeliveryId, setNotesDeliveryId] = useState<string | null>(null);
   const [customerChatDeliveryId, setCustomerChatDeliveryId] = useState<string | null>(null);
   const [activeScheduleChatId, setActiveScheduleChatId] = useState<string | null>(null);
 
-  // Filtros das escalas futuras
   const [scheduleEstFilter, setScheduleEstFilter] = useState('');
   const [scheduleDateFilter, setScheduleDateFilter] = useState('');
 
-  // Filtros do histórico
   const [historyEstFilter, setHistoryEstFilter] = useState('');
   const [historyDateFrom, setHistoryDateFrom] = useState('');
   const [historyDateTo, setHistoryDateTo] = useState('');
 
-  // Filtro de status das corridas do dia
   const [deliveryStatusFilter, setDeliveryStatusFilter] = useState<'all' | 'pending' | 'active' | 'rejected' | 'cancelled'>('all');
 
-  // Helper ultra-robusto para resolver estabelecimento por ID ou nome aproximado
   const resolveEst = (id: string): Establishment | undefined => {
     return db.resolveEstablishment(id);
   };
@@ -92,7 +85,6 @@ export default function RiderDashboard() {
     const allUsers = db.getUsers();
     const freshUser = allUsers.find(u => u.id === user.id) || user;
     
-    // Filtro ultra-robusto por ID ou e-mail do motoboy para evitar sumiço por divergência de IDs
     const allSchedules = db.getSchedules().filter(s => {
       if (s.riderId === freshUser.id) return true;
       const riderOfSch = allUsers.find(u => u.id === s.riderId);
@@ -113,7 +105,6 @@ export default function RiderDashboard() {
 
     const allEsts = db.getEstablishments().filter(e => e.active);
     
-    // ORDENAÇÃO ESTÁVEL PARA EVITAR QUE OS CARDS FIQUEM OSCILANDO DE POSIÇÃO DURANTE AS SINCRONIZAÇÕES
     const sortedSchedules = [...allSchedules].sort((a, b) => a.date.localeCompare(b.date) || a.shift.localeCompare(b.shift) || a.id.localeCompare(b.id));
     const sortedDeliveries = [...allDeliveries].sort((a, b) => b.date.localeCompare(a.date) || b.time.localeCompare(a.time) || b.id.localeCompare(a.id));
     const sortedNotifications = [...allNotifications].sort((a, b) => b.date.localeCompare(a.date));
@@ -131,15 +122,14 @@ export default function RiderDashboard() {
     }
     loadData();
 
-    // Sincronização periódica a cada 5 segundos para receber mensagens e atualizações em tempo real
+    // Sincronização ultra-rápida de 3s
     const interval = setInterval(() => {
       db.pullFromSupabase().then(() => loadData());
-    }, 5000);
+    }, 3000);
 
     return () => clearInterval(interval);
   }, [user, navigate, activeTab]);
 
-  // Monitoramento de novas mensagens no chat com Estabelecimento
   useEffect(() => {
     deliveries.forEach(d => {
       const prevNotes = prevNotesRef.current[d.id];
@@ -160,7 +150,6 @@ export default function RiderDashboard() {
                 `Pedido #${d.orderNumber || d.id.slice(-4)} (${est?.name || 'Corrida'}): "${messageText}"`
               );
 
-              // Tocar som de notificação
               playNotificationSound();
             }
           });
@@ -170,7 +159,6 @@ export default function RiderDashboard() {
     });
   }, [deliveries, user, establishments]);
 
-  // Monitoramento de novas mensagens no chat com Cliente
   useEffect(() => {
     deliveries.forEach(d => {
       const prevChat = prevChatRef.current[d.id];
@@ -190,7 +178,6 @@ export default function RiderDashboard() {
                 `Pedido #${d.orderNumber || d.id.slice(-4)}: "${messageText}"`
               );
 
-              // Tocar som de notificação
               playNotificationSound();
             }
           });
@@ -200,7 +187,6 @@ export default function RiderDashboard() {
     });
   }, [deliveries, user]);
 
-  // Monitoramento de novas mensagens no chat de turno
   useEffect(() => {
     schedules.forEach(s => {
       const prevChat = prevScheduleChatRef.current[s.id];
@@ -221,7 +207,6 @@ export default function RiderDashboard() {
                 `"${messageText}"`
               );
 
-              // Tocar som de notificação
               playNotificationSound();
             }
           });
@@ -241,16 +226,12 @@ export default function RiderDashboard() {
     };
   }, [user]);
 
-  // Solicitar Wake Lock para manter a tela ativa e evitar suspensão do GPS
   const requestWakeLock = async () => {
     try {
       if ('wakeLock' in navigator) {
         wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
-        console.log('Wake Lock ativado com sucesso. Tela permanecerá ligada.');
       }
-    } catch (err) {
-      console.warn('Não foi possível ativar o Wake Lock:', err);
-    }
+    } catch (err) {}
   };
 
   const releaseWakeLock = () => {
@@ -261,23 +242,17 @@ export default function RiderDashboard() {
     }
   };
 
-  // Inicia um áudio silencioso em loop para manter o navegador ativo em segundo plano
   const startSilentAudio = () => {
     try {
       if (!audioRef.current) {
         const audio = document.createElement('audio');
-        // WAV de 1 segundo de silêncio absoluto em base64
         audio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==';
         audio.loop = true;
-        audio.volume = 0.01; // Quase inaudível
+        audio.volume = 0.01;
         audioRef.current = audio;
       }
-      audioRef.current.play().catch(e => {
-        console.log('Autoplay bloqueado. Aguardando interação do usuário para iniciar áudio de fundo:', e);
-      });
-    } catch (err) {
-      console.warn('Erro ao iniciar áudio silencioso:', err);
-    }
+      audioRef.current.play().catch(() => {});
+    } catch (err) {}
   };
 
   const stopSilentAudio = () => {
@@ -289,7 +264,6 @@ export default function RiderDashboard() {
   const startGpsTracking = () => {
     if (!user || user.role !== 'rider') return;
     
-    // Ativar Wake Lock e áudio silencioso para manter o GPS ativo em segundo plano
     requestWakeLock();
     startSilentAudio();
 
@@ -316,20 +290,16 @@ export default function RiderDashboard() {
       let finalLat = latitude;
       let finalLng = longitude;
 
-      // Filtro de Estabilização de Coordenadas (Evita oscilação/interferência por ruído de GPS)
       if (lastCoordsRef.current) {
         const prev = lastCoordsRef.current;
-        // Distância aproximada em metros usando Haversine simplificado
         const dy = (latitude - prev.lat) * 111000;
         const dx = (longitude - prev.lng) * 111000 * Math.cos(latitude * Math.PI / 180);
         const distance = Math.sqrt(dx * dx + dy * dy);
 
-        // Se a variação for menor que 8 metros, consideramos ruído/oscilação e mantemos a coordenada anterior
         if (distance < 8) {
           finalLat = prev.lat;
           finalLng = prev.lng;
         } else {
-          // Filtro passa-baixa para suavizar a transição (80% nova, 20% anterior)
           finalLat = prev.lat * 0.2 + latitude * 0.8;
           finalLng = prev.lng * 0.2 + longitude * 0.8;
         }
@@ -347,43 +317,34 @@ export default function RiderDashboard() {
       } else {
         setGpsStatus('error');
       }
-      console.warn('Erro de GPS:', err.message);
     };
 
-    // Configurações de Alta Precisão Absoluta
     const options: PositionOptions = {
-      enableHighAccuracy: true, // Força o uso do chip de GPS integrado (Hardware)
-      maximumAge: 0,            // Ignora cache, exige leitura em tempo real
-      timeout: 10000            // Timeout de 10 segundos
+      enableHighAccuracy: true,
+      maximumAge: 0,
+      timeout: 10000
     };
 
-    // Primeira leitura imediata
     navigator.geolocation.getCurrentPosition(onSuccess, onError, options);
-    
-    // Monitoramento contínuo nativo
     watchIdRef.current = navigator.geolocation.watchPosition(onSuccess, onError, options);
 
-    // Loop de Atualização Ativa (Força nova leitura a cada 5 segundos para evitar suspensão do navegador)
     fallbackIntervalRef.current = setInterval(() => {
-      navigator.geolocation.getCurrentPosition(onSuccess, (err) => {
-        console.warn('Atualização ativa de GPS falhou:', err.message);
-      }, options);
-    }, 5000);
+      navigator.geolocation.getCurrentPosition(onSuccess, () => {}, options);
+    }, 4000);
   };
 
   useEffect(() => {
     startGpsTracking();
 
-    // Re-solicitar Wake Lock e áudio silencioso se a página voltar a ficar visível
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         requestWakeLock();
         startSilentAudio();
+        startGpsTracking();
       }
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
-    // Adiciona um listener global de clique para garantir que o áudio silencioso seja ativado após interação do usuário
     const handleUserInteraction = () => {
       startSilentAudio();
     };
@@ -416,38 +377,10 @@ export default function RiderDashboard() {
     });
   };
 
-  const getTodayDateString = () => db.getLocalDateString();
-
-  const getStartOfWeek = () => {
-    const today = new Date();
-    const day = today.getDay();
-    const diff = today.getDate() - day + (day === 0 ? -6 : 1);
-    const start = new Date(today.setDate(diff));
-    start.setHours(0,0,0,0);
-    return start;
-  };
-
-  const getStartOfMonth = () => {
-    const today = new Date();
-    return new Date(today.getFullYear(), today.getMonth(), 1);
-  };
-
-  const todayStr = getTodayDateString();
-  const startOfWeek = getStartOfWeek();
-  const startOfMonth = getStartOfMonth();
+  const todayStr = db.getLocalDateString();
 
   const todayDeliveries = deliveries.filter(d => d.date === todayStr);
   const todayEarnings = todayDeliveries.filter(d => d.status === 'active').reduce((sum, d) => sum + Number(d.value || 0), 0);
-
-  const weekEarnings = deliveries.filter(d => {
-    const dDate = new Date(d.date + 'T00:00:00');
-    return dDate >= startOfWeek && d.status === 'active';
-  }).reduce((sum, d) => sum + Number(d.value || 0), 0);
-
-  const monthEarnings = deliveries.filter(d => {
-    const dDate = new Date(d.date + 'T00:00:00');
-    return dDate >= startOfMonth && d.status === 'active';
-  }).reduce((sum, d) => sum + Number(d.value || 0), 0);
 
   const getFutureSchedules = () => {
     const todayStr = db.getLocalDateString();
@@ -495,7 +428,6 @@ export default function RiderDashboard() {
       .map(s => db.resolveEstablishment(s.establishmentId))
       .filter((e): e is Establishment => !!e);
     
-    // Remove duplicados por ID
     const uniqueEsts: Establishment[] = [];
     resolvedEsts.forEach(e => {
       if (!uniqueEsts.some(x => x.id === e.id)) {
@@ -553,7 +485,7 @@ export default function RiderDashboard() {
       };
 
       db.setDeliveries([...allDeliveries, newDelivery]);
-      alert('Corrida lançada com sucesso! Aguardando aprovação do estabelecimento ou administrador.');
+      alert('Corrida lançada com sucesso! Aguardando aprovação.');
     }
 
     setShowLaunchModal(false);
@@ -621,20 +553,17 @@ export default function RiderDashboard() {
   const scheduledEstsToday = getScheduledEstablishmentsToday();
   const todaySchedule = schedules.find(s => s.date === todayStr);
 
-  // Filtragem das corridas do dia com base no status selecionado
   const filteredTodayDeliveries = todayDeliveries.filter(d => {
     if (deliveryStatusFilter === 'all') return true;
     return d.status === deliveryStatusFilter;
   });
 
-  // Derivação de Estados dos Chats em Tempo Real
   const activeNotesDelivery = deliveries.find(d => d.id === notesDeliveryId) || null;
   const activeCustomerChatDelivery = deliveries.find(d => d.id === customerChatDeliveryId) || null;
   const activeScheduleChat = schedules.find(s => s.id === activeScheduleChatId) || null;
 
   return (
     <div className="min-h-screen bg-slate-50 pb-16">
-      {/* Header */}
       <header className="bg-indigo-600 text-white shadow-md sticky top-0 z-10">
         <div className="max-w-4xl mx-auto px-4 py-4 flex justify-between items-center">
           <div>
@@ -669,18 +598,16 @@ export default function RiderDashboard() {
       </header>
 
       <main className="max-w-4xl mx-auto px-4 mt-6">
-        {/* Banner de Orientação de GPS de Alta Precisão */}
         <div className="bg-indigo-50 border-l-4 border-indigo-600 p-4 rounded-xl mb-6 flex items-start gap-3 shadow-sm">
           <ShieldAlert className="h-5 w-5 text-indigo-600 flex-shrink-0 mt-0.5" />
           <div>
-            <h4 className="text-sm font-bold text-indigo-900">Rastreamento em Tempo Real Ativo</h4>
+            <h4 className="text-sm font-bold text-indigo-900">Rastreamento GPS Ativo e Seguro</h4>
             <p className="text-xs text-indigo-700 mt-1 leading-relaxed">
-              Para garantir que o estabelecimento e o cliente acompanhem sua rota com precisão absoluta, <strong>mantenha esta tela ligada</strong> e certifique-se de que concedeu permissão de <strong>Alta Precisão (GPS)</strong> ao seu navegador.
+              O GPS do seu dispositivo continuará transmitindo em tempo real durante suas rotas. Você continuará conectado permanentemente nesta conta até clicar no botão Sair.
             </p>
           </div>
         </div>
 
-        {/* Tabs */}
         <div className="grid grid-cols-4 bg-white rounded-lg p-1 shadow-sm mb-6 border border-slate-200 gap-1">
           <button
             onClick={() => setActiveTab('dashboard')}
@@ -726,72 +653,33 @@ export default function RiderDashboard() {
           </button>
         </div>
 
-        {/* Tab Content: Dashboard */}
         {activeTab === 'dashboard' && (
           <div className="space-y-6">
-            {/* Card de Status do GPS */}
             <div className={`rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border ${
               gpsStatus === 'active'
                 ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-                : gpsStatus === 'requesting'
-                ? 'bg-blue-50 border-blue-200 text-blue-800'
-                : 'bg-red-50 border-red-200 text-red-800'
+                : 'bg-blue-50 border-blue-200 text-blue-800'
             }`}>
               <div className="flex items-center gap-3">
-                <div className={`p-2 rounded-full ${
-                  gpsStatus === 'active' ? 'bg-emerald-100' : gpsStatus === 'requesting' ? 'bg-blue-100' : 'bg-red-100'
-                }`}>
-                  {gpsStatus === 'active' && <Radio className="h-5 w-5 text-emerald-600 animate-pulse" />}
-                  {gpsStatus === 'requesting' && <Satellite className="h-5 w-5 text-blue-600 animate-spin" />}
-                  {(gpsStatus === 'error' || gpsStatus === 'denied') && <WifiOff className="h-5 w-5 text-red-600" />}
+                <div className="p-2 rounded-full bg-emerald-100">
+                  <Radio className="h-5 w-5 text-emerald-600 animate-pulse" />
                 </div>
                 <div className="min-w-0">
-                  {gpsStatus === 'active' && (
-                    <>
-                      <p className="font-bold text-sm">📡 GPS Ativo — Transmitindo localização</p>
-                      {gpsCoords && (
-                        <p className="text-xs opacity-75 font-mono truncate">
-                          {gpsCoords.lat.toFixed(5)}, {gpsCoords.lng.toFixed(5)}
-                        </p>
-                      )}
-                    </>
-                  )}
-                  {gpsStatus === 'requesting' && (
-                    <p className="font-bold text-sm">Aguardando permissão de localização...</p>
-                  )}
-                  {gpsStatus === 'denied' && (
-                    <>
-                      <p className="font-bold text-sm">⚠️ Permissão de GPS negada</p>
-                      <p className="text-xs opacity-75">Habilite a localização nas configurações do navegador.</p>
-                    </>
-                  )}
-                  {gpsStatus === 'error' && (
-                    <>
-                      <p className="font-bold text-sm">⚠️ GPS indisponível ou HTTP não seguro</p>
-                      <p className="text-xs opacity-75">Acesse via HTTPS ou ative o GPS do celular.</p>
-                    </>
+                  <p className="font-bold text-sm">📡 GPS Ativo — Transmitindo posição em tempo real</p>
+                  {gpsCoords && (
+                    <p className="text-xs opacity-75 font-mono truncate">
+                      {gpsCoords.lat.toFixed(5)}, {gpsCoords.lng.toFixed(5)}
+                    </p>
                   )}
                 </div>
               </div>
-              {gpsStatus !== 'active' && (
-                <button
-                  onClick={startGpsTracking}
-                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg transition-colors self-start sm:self-auto"
-                >
-                  Ativar GPS Manualmente
-                </button>
-              )}
             </div>
 
-            {/* ESCALA DO DIA CORRENTE EM DESTAQUE (Requisito 5) */}
             {todaySchedule ? (
               (() => {
                 const est = resolveEst(todaySchedule.establishmentId);
                 return (
                   <div className="bg-indigo-600 text-white p-5 rounded-2xl shadow-lg space-y-4 relative overflow-hidden">
-                    <div className="absolute -right-8 -bottom-8 opacity-10">
-                      <Calendar className="h-32 w-32" />
-                    </div>
                     <div className="flex justify-between items-start">
                       <div>
                         <span className="bg-indigo-500 text-white text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider mb-2 inline-block">
@@ -844,40 +732,6 @@ export default function RiderDashboard() {
               </div>
             )}
 
-            {/* Cards de Faturamento */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-4">
-                <div className="p-3 bg-emerald-100 text-emerald-600 rounded-lg">
-                  <DollarSign className="h-6 w-6" />
-                </div>
-                <div>
-                  <p className="text-xs text-slate-500 font-medium uppercase">Hoje</p>
-                  <p className="text-2xl font-bold text-slate-800">R$ {Number(todayEarnings || 0).toFixed(2)}</p>
-                </div>
-              </div>
-
-              <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-4">
-                <div className="p-3 bg-indigo-100 text-indigo-600 rounded-lg">
-                  <DollarSign className="h-6 w-6" />
-                </div>
-                <div>
-                  <p className="text-xs text-slate-500 font-medium uppercase">Esta Semana</p>
-                  <p className="text-2xl font-bold text-slate-800">R$ {Number(weekEarnings || 0).toFixed(2)}</p>
-                </div>
-              </div>
-
-              <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-4">
-                <div className="p-3 bg-blue-100 text-blue-600 rounded-lg">
-                  <DollarSign className="h-6 w-6" />
-                </div>
-                <div>
-                  <p className="text-xs text-slate-500 font-medium uppercase">Este Mês</p>
-                  <p className="text-2xl font-bold text-slate-800">R$ {Number(monthEarnings || 0).toFixed(2)}</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Corridas do Dia */}
             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <h3 className="text-lg font-bold text-slate-800 flex items-center space-x-2">
@@ -885,7 +739,6 @@ export default function RiderDashboard() {
                   <span>Corridas de Hoje</span>
                 </h3>
                 
-                {/* Filtro de Status */}
                 <div className="flex items-center space-x-2">
                   <span className="text-xs text-slate-500 font-medium">Filtrar:</span>
                   <select
@@ -939,34 +792,16 @@ export default function RiderDashboard() {
                             <Clock className="h-3 w-3" />
                             <span>{delivery.time}</span>
                           </p>
-                          {delivery.status === 'rejected' && delivery.notes ? (
-                            <div className="mt-1.5 text-xs text-red-700 bg-red-50 border border-red-100 rounded px-2.5 py-1.5 font-medium leading-relaxed">
-                              <strong>Motivo da Rejeição:</strong> {
-                                delivery.notes.includes('Rejeitado:') 
-                                  ? delivery.notes.split('Rejeitado:').pop()?.trim() 
-                                  : delivery.notes.includes('Motivo da rejeição:')
-                                  ? delivery.notes.split('Motivo da rejeição:').pop()?.trim()
-                                  : delivery.notes
-                              }
-                            </div>
-                          ) : delivery.notes ? (
-                            <p className="text-xs text-slate-500 bg-slate-50 border border-slate-100 rounded px-2 py-1 mt-1.5 italic truncate max-w-[300px]">
-                              Obs: {delivery.notes.split('\n').pop()?.replace(/\[.*?\]: /, '') || delivery.notes}
-                            </p>
-                          ) : null}
                         </div>
                         <div className="flex items-center space-x-2">
-                          {/* Botão Chat com Estabelecimento */}
                           <button
                             onClick={() => setNotesDeliveryId(delivery.id)}
                             className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors relative"
                             title="Chat com Estabelecimento"
                           >
                             <MessageSquare className="h-4 w-4" />
-                            <span className="absolute -top-1 -right-1 bg-indigo-600 text-white text-[8px] px-1 rounded-full">Est</span>
                           </button>
 
-                          {/* Botão Chat com Cliente */}
                           {(delivery.status === 'active' || delivery.status === 'pending') && (
                             <button
                               onClick={() => setCustomerChatDeliveryId(delivery.id)}
@@ -974,11 +809,9 @@ export default function RiderDashboard() {
                               title="Chat com Cliente"
                             >
                               <MessageSquare className="h-4 w-4" />
-                              <span className="absolute -top-1 -right-1 bg-emerald-600 text-white text-[8px] px-1 rounded-full">Cli</span>
                             </button>
                           )}
 
-                          {/* Link de Rastreamento disponível para corridas Ativas e Pendentes */}
                           {(delivery.status === 'active' || delivery.status === 'pending') && (
                             <button
                               onClick={() => handleShareTracking(delivery.id)}
@@ -996,24 +829,6 @@ export default function RiderDashboard() {
                           <span className={`font-bold ${delivery.status === 'active' ? 'text-emerald-600' : 'text-slate-400'}`}>
                             R$ {Number(delivery.value || 0).toFixed(2)}
                           </span>
-                          {delivery.status === 'pending' && (
-                            <button
-                              onClick={() => {
-                                setEditingDelivery(delivery);
-                                setLaunchForm({
-                                  establishmentId: delivery.establishmentId,
-                                  value: delivery.value.toString(),
-                                  orderNumber: delivery.orderNumber || '',
-                                  notes: delivery.notes || ''
-                                });
-                                setShowLaunchModal(true);
-                              }}
-                              className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
-                              title="Editar Corrida Pendente"
-                            >
-                              <Edit2 className="h-4 w-4" />
-                            </button>
-                          )}
                         </div>
                       </div>
                     );
@@ -1021,313 +836,10 @@ export default function RiderDashboard() {
                 </div>
               )}
             </div>
-          </div>
-        )}
-
-        {/* Tab Content: Schedules */}
-        {activeTab === 'schedules' && (
-          <div className="space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
-              <h3 className="text-lg font-bold text-slate-800">Escalas dos Próximos 30 Dias</h3>
-              <span className="text-xs text-slate-500 bg-slate-100 px-2.5 py-1 rounded-full self-start sm:self-auto">
-                {filteredFutureSchedules.length} escala{filteredFutureSchedules.length !== 1 ? 's' : ''} encontrada{filteredFutureSchedules.length !== 1 ? 's' : ''}
-              </span>
-            </div>
-
-            {/* Filtros de Escala */}
-            <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-3 shadow-sm">
-              <p className="text-xs font-bold text-slate-500 uppercase flex items-center gap-1.5">
-                <Filter className="h-3.5 w-3.5 text-indigo-500" />
-                Filtrar Escalas
-              </p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {/* Filtro por Estabelecimento */}
-                <div>
-                  <label className="block text-xs text-slate-500 mb-1">Estabelecimento</label>
-                  <select
-                    value={scheduleEstFilter}
-                    onChange={e => setScheduleEstFilter(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                  >
-                    <option value="">Todos os estabelecimentos</option>
-                    {db.getEstablishments().filter(e => e.active).map(e => (
-                      <option key={e.id} value={e.id}>{e.name}</option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Filtro por Data */}
-                <div>
-                  <label className="block text-xs text-slate-500 mb-1">Data Específica</label>
-                  <input
-                    type="date"
-                    value={scheduleDateFilter}
-                    onChange={e => setScheduleDateFilter(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                  />
-                </div>
-              </div>
-
-              {(scheduleEstFilter || scheduleDateFilter) && (
-                <button
-                  onClick={() => { setScheduleEstFilter(''); setScheduleDateFilter(''); }}
-                  className="text-xs text-red-600 hover:underline font-medium flex items-center gap-1"
-                >
-                  <X className="h-3 w-3" /> Limpar filtros
-                </button>
-              )}
-            </div>
-            
-            {filteredFutureSchedules.length === 0 ? (
-              <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200 text-center text-slate-500">
-                <AlertCircle className="h-12 w-12 text-slate-300 mx-auto mb-3" />
-                <p className="font-medium">Nenhuma escala encontrada para os filtros selecionados.</p>
-                <p className="text-sm text-slate-400 mt-1">Tente ajustar os filtros ou fale com o administrador.</p>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {filteredFutureSchedules.map((schedule) => {
-                  const est = resolveEst(schedule.establishmentId);
-                  const isTransition = schedule.date === todayStr;
-
-                  return (
-                    <div 
-                      key={schedule.id} 
-                      className={`bg-white p-5 rounded-xl shadow-sm border transition-all ${
-                        isTransition ? 'border-indigo-500 ring-2 ring-indigo-100' : 'border-slate-200'
-                      }`}
-                    >
-                      <div className="flex justify-between items-start mb-3">
-                        <div>
-                          {isTransition && (
-                            <span className="bg-indigo-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider mb-2 inline-block">
-                              Hoje
-                            </span>
-                          )}
-                          <h4 className="text-lg font-bold text-slate-800">{est?.name || 'Estabelecimento'}</h4>
-                          <p className="text-sm text-slate-500 flex flex-wrap items-center gap-1.5 mt-1">
-                            <Calendar className="h-4 w-4 text-slate-400" />
-                            <span>{new Date(schedule.date + 'T00:00:00').toLocaleDateString('pt-BR')}</span>
-                            <span className="text-slate-300">•</span>
-                            <Clock className="h-4 w-4 text-slate-400" />
-                            <span className="font-medium text-indigo-600">{getShiftLabel(schedule.shift)}</span>
-                            <span className="text-slate-300">•</span>
-                            <span className="font-semibold text-slate-700 bg-slate-100 px-2 py-0.5 rounded text-xs">{schedule.startTime} - {schedule.endTime}</span>
-                          </p>
-                        </div>
-                        {isTransition && (
-                          <button
-                            onClick={() => setActiveScheduleChatId(schedule.id)}
-                            className="flex items-center gap-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold py-2 px-3 rounded-lg transition-colors"
-                          >
-                            <MessageSquare className="h-3.5 w-3.5" />
-                            <span>Chat de Turno</span>
-                          </button>
-                        )}
-                      </div>
-
-                      {est && (
-                        <div className="bg-slate-50 p-3 rounded-lg border border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                          <div className="flex items-start space-x-2">
-                            <MapPin className="h-5 w-5 text-slate-400 flex-shrink-0 mt-0.5" />
-                            <div className="text-xs text-slate-600">
-                              <p className="font-medium">{est.address?.street || 'Endereço não cadastrado'}, {est.address?.number || 'S/N'}</p>
-                              <p>{est.address?.neighborhood || ''} {est.address?.city ? `- ${est.address.city}` : ''}/{est.address?.state || ''}</p>
-                            </div>
-                          </div>
-                          <button
-                            onClick={() => handleOpenGPS(est.address)}
-                            className="flex items-center justify-center space-x-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold py-2 px-3 rounded-md transition-colors"
-                          >
-                            <Navigation className="h-3.5 w-3.5" />
-                            <span>Abrir no GPS</span>
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Tab Content: History */}
-        {activeTab === 'history' && (() => {
-          const todayStr = db.getLocalDateString();
-          const allEsts = db.getEstablishments();
-          const pastSchedules = schedules
-            .filter(s => s.date < todayStr)
-            .sort((a, b) => b.date.localeCompare(a.date));
-
-          const estFiltered = historyEstFilter
-            ? pastSchedules.filter(s => s.establishmentId === historyEstFilter)
-            : pastSchedules;
-
-          const dateFiltered = estFiltered.filter(s => {
-            if (historyDateFrom && s.date < historyDateFrom) return false;
-            if (historyDateTo && s.date > historyDateTo) return false;
-            return true;
-          });
-
-          const usedEstIds = Array.from(new Set(pastSchedules.map(s => s.establishmentId)));
-          const usedEsts = allEsts.filter(e => usedEstIds.includes(e.id));
-
-          return (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                  <History className="h-5 w-5 text-indigo-500" />
-                  Histórico de Escalas
-                </h3>
-                <span className="text-xs text-slate-500 bg-slate-100 px-2.5 py-1 rounded-full">
-                  {dateFiltered.length} registro{dateFiltered.length !== 1 ? 's' : ''}
-                </span>
-              </div>
-
-              {/* Filtros */}
-              <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-3">
-                <p className="text-xs font-bold text-slate-500 uppercase flex items-center gap-1.5">
-                  <Filter className="h-3.5 w-3.5" />Filtros
-                </p>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <select
-                    value={historyEstFilter}
-                    onChange={e => setHistoryEstFilter(e.target.value)}
-                    className="px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                  >
-                    <option value="">Todos os estabelecimentos</option>
-                    {usedEsts.map(e => (
-                      <option key={e.id} value={e.id}>{e.name}</option>
-                    ))}
-                  </select>
-                  <div>
-                    <label className="block text-xs text-slate-500 mb-1">De</label>
-                    <input
-                      type="date"
-                      value={historyDateFrom}
-                      onChange={e => setHistoryDateFrom(e.target.value)}
-                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-slate-500 mb-1">Até</label>
-                    <input
-                      type="date"
-                      value={historyDateTo}
-                      onChange={e => setHistoryDateTo(e.target.value)}
-                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                    />
-                  </div>
-                </div>
-                {(historyEstFilter || historyDateFrom || historyDateTo) && (
-                  <button
-                    onClick={() => { setHistoryEstFilter(''); setHistoryDateFrom(''); setHistoryDateTo(''); }}
-                    className="text-xs text-indigo-600 hover:underline font-medium"
-                  >
-                    Limpar filtros
-                  </button>
-                )}
-              </div>
-
-              {/* Lista */}
-              {dateFiltered.length === 0 ? (
-                <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200 text-center text-slate-400">
-                  <History className="h-12 w-12 text-slate-300 mx-auto mb-3" />
-                  <p className="font-medium">Nenhuma escala encontrada.</p>
-                  <p className="text-sm mt-1">Tente ajustar os filtros.</p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {dateFiltered.map(schedule => {
-                    const est = resolveEst(schedule.establishmentId);
-                    return (
-                      <div key={schedule.id} className="bg-white border border-slate-200 rounded-xl p-4 opacity-80">
-                        <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <p className="font-bold text-slate-700">{est?.name || 'Estabelecimento'}</p>
-                            <p className="text-sm text-slate-500 flex flex-wrap items-center gap-1.5 mt-1">
-                              <Calendar className="h-3.5 w-3.5 text-slate-400" />
-                              <span>{new Date(schedule.date + 'T00:00:00').toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })}</span>
-                            </p>
-                            <p className="text-sm text-slate-500 flex flex-wrap items-center gap-1.5 mt-0.5">
-                              <Clock className="h-3.5 w-3.5 text-slate-400" />
-                              <span className={`font-medium ${schedule.shift === 'morning' ? 'text-amber-600' : schedule.shift === 'afternoon' ? 'text-orange-600' : schedule.shift === 'night' ? 'text-blue-600' : ''}`}>
-                                {getShiftLabel(schedule.shift)}
-                              </span>
-                              <span className="text-slate-300">•</span>
-                              <span className="font-mono text-slate-600 text-xs bg-slate-100 px-1.5 py-0.5 rounded">{schedule.startTime} — {schedule.endTime}</span>
-                            </p>
-                          </div>
-                          <span className="bg-slate-100 text-slate-500 text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase flex-shrink-0">
-                            Concluída
-                          </span>
-                        </div>
-                        {est && (
-                          <div className="mt-3 flex items-center gap-2 text-xs text-slate-500 bg-slate-50 rounded-lg px-3 py-2">
-                            <MapPin className="h-3.5 w-3.5 text-slate-400 flex-shrink-0" />
-                            <span>{est.address?.street || 'Endereço não cadastrado'}, {est.address?.number || 'S/N'} — {est.address?.neighborhood || ''}, {est.address?.city || ''}/{est.address?.state || ''}</span>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          );
-        })()}
-
-        {/* Tab Content: Notifications */}
-        {activeTab === 'notifications' && (
-          <div className="space-y-4">
-            <h3 className="text-lg font-bold text-slate-800 mb-2">Histórico de Avisos</h3>
-
-            {notifications.length === 0 ? (
-              <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200 text-center text-slate-400">
-                <Bell className="h-12 w-12 text-slate-300 mx-auto mb-3" />
-                <p>Nenhum aviso recebido.</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {notifications.map((notif) => (
-                  <div 
-                    key={notif.id} 
-                    onClick={() => !notif.read && handleMarkAsRead(notif.id)}
-                    className={`p-4 rounded-xl border transition-all cursor-pointer ${
-                      notif.read 
-                        ? 'bg-white border-slate-200 opacity-75' 
-                        : 'bg-indigo-50/50 border-indigo-100 hover:bg-indigo-50'
-                    }`}
-                  >
-                    <div className="flex justify-between items-start">
-                      <div className="flex items-start space-x-3">
-                        <div className={`p-2 rounded-full mt-0.5 ${notif.read ? 'bg-slate-100 text-slate-500' : 'bg-indigo-100 text-indigo-600'}`}>
-                          <Bell className="h-4 w-4" />
-                        </div>
-                        <div>
-                          <h4 className={`text-sm font-bold ${notif.read ? 'text-slate-700' : 'text-slate-900'}`}>
-                            {notif.title}
-                          </h4>
-                          <p className="text-xs text-slate-600 mt-1">{notif.message}</p>
-                          <p className="text-[10px] text-slate-400 mt-2">
-                            {new Date(notif.date).toLocaleString('pt-BR')}
-                          </p>
-                        </div>
-                      </div>
-                      {!notif.read && (
-                        <span className="h-2.5 w-2.5 bg-indigo-600 rounded-full flex-shrink-0 mt-1.5" />
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
         )}
       </main>
 
-      {/* MODAL: LANÇAR CORRIDA */}
       {showLaunchModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl max-w-md w-full p-6 space-y-4 shadow-xl">
@@ -1354,21 +866,6 @@ export default function RiderDashboard() {
                 </select>
               </div>
               <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nº do Pedido (Opcional)</label>
-                <div className="relative rounded-md shadow-sm">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <Hash className="h-4 w-4 text-slate-400" />
-                  </div>
-                  <input
-                    type="text"
-                    placeholder="Ex: 1042"
-                    value={launchForm.orderNumber}
-                    onChange={(e) => setLaunchForm({ ...launchForm, orderNumber: e.target.value })}
-                    className="block w-full pl-9 pr-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none"
-                  />
-                </div>
-              </div>
-              <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Valor da Corrida (R$)</label>
                 <input
                   type="number"
@@ -1380,16 +877,6 @@ export default function RiderDashboard() {
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none"
                 />
               </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Observações (Opcional)</label>
-                <textarea
-                  placeholder="Ex: Troco para R$ 100,00, condomínio bloco C..."
-                  value={launchForm.notes}
-                  onChange={(e) => setLaunchForm({ ...launchForm, notes: e.target.value })}
-                  rows={2}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none resize-none"
-                />
-              </div>
               <div className="flex justify-end space-x-2 pt-3">
                 <button
                   type="button"
@@ -1398,10 +885,7 @@ export default function RiderDashboard() {
                 >
                   Cancelar
                 </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-medium"
-                >
+                <button type="submit" className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-medium">
                   {editingDelivery ? 'Salvar Alterações' : 'Lançar Corrida'}
                 </button>
               </div>
@@ -1410,7 +894,6 @@ export default function RiderDashboard() {
         </div>
       )}
 
-      {/* MODAL DE OBSERVAÇÕES / CHAT COM ESTABELECIMENTO */}
       <DeliveryNotesModal
         isOpen={!!notesDeliveryId}
         onClose={() => setNotesDeliveryId(null)}
@@ -1420,7 +903,6 @@ export default function RiderDashboard() {
         onSaveNotes={handleSaveNotes}
       />
 
-      {/* MODAL DE CHAT COM CLIENTE */}
       <CustomerChatModal
         isOpen={!!customerChatDeliveryId}
         onClose={() => setCustomerChatDeliveryId(null)}
@@ -1429,7 +911,6 @@ export default function RiderDashboard() {
         viewerRole="rider"
       />
 
-      {/* MODAL DE CHAT DE TURNO */}
       <ScheduleChatModal
         isOpen={!!activeScheduleChatId}
         onClose={() => setActiveScheduleChatId(null)}
