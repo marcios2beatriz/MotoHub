@@ -141,7 +141,6 @@ export default function RiderDashboard() {
           newLines.forEach(line => {
             const isMe = line.includes('- Motoboy') || line.includes(`(${user?.name})`);
             if (!isMe) {
-              const est = resolveEst(d.establishmentId);
               const sender = line.includes('- Estabelecimento') ? 'Estabelecimento' : 'Admin';
               const messageText = line.substring(line.indexOf(']: ') + 3);
               const title = `Mensagem de ${sender} (Pedido #${d.orderNumber || d.id.slice(-4)})`;
@@ -858,10 +857,11 @@ export default function RiderDashboard() {
                         <div className="flex items-center space-x-2">
                           <button
                             onClick={() => setNotesDeliveryId(delivery.id)}
-                            className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors relative"
+                            className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg transition-colors flex items-center gap-1 text-xs font-bold"
                             title="Observações da Corrida"
                           >
                             <MessageSquare className="h-4 w-4" />
+                            <span>Observações</span>
                           </button>
 
                           {(delivery.status === 'active' || delivery.status === 'pending') && (
@@ -1095,9 +1095,17 @@ export default function RiderDashboard() {
                             Data: {new Date(del.date + 'T00:00:00').toLocaleDateString('pt-BR')} às {del.time}
                           </p>
                         </div>
-                        <span className={`font-bold ${del.status === 'active' ? 'text-emerald-600' : 'text-slate-400 line-through'}`}>
-                          R$ {Number(del.value || 0).toFixed(2)}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => setNotesDeliveryId(del.id)}
+                            className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded text-xs font-bold"
+                          >
+                            Observações
+                          </button>
+                          <span className={`font-bold ${del.status === 'active' ? 'text-emerald-600' : 'text-slate-400 line-through'}`}>
+                            R$ {Number(del.value || 0).toFixed(2)}
+                          </span>
+                        </div>
                       </div>
                     );
                   })}

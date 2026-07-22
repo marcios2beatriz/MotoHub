@@ -16,7 +16,9 @@ import {
   Navigation,
   MessageSquare,
   Clock,
-  CheckCircle
+  CheckCircle,
+  Check,
+  Ban
 } from 'lucide-react';
 
 import L from 'leaflet';
@@ -555,6 +557,42 @@ export default function EstablishmentDashboard() {
     loadData();
   };
 
+  const handleApproveDelivery = (id: string) => {
+    const allDeliveries = db.getDeliveries();
+    const updated = allDeliveries.map(d => d.id === id ? {
+      ...d,
+      status: 'active' as const,
+      updatedAt: new Date().toISOString()
+    } : d);
+    db.setDeliveries(updated);
+    loadData();
+  };
+
+  const handleRejectDelivery = (id: string) => {
+    const reason = prompt('Informe o motivo/justificativa da rejeição desta corrida:');
+    if (reason === null) return;
+    
+    const justification = reason.trim() || 'Sem motivo especificado';
+    const allDeliveries = db.getDeliveries();
+    const updated = allDeliveries.map(d => {
+      if (d.id === id) {
+        const updatedNotes = d.notes 
+          ? `${d.notes}\n[Motivo da rejeição]: ${justification}`
+          : `[Motivo da rejeição]: ${justification}`;
+
+        return {
+          ...d,
+          status: 'rejected' as const,
+          notes: updatedNotes,
+          updatedAt: new Date().toISOString()
+        };
+      }
+      return d;
+    });
+    db.setDeliveries(updated);
+    loadData();
+  };
+
   const handleSaveNotes = (deliveryId: string, updatedNotes: string) => {
     const allDeliveries = db.getDeliveries();
     const updated = allDeliveries.map(d => d.id === deliveryId ? {
@@ -724,7 +762,7 @@ export default function EstablishmentDashboard() {
             )}
           </div>
 
-          {/* Histórico de Corridas de Hoje */}
+          {/* Histórico e Aprovação de Corridas de Hoje */}
           <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
             <h3 className="text-lg font-bold text-slate-800 flex items-center justify-between">
               <span className="flex items-center gap-2">
@@ -742,10 +780,12 @@ export default function EstablishmentDashboard() {
               <div className="divide-y divide-slate-100">
                 {todayDeliveries.map(del => {
                   const rider = scheduledRiders.find(r => r.id === del.riderId) || db.resolveUser(del.riderId);
+                  const isPending = del.status === 'pending';
+
                   return (
-                    <div key={del.id} className="py-3 flex items-center justify-between gap-3">
-                      <div>
-                        <div className="flex items-center space-x-2">
+                    <div key={del.id} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center space-x-2 flex-wrap gap-y-1">
                           <p className="font-bold text-slate-800 text-sm">{rider?.name || 'Motoboy'}</p>
                           {del.orderNumber && (
                             <span className="bg-slate-100 text-slate-500 text-[10px] font-bold px-1.5 py-0.5 rounded">
@@ -756,27 +796,45 @@ export default function EstablishmentDashboard() {
                             del.status === 'active' ? 'bg-emerald-100 text-emerald-800' :
                             del.status === 'pending' ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-red-800'
                           }`}>
-                            {del.status === 'active' ? 'Aprovada' : del.status === 'pending' ? 'Pendente' : 'Cancelada'}
+                            {del.status === 'active' ? 'Aprovada' : del.status === 'pending' ? 'Pendente Aprovação' : 'Rejeitada'}
                           </span>
                         </div>
                         <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1">
                           <Clock className="h-3 w-3" />
-                          <span>{del.time}</span>
+                          <span>Lançada às {del.time} — Valor: <strong className="text-emerald-600">R$ {Number(del.value || 0).toFixed(2)}</strong></span>
                         </p>
                       </div>
 
-                      <div className="flex items-center space-x-2">
+                      <div className="flex items-center space-x-2 flex-wrap">
+                        {isPending && (
+                          <>
+                            <button
+                              onClick={() => handleApproveDelivery(del.id)}
+                              className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 transition-colors shadow-sm"
+                              title="Aprovar Corrida"
+                            >
+                              <Check className="h-3.5 w-3.5" />
+                              <span>Aprovar</span>
+                            </button>
+                            <button
+                              onClick={() => handleRejectDelivery(del.id)}
+                              className="px-2.5 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-lg text-xs font-bold flex items-center gap-1 transition-colors"
+                              title="Recusar Corrida com Justificativa"
+                            >
+                              <Ban className="h-3.5 w-3.5" />
+                              <span>Recusar</span>
+                            </button>
+                          </>
+                        )}
+
                         <button
                           onClick={() => setNotesDeliveryId(del.id)}
-                          className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors flex items-center gap-1 text-xs font-semibold"
-                          title="Observações da Corrida"
+                          className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg transition-colors flex items-center gap-1 text-xs font-bold"
+                          title="Observações e Chat da Corrida"
                         >
-                          <MessageSquare className="h-4 w-4" />
-                          <span className="hidden sm:inline">Observações</span>
+                          <MessageSquare className="h-3.5 w-3.5" />
+                          <span>Observações</span>
                         </button>
-                        <span className="font-bold text-emerald-600 text-sm">
-                          R$ {Number(del.value || 0).toFixed(2)}
-                        </span>
                       </div>
                     </div>
                   );
