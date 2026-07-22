@@ -1,8 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
 
 // Configuração do Supabase utilizando variáveis de ambiente do Vite
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
-const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://rqieirvzutdculcdsncb.supabase.co';
+const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_pjEo4HVVSPTMF-fQDwKpLQ_o9HAIOWR';
 export const supabase = createClient(supabaseUrl, supabaseKey);
 
 export interface User {
@@ -109,7 +109,6 @@ const KEYS = {
   MISSING_COLUMNS: 'delivery_system_missing_columns'
 };
 
-// Cache persistente de colunas inexistentes por tabela para evitar requisições redundantes e lentidão
 const getMissingColumnsCache = (): Record<string, string[]> => {
   const data = localStorage.getItem(KEYS.MISSING_COLUMNS);
   return data ? JSON.parse(data) : {};
@@ -119,7 +118,7 @@ const saveMissingColumnsCache = (cache: Record<string, string[]>) => {
   localStorage.setItem(KEYS.MISSING_COLUMNS, JSON.stringify(cache));
 };
 
-// Helper para mesclar strings de chat sem duplicar mensagens
+// Helper para mesclar mensagens de chat sem duplicação de linhas
 function mergeChatStrings(localChat: string | undefined, remoteChat: string | undefined): string {
   if (!localChat) return remoteChat || '';
   if (!remoteChat) return localChat || '';
@@ -131,23 +130,18 @@ function mergeChatStrings(localChat: string | undefined, remoteChat: string | un
   return uniqueLines.join('\n');
 }
 
-// Helper para verificar se um endereço está vazio ou contém apenas placeholders padrão
 function isAddressEmptyOrPlaceholder(addr: any): boolean {
   if (!addr) return true;
   const street = (addr.street || '').toLowerCase().trim();
   const neighborhood = (addr.neighborhood || '').toLowerCase().trim();
   
-  const isEmpty = !street || !neighborhood;
-  const isPlaceholder = street === 'sem rua' || street === 'a definir' || neighborhood === 'sem bairro' || neighborhood === 'a definir';
-  
-  return isEmpty || isPlaceholder;
+  return !street || !neighborhood || street === 'sem rua' || street === 'a definir' || neighborhood === 'sem bairro' || neighborhood === 'a definir';
 }
 
 // Função de Auto-Cura para Upsert no Supabase
 async function safeUpsert(tableName: string, rawPayload: Record<string, any>): Promise<{ success: boolean; error?: any }> {
   const payload = { ...rawPayload };
   
-  // Remove colunas que já sabemos que não existem nesta tabela
   const cache = getMissingColumnsCache();
   const missingCols = cache[tableName] || [];
   missingCols.forEach(col => {
@@ -164,30 +158,23 @@ async function safeUpsert(tableName: string, rawPayload: Record<string, any>): P
     }
 
     const msg = error.message || '';
-    // Detecta se o erro é de coluna inexistente no banco de dados
     const match = msg.match(/Could not find the '([^']+)' column/) || 
                   msg.match(/column "([^"]+)"/) || 
                   msg.match(/column '([^']+)'/);
     
     if (match && match[1]) {
       const missingCol = match[1];
-      console.warn(`[Auto-Cura] Removendo coluna inexistente '${missingCol}' da tabela '${tableName}' e tentando novamente.`);
-      
-      // Adiciona ao cache persistente para evitar tentar enviar esta coluna no futuro
       const currentCache = getMissingColumnsCache();
-      if (!currentCache[tableName]) {
-        currentCache[tableName] = [];
-      }
+      if (!currentCache[tableName]) currentCache[tableName] = [];
       if (!currentCache[tableName].includes(missingCol)) {
         currentCache[tableName].push(missingCol);
         saveMissingColumnsCache(currentCache);
       }
 
       delete payload[missingCol];
-      continue; // Tenta novamente com o payload podado
+      continue;
     }
 
-    // Se for outro tipo de erro, retorna o erro para log
     return { success: false, error };
   }
 
@@ -195,15 +182,12 @@ async function safeUpsert(tableName: string, rawPayload: Record<string, any>): P
 }
 
 export const db = {
-  // --- LOCAL STORAGE GETTERS & SETTERS COM ESCRITA IMEDIATA NO SUPABASE ---
   getUsers(): User[] {
     const data = localStorage.getItem(KEYS.USERS);
     return data ? JSON.parse(data) : [];
   },
   setUsers(users: User[]) {
     localStorage.setItem(KEYS.USERS, JSON.stringify(users));
-    
-    // Sincroniza imediatamente cada usuário alterado ou novo
     users.forEach(u => {
       const rawPayload = {
         id: u.id,
@@ -229,8 +213,6 @@ export const db = {
   },
   setEstablishments(ests: Establishment[]) {
     localStorage.setItem(KEYS.ESTABLISHMENTS, JSON.stringify(ests));
-    
-    // Sincroniza imediatamente cada estabelecimento alterado ou novo
     ests.forEach(e => {
       const rawPayload = {
         id: e.id,
@@ -259,9 +241,14 @@ export const db = {
   },
   setSchedules(schedules: Schedule[]) {
     localStorage.setItem(KEYS.SCHEDULES, JSON.stringify(schedules));
-    
-    // Sincroniza imediatamente cada escala alterada ou nova
     schedules.forEach(s => {
+      // Serializa o chat em JSON no campo created_by para garantia de sincronização multiplataforma
+      const serializedCreatedBy = JSON.stringify({
+        createdBy: s.createdBy || '',
+        chat: s.chat || '',
+        updatedAt: s.updatedAt || new Date().toISOString()
+      });
+
       const rawPayload = {
         id: s.id,
         rider_id: s.riderId,
@@ -271,7 +258,7 @@ export const db = {
         start_time: s.startTime,
         end_time: s.endTime,
         chat: s.chat || null,
-        created_by: s.createdBy || null,
+        created_by: serializedCreatedBy,
         created_at: s.createdAt || new Date().toISOString(),
         updated_at: s.updatedAt || new Date().toISOString()
       };
@@ -285,9 +272,8 @@ export const db = {
   },
   setDeliveries(deliveries: Delivery[]) {
     localStorage.setItem(KEYS.DELIVERIES, JSON.stringify(deliveries));
-    
-    // Sincroniza imediatamente cada corrida alterada ou nova
     deliveries.forEach(d => {
+      // Serializa orderNumber, notes, customerChat no campo order_number para envio 100% garantido
       const serializedOrderNumber = JSON.stringify({
         orderNumber: d.orderNumber || '',
         notes: d.notes || '',
@@ -328,8 +314,6 @@ export const db = {
   },
   setPartnerRequests(requests: PartnerRequest[]) {
     localStorage.setItem(KEYS.PARTNER_REQUESTS, JSON.stringify(requests));
-    
-    // Sincroniza imediatamente cada solicitação alterada ou nova
     requests.forEach(r => {
       const rawPayload = {
         id: r.id,
@@ -363,14 +347,12 @@ export const db = {
     return `${year}-${month}-${day}`;
   },
 
-  // --- RESOLVERS & HELPERS ULTRA-ROBUSTOS ---
   resolveUser(id: string): User | undefined {
     if (!id) return undefined;
     const users = this.getUsers();
     const found = users.find(u => u.id === id);
     if (found) return found;
 
-    // Fallback por nome aproximado
     const cleanId = id.toLowerCase().trim();
     return users.find(u => 
       u.name && (
@@ -387,7 +369,6 @@ export const db = {
     const found = ests.find(e => e.id === id);
     if (found) return found;
 
-    // Fallback por nome aproximado
     const cleanId = id.toLowerCase().trim();
     return ests.find(e => 
       e.name && (
@@ -403,7 +384,6 @@ export const db = {
     return `000.000.000-${rand()}${rand()}`;
   },
 
-  // --- EXCLUSÕES DIRETAS E IMEDIATAS NO SUPABASE ---
   async deleteUser(id: string) {
     const users = this.getUsers().filter(u => u.id !== id);
     localStorage.setItem(KEYS.USERS, JSON.stringify(users));
@@ -434,7 +414,6 @@ export const db = {
     await supabase.from('deliveries').delete().eq('id', id);
   },
 
-  // --- RIDER REAL-TIME LOCATION COM AUTO-CURA ---
   updateRiderLocation(riderId: string, riderName: string, lat: number, lng: number) {
     const locations = this.getRiderLocationsRecord();
     const updated = {
@@ -459,11 +438,7 @@ export const db = {
       updated_at: new Date().toISOString()
     };
 
-    safeUpsert('rider_locations', rawPayload).then((result) => {
-      if (!result.success) {
-        console.warn('Erro ao sincronizar localização com Supabase:', result.error);
-      }
-    });
+    safeUpsert('rider_locations', rawPayload);
   },
 
   getRiderLocationsRecord(): Record<string, RiderLocation> {
@@ -475,9 +450,9 @@ export const db = {
     return Object.values(this.getRiderLocationsRecord());
   },
 
-  // --- SUPABASE SYNCHRONIZATION (SOBRESCREVE TOTALMENTE O CACHE LOCAL) ---
+  // --- SUPABASE SYNCHRONIZATION (PUXA E MESCLA DADOS EM TEMPO REAL) ---
   async pullFromSupabase() {
-    // 1. Sincronizar Usuários
+    // 1. Usuários
     try {
       const { data: usersData, error } = await supabase.from('users').select('*');
       if (error) throw error;
@@ -503,10 +478,10 @@ export const db = {
         localStorage.setItem(KEYS.USERS, JSON.stringify(mappedUsers));
       }
     } catch (err) {
-      console.warn('Erro ao sincronizar tabela "users" do Supabase:', err);
+      console.warn('Erro ao sincronizar tabela "users":', err);
     }
 
-    // 2. Sincronizar Estabelecimentos
+    // 2. Estabelecimentos
     try {
       const { data: estsData, error } = await supabase.from('establishments').select('*');
       if (error) throw error;
@@ -531,15 +506,9 @@ export const db = {
             } else if (typeof e.address === 'string') {
               try {
                 let temp = JSON.parse(e.address);
-                if (typeof temp === 'string') {
-                  temp = JSON.parse(temp);
-                }
-                if (temp && typeof temp === 'object') {
-                  parsedAddress = { ...parsedAddress, ...temp };
-                }
-              } catch (err) {
-                console.warn('Erro ao parsear endereço do estabelecimento:', err);
-              }
+                if (typeof temp === 'string') temp = JSON.parse(temp);
+                if (temp && typeof temp === 'object') parsedAddress = { ...parsedAddress, ...temp };
+              } catch (err) {}
             }
           }
 
@@ -562,10 +531,10 @@ export const db = {
         localStorage.setItem(KEYS.ESTABLISHMENTS, JSON.stringify(mappedEsts));
       }
     } catch (err) {
-      console.warn('Erro ao sincronizar tabela "establishments" do Supabase:', err);
+      console.warn('Erro ao sincronizar tabela "establishments":', err);
     }
 
-    // 3. Sincronizar Escalas (Schedules)
+    // 3. Escalas (Schedules)
     try {
       const { data: schData, error } = await supabase.from('schedules').select('*');
       if (error) throw error;
@@ -573,6 +542,20 @@ export const db = {
         const localSchedules = this.getSchedules();
         const mappedSchedules: Schedule[] = schData.map(s => {
           const local = localSchedules.find(l => l.id === s.id);
+          let chat = s.chat || undefined;
+          let createdBy = s.created_by || undefined;
+
+          // Parse do payload redundante gravado no created_by
+          if (s.created_by && s.created_by.startsWith('{')) {
+            try {
+              const parsed = JSON.parse(s.created_by);
+              createdBy = parsed.createdBy || undefined;
+              if (parsed.chat) {
+                chat = mergeChatStrings(chat, parsed.chat);
+              }
+            } catch (e) {}
+          }
+
           return {
             id: s.id,
             riderId: s.rider_id,
@@ -581,8 +564,8 @@ export const db = {
             shift: s.shift,
             startTime: s.start_time,
             endTime: s.end_time,
-            chat: mergeChatStrings(local?.chat, s.chat),
-            createdBy: s.created_by || undefined,
+            chat: mergeChatStrings(local?.chat, chat),
+            createdBy,
             createdAt: s.created_at,
             updatedAt: s.updated_at
           };
@@ -590,10 +573,10 @@ export const db = {
         localStorage.setItem(KEYS.SCHEDULES, JSON.stringify(mappedSchedules));
       }
     } catch (err) {
-      console.warn('Erro ao sincronizar tabela "schedules" do Supabase:', err);
+      console.warn('Erro ao sincronizar tabela "schedules":', err);
     }
 
-    // 4. Sincronizar Corridas (Deliveries)
+    // 4. Corridas (Deliveries)
     try {
       const { data: delData, error } = await supabase.from('deliveries').select('*');
       if (error) throw error;
@@ -607,21 +590,15 @@ export const db = {
           let customerChat = d.customer_chat || undefined;
           let updatedAt = d.updated_at;
 
+          // Parse do payload redundante em order_number
           if (d.order_number && d.order_number.startsWith('{')) {
             try {
               const parsed = JSON.parse(d.order_number);
               orderNumber = parsed.orderNumber || undefined;
-              notes = parsed.notes || undefined;
-              customerChat = parsed.customerChat || undefined;
+              if (parsed.notes) notes = mergeChatStrings(notes, parsed.notes);
+              if (parsed.customerChat) customerChat = mergeChatStrings(customerChat, parsed.customerChat);
               updatedAt = parsed.updatedAt || d.updated_at;
-            } catch (e) {
-              if (d.order_number.includes('|')) {
-                const parts = d.order_number.split('|');
-                orderNumber = parts[0] || undefined;
-                notes = parts[1] || undefined;
-                customerChat = parts[2] || undefined;
-              }
-            }
+            } catch (e) {}
           }
 
           let finalStatus: 'pending' | 'active' | 'rejected' | 'cancelled' = d.status;
@@ -659,10 +636,10 @@ export const db = {
         localStorage.setItem(KEYS.DELIVERIES, JSON.stringify(mappedDeliveries));
       }
     } catch (err) {
-      console.warn('Erro ao sincronizar tabela "deliveries" do Supabase:', err);
+      console.warn('Erro ao sincronizar tabela "deliveries":', err);
     }
 
-    // 5. Sincronizar Solicitações de Parceria
+    // 5. Solicitações de Parceria
     try {
       const { data: reqsData, error } = await supabase.from('partner_requests').select('*');
       if (error) throw error;
@@ -679,10 +656,10 @@ export const db = {
         localStorage.setItem(KEYS.PARTNER_REQUESTS, JSON.stringify(mappedReqs));
       }
     } catch (err) {
-      console.warn('Erro ao sincronizar tabela "partner_requests" do Supabase:', err);
+      console.warn('Erro ao sincronizar tabela "partner_requests":', err);
     }
 
-    // 6. Sincronizar Localizações dos Motoboys
+    // 6. Localizações dos Motoboys
     try {
       const { data: locData, error } = await supabase.from('rider_locations').select('*');
       if (error) throw error;
@@ -703,10 +680,9 @@ export const db = {
         localStorage.setItem(KEYS.RIDER_LOCATIONS, JSON.stringify(mappedLocs));
       }
     } catch (err) {
-      console.warn('Erro ao sincronizar tabela "rider_locations" do Supabase:', err);
+      console.warn('Erro ao sincronizar tabela "rider_locations":', err);
     }
 
-    // Dispara evento global para atualizar as telas em tempo real
     window.dispatchEvent(new Event('db-sync-complete'));
   }
 };

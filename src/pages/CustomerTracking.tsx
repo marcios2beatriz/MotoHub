@@ -3,15 +3,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { db, Delivery, User, Establishment, RiderLocation } from '../utils/db';
-import { Bike, MapPin, Clock, ShieldCheck, RefreshCw, MessageSquare, Navigation, AlertCircle } from 'lucide-react';
+import { Bike, MapPin, Clock, ShieldCheck, RefreshCw, MessageSquare, Navigation } from 'lucide-react';
 import L from 'leaflet';
 import CustomerChatModal from '../components/CustomerChatModal';
 import { sendDeviceNotification } from '../utils/notifications';
 
-// Dicionário de CEPs conhecidos para precisão absoluta e instantânea
-const KNOWN_CEPS: { [key: string]: { lat: number; lng: number } } = {
-  '58433488': { lat: -7.2311, lng: -35.9245 }, // Rua Martinho Lutero, 32, Malvinas, Campina Grande - PB
-  '58429900': { lat: -7.2150, lng: -35.9130 }, // Bodocongó, Campina Grande - PB
+const KNOWN_CEPS: Record<string, { lat: number; lng: number }> = {
+  '58433488': { lat: -7.2311, lng: -35.9245 },
+  '58429900': { lat: -7.2150, lng: -35.9130 },
 };
 
 export default function CustomerTracking() {
@@ -42,10 +41,9 @@ export default function CustomerTracking() {
     const currentDelivery = allDeliveries.find(d => d.id === deliveryId);
     
     if (currentDelivery) {
-      // Verificar expiração de 2 horas (120 minutos)
       const deliveryDateTime = new Date(`${currentDelivery.date}T${currentDelivery.time}:00`);
       const timeDifferenceMs = Date.now() - deliveryDateTime.getTime();
-      const twoHoursInMs = 120 * 60 * 1000; // 2h
+      const twoHoursInMs = 120 * 60 * 1000;
       
       if (timeDifferenceMs > twoHoursInMs) {
         setIsExpired(true);
@@ -75,12 +73,11 @@ export default function CustomerTracking() {
 
     const interval = setInterval(() => {
       db.pullFromSupabase().then(() => loadTrackingData());
-    }, 5000);
+    }, 3000);
 
     return () => clearInterval(interval);
   }, [deliveryId]);
 
-  // Monitoramento de novas mensagens no chat para o Cliente
   useEffect(() => {
     if (delivery && prevChatRef.current !== undefined && delivery.customerChat && delivery.customerChat !== prevChatRef.current) {
       const prevLines = prevChatRef.current ? prevChatRef.current.split('\n') : [];
@@ -89,34 +86,15 @@ export default function CustomerTracking() {
       if (currentLines.length > prevLines.length) {
         const newLines = currentLines.slice(prevLines.length);
         newLines.forEach(line => {
-          // Verifica se a mensagem foi enviada por outra pessoa (não pelo Cliente)
           const isMe = line.includes('- Cliente');
           if (!isMe) {
             const sender = line.includes('- Motoboy') ? 'Motoboy' : 'Estabelecimento';
             const messageText = line.substring(line.indexOf(']: ') + 3);
             
-            // 1. Notificação Nativa do Dispositivo
             sendDeviceNotification(
               `Nova mensagem de ${sender}`,
               `Pedido #${delivery.orderNumber || delivery.id.slice(-4)}: "${messageText}"`
             );
-
-            // 2. Alerta Visual na Tela
-            const alertDiv = document.createElement('div');
-            alertDiv.className = 'fixed top-4 left-4 right-4 bg-indigo-600 text-white p-4 rounded-xl shadow-2xl z-50 flex items-center justify-between animate-bounce';
-            alertDiv.innerHTML = `
-              <div class="flex items-center gap-2">
-                <span class="text-lg">💬</span>
-                <div>
-                  <p class="font-bold text-xs uppercase tracking-wider">Mensagem de ${sender}</p>
-                  <p class="text-sm font-medium">${messageText}</p>
-                </div>
-              </div>
-              <button class="text-white/80 hover:text-white font-bold text-sm px-2 py-1">OK</button>
-            `;
-            alertDiv.querySelector('button')?.addEventListener('click', () => alertDiv.remove());
-            document.body.appendChild(alertDiv);
-            setTimeout(() => alertDiv.remove(), 6000);
           }
         });
       }
@@ -126,7 +104,6 @@ export default function CustomerTracking() {
     }
   }, [delivery]);
 
-  // Inicialização do Mapa e Geocodificação do Estabelecimento
   useEffect(() => {
     if (!establishment || !mapContainerRef.current || mapRef.current) return;
 
@@ -138,7 +115,6 @@ export default function CustomerTracking() {
       document.head.appendChild(link);
     }
 
-    // Coordenadas padrão de fallback: Campina Grande - PB (Centro)
     const defaultLat = -7.2247;
     const defaultLng = -35.8878;
 
@@ -168,13 +144,10 @@ export default function CustomerTracking() {
 
     const geocode = async () => {
       const addr = establishment.address;
-      const headers = { 'Accept-Language': 'pt-BR', 'User-Agent': 'MotoHub-Delivery-App' };
-      
       let finalLat = defaultLat;
       let finalLng = defaultLng;
       let geocoded = false;
 
-      // Regra de Ouro: Se for a Hamburgueria Burgrill e o endereço for o padrão, força as coordenadas exatas de Bodocongó
       if (establishment.name.toLowerCase().includes('burgrill') && establishment.address.street === 'Rua Aprígio Veloso') {
         finalLat = -7.2150;
         finalLng = -35.9130;
@@ -183,127 +156,10 @@ export default function CustomerTracking() {
 
       if (!geocoded && addr) {
         const cepClean = addr.zipCode ? addr.zipCode.replace(/\D/g, '') : '';
-
-        // Verificação prioritária no dicionário de CEPs conhecidos (Precisão Absoluta)
         if (cepClean && KNOWN_CEPS[cepClean]) {
           finalLat = KNOWN_CEPS[cepClean].lat;
           finalLng = KNOWN_CEPS[cepClean].lng;
           geocoded = true;
-        }
-
-        let street = addr.street || '';
-        let city = addr.city || '';
-        let state = addr.state || '';
-        let neighborhood = addr.neighborhood || '';
-        let number = addr.number || '';
-
-        // Limpar termos "S/N" que quebram a busca do Nominatim
-        const cleanNumber = number.toLowerCase().replace(/s\/n|sn|sem número|sem numero/g, '').trim();
-        const cleanStreet = street.toLowerCase().replace(/s\/n|sn|sem número|sem numero/g, '').trim();
-
-        // Etapa 1: Tentar obter coordenadas precisas pelo CEP usando ViaCEP + Nominatim
-        if (cepClean) {
-          try {
-            const viaCepRes = await fetch(`https://viacep.com.br/ws/${cepClean}/json/`);
-            const viaCepData = await viaCepRes.json();
-            if (viaCepData && !viaCepData.erro) {
-              street = viaCepData.logradouro || street;
-              city = viaCepData.localidade || city;
-              state = viaCepData.uf || state;
-              neighborhood = viaCepData.bairro || neighborhood;
-
-              const query = `${street}, ${number}, ${neighborhood}, ${city}, ${state}, Brasil`;
-              const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`, { headers });
-              const data = await res.json();
-              if (data && data.length > 0) {
-                finalLat = parseFloat(data[0].lat);
-                finalLng = parseFloat(data[0].lon);
-                geocoded = true;
-              }
-            }
-          } catch (e) {
-            console.warn('Erro ao geocodificar via ViaCEP:', e);
-          }
-        }
-
-        // Etapa 2: Fallback para Nominatim estruturado com CEP + Cidade + Estado
-        if (!geocoded && cepClean) {
-          try {
-            const query = `${cepClean}, ${city}, ${state}, Brasil`;
-            const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`, { headers });
-            const data = await res.json();
-            if (data && data.length > 0) {
-              finalLat = parseFloat(data[0].lat);
-              finalLng = parseFloat(data[0].lon);
-              geocoded = true;
-            }
-          } catch (e) {
-            console.warn('Erro ao geocodificar por CEP estruturado:', e);
-          }
-        }
-
-        // Etapa 3: Fallback para endereço completo cadastrado (Rua + Bairro + Cidade + Estado)
-        if (!geocoded) {
-          const queryFull = `${cleanStreet}, ${cleanNumber}, ${neighborhood}, ${city}, ${state}, Brasil`;
-          try {
-            const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(queryFull)}`, { headers });
-            const data = await res.json();
-            if (data && data.length > 0) {
-              finalLat = parseFloat(data[0].lat);
-              finalLng = parseFloat(data[0].lon);
-              geocoded = true;
-            }
-          } catch (e) {
-            console.warn('Erro ao geocodificar por endereço completo:', e);
-          }
-        }
-
-        // Etapa 4: Fallback para Rua + Bairro + Cidade (sem o número)
-        if (!geocoded) {
-          const queryStreetOnly = `${cleanStreet}, ${neighborhood}, ${city}, ${state}, Brasil`;
-          try {
-            const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(queryStreetOnly)}`, { headers });
-            const data = await res.json();
-            if (data && data.length > 0) {
-              finalLat = parseFloat(data[0].lat);
-              finalLng = parseFloat(data[0].lon);
-              geocoded = true;
-            }
-          } catch (e) {
-            console.warn('Erro ao geocodificar por rua apenas:', e);
-          }
-        }
-
-        // Etapa 5: Fallback para Bairro + Cidade + Estado
-        if (!geocoded) {
-          const queryNeighborhood = `${neighborhood}, ${city}, ${state}, Brasil`;
-          try {
-            const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(queryNeighborhood)}`, { headers });
-            const data = await res.json();
-            if (data && data.length > 0) {
-              finalLat = parseFloat(data[0].lat);
-              finalLng = parseFloat(data[0].lon);
-              geocoded = true;
-            }
-          } catch (e) {
-            console.warn('Erro ao geocodificar por bairro:', e);
-          }
-        }
-
-        // Etapa 6: Fallback para Cidade + Estado
-        if (!geocoded) {
-          const queryCity = `${city}, ${state}, Brasil`;
-          try {
-            const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(queryCity)}`, { headers });
-            const data = await res.json();
-            if (data && data.length > 0) {
-              finalLat = parseFloat(data[0].lat);
-              finalLng = parseFloat(data[0].lon);
-              geocoded = true;
-            }
-          } catch (e) {
-            console.warn('Erro ao geocodificar por cidade:', e);
-          }
         }
       }
 
@@ -313,7 +169,6 @@ export default function CustomerTracking() {
     geocode();
   }, [establishment?.id]);
 
-  // Atualização do Marcador do Motoboy e Ajuste de Zoom Inteligente
   useEffect(() => {
     const currentMap = mapRef.current;
     if (!currentMap) return;
@@ -337,15 +192,10 @@ export default function CustomerTracking() {
       }
     }
 
-    // Centralização inteligente única: só move a câmera automaticamente no primeiro carregamento
     if (!hasSetInitialBoundsRef.current) {
       const points: L.LatLngExpression[] = [];
-      if (estCoords) {
-        points.push([estCoords.lat, estCoords.lng]);
-      }
-      if (riderLocation) {
-        points.push([riderLocation.lat, riderLocation.lng]);
-      }
+      if (estCoords) points.push([estCoords.lat, estCoords.lng]);
+      if (riderLocation) points.push([riderLocation.lat, riderLocation.lng]);
 
       if (points.length === 2) {
         const bounds = L.latLngBounds(points);
@@ -363,12 +213,8 @@ export default function CustomerTracking() {
     if (!currentMap) return;
 
     const points: L.LatLngExpression[] = [];
-    if (estCoords) {
-      points.push([estCoords.lat, estCoords.lng]);
-    }
-    if (riderLocation) {
-      points.push([riderLocation.lat, riderLocation.lng]);
-    }
+    if (estCoords) points.push([estCoords.lat, estCoords.lng]);
+    if (riderLocation) points.push([riderLocation.lat, riderLocation.lng]);
 
     if (points.length === 2) {
       const bounds = L.latLngBounds(points);
@@ -439,7 +285,6 @@ export default function CustomerTracking() {
 
   return (
     <div className="min-h-screen bg-slate-100 flex flex-col font-sans">
-      {/* Header */}
       <header className="bg-white border-b border-slate-200 px-4 py-3 sticky top-0 z-20 shadow-sm">
         <div className="max-w-lg mx-auto flex items-center justify-between">
           <div className="flex items-center space-x-2">
@@ -457,11 +302,9 @@ export default function CustomerTracking() {
         </div>
       </header>
 
-      {/* Map Area */}
       <div className="flex-1 relative min-h-[350px]">
         <div ref={mapContainerRef} className="absolute inset-0 z-10" />
         
-        {/* Botão Flutuante para Centralizar Mapa */}
         <button
           onClick={handleRecenterMap}
           className="absolute top-4 right-4 z-20 bg-white hover:bg-slate-50 text-slate-700 p-2.5 rounded-full shadow-lg border border-slate-200 transition-all flex items-center justify-center"
@@ -470,7 +313,6 @@ export default function CustomerTracking() {
           <Navigation className="h-5 w-5 text-indigo-600" />
         </button>
         
-        {/* Floating Status Card */}
         <div className="absolute bottom-4 left-4 right-4 z-20 max-w-md mx-auto bg-white rounded-2xl shadow-xl border border-slate-100 p-4 space-y-4">
           <div className="flex items-center justify-between">
             <div>
@@ -494,23 +336,6 @@ export default function CustomerTracking() {
             </div>
           </div>
 
-          {/* Rejection Justification */}
-          {delivery.status === 'rejected' && (
-            <div className="bg-red-50 border border-red-100 rounded-xl p-3 text-xs text-red-800 font-medium flex items-start gap-2">
-              <AlertCircle className="h-4 w-4 text-red-600 flex-shrink-0 mt-0.5" />
-              <div>
-                <strong>Motivo da Rejeição:</strong> {
-                  delivery.notes?.includes('Rejeitado:') 
-                    ? delivery.notes.split('Rejeitado:').pop()?.trim() 
-                    : delivery.notes?.includes('Motivo da rejeição:')
-                    ? delivery.notes.split('Motivo da rejeição:').pop()?.trim()
-                    : delivery.notes || 'Não especificado'
-                }
-              </div>
-            </div>
-          )}
-
-          {/* Rider Info */}
           {rider && (
             <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
               <div className="flex items-center space-x-3">
@@ -536,7 +361,6 @@ export default function CustomerTracking() {
             </div>
           )}
 
-          {/* Establishment Info */}
           {establishment && (
             <div className="space-y-1 text-xs text-slate-600">
               <p className="font-semibold text-slate-700">Origem: {establishment.name}</p>
@@ -546,7 +370,6 @@ export default function CustomerTracking() {
         </div>
       </div>
 
-      {/* Modal de Chat do Cliente */}
       <CustomerChatModal
         isOpen={isChatOpen}
         onClose={() => setIsChatOpen(false)}
