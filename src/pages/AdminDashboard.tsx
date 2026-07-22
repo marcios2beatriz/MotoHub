@@ -52,6 +52,14 @@ import { sendDeviceNotification, playNotificationSound, requestNotificationPermi
 const DAY_KEYS = ['seg', 'ter', 'qua', 'qui', 'sex', 'sab', 'dom'] as const;
 const DAY_LABELS = ['Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado', 'Domingo'];
 
+const getThisMonday = (): string => {
+  const d = new Date();
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+  const monday = new Date(d.setDate(diff));
+  return monday.toISOString().split('T')[0];
+};
+
 export default function AdminDashboard() {
   const navigate = useNavigate();
   const [adminUser, setAdminUser] = useState(db.getCurrentUser());
