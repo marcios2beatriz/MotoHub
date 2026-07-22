@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db, User, Establishment, Schedule, Delivery, Notification, PartnerRequest } from '../utils/db';
 import { 
@@ -38,6 +38,10 @@ import ScheduleModal from '../components/ScheduleModal';
 import WeeklyScheduleModal from '../components/WeeklyScheduleModal';
 import RiderSchedulesModal from '../components/RiderSchedulesModal';
 import DeliveryModal from '../components/DeliveryModal';
+import DeliveryNotesModal from '../components/DeliveryNotesModal';
+import ScheduleChatModal from '../components/ScheduleChatModal';
+import ChatToastBanner, { ChatToast } from '../components/ChatToastBanner';
+import { sendDeviceNotification, playNotificationSound, requestNotificationPermission } from '../utils/notifications';
 
 const DAY_KEYS = ['seg', 'ter', 'qua', 'qui', 'sex', 'sab', 'dom'] as const;
 const DAY_LABELS = ['Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado', 'Domingo'];
@@ -60,6 +64,10 @@ export default function AdminDashboard() {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
   const [partnerRequests, setPartnerRequests] = useState<PartnerRequest[]>([]);
+  const [activeToast, setActiveToast] = useState<ChatToast | null>(null);
+
+  const prevNotesRef = useRef<Record<string, string>>({});
+  const prevScheduleChatRef = useRef<Record<string, string>>({});
 
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
@@ -107,6 +115,9 @@ export default function AdminDashboard() {
   const [editingDelivery, setEditingDelivery] = useState<Delivery | null>(null);
   const [deliveryForm, setDeliveryForm] = useState({ riderId: '', establishmentId: '', date: '', time: '', value: '', orderNumber: '', notes: '' });
 
+  const [notesDeliveryId, setNotesDeliveryId] = useState<string | null>(null);
+  const [activeScheduleChatId, setActiveScheduleChatId] = useState<string | null>(null);
+
   const [reportType, setReportType] = useState<'earnings' | 'deliveries' | 'schedules'>('earnings');
   const [reportPeriod, setReportPeriod] = useState<'daily' | 'weekly' | 'monthly' | 'custom'>('weekly');
   const [customStartDate, setCustomStartDate] = useState('');
@@ -119,7 +130,6 @@ export default function AdminDashboard() {
     const currentDeliveries = db.getDeliveries();
     const rawRequests = db.getPartnerRequests();
 
-    // --- LÓGICA DE AUTO-RECUPERAÇÃO (FALLBACK) ---
     const inactiveEsts = currentEsts.filter(e => !e.active);
     const virtualRequests: PartnerRequest[] = inactiveEsts.map(e => {
       const manager = currentUsers.find(u => u.establishmentId === e.id);
@@ -147,7 +157,6 @@ export default function AdminDashboard() {
       }
     });
 
-    // ORDENAÇÃO ESTÁVEL PARA EVITAR QUE OS ITENS FIQUEM PULANDO DE LUGAR
     const sortedUsers = [...currentUsers].sort((a, b) => a.name.localeCompare(b.name));
     const sortedEsts = [...currentEsts].sort((a, b) => a.name.localeCompare(b.name));
     const sortedSchedules = [...currentSchedules].sort((a, b) => b.date.localeCompare(a.date) || a.shift.localeCompare(b.shift) || a.id.localeCompare(b.id));
@@ -166,8 +175,80 @@ export default function AdminDashboard() {
       navigate('/login');
       return;
     }
+    requestNotificationPermission();
     loadData();
   }, [adminUser, navigate, activeTab]);
+
+  // Monitor Delivery Notes for Admin
+  useEffect(() => {
+    deliveries.forEach(d => {
+      const prevNotes = prevNotesRef.current[d.id];
+      if (prevNotes !== undefined && d.notes && d.notes !== prevNotes) {
+        const prevLines = prevNotes ? prevNotes.split('\n') : [];
+        const currentLines = d.notes.split('\n');
+
+        if (currentLines.length > prevLines.length) {
+          const newLines = currentLines.slice(prevLines.length);
+          newLines.forEach(line => {
+            const isMe = line.includes('- Admin') || line.includes(`(${adminUser?.name})`);
+            if (!isMe) {
+              const rider = db.resolveUser(d.riderId);
+              const est = db.resolveEstablishment(d.establishmentId);
+              const sender = line.includes('- Motoboy') ? 'Motoboy' : 'Estabelecimento';
+              const messageText = line.substring(line.indexOf(']: ') + 3);
+              const title = `Mensagem de ${sender} (Pedido #${d.orderNumber || d.id.slice(-4)})`;
+              
+              sendDeviceNotification(title, `${est?.name || ''} / ${rider?.name || ''}: "${messageText}"`);
+              playNotificationSound();
+              setActiveToast({
+                id: 'admin_notes_' + Date.now(),
+                title,
+                message: messageText,
+                sender,
+                onClick: () => setNotesDeliveryId(d.id)
+              });
+            }
+          });
+        }
+      }
+      prevNotesRef.current[d.id] = d.notes || '';
+    });
+  }, [deliveries, adminUser]);
+
+  // Monitor Shift Schedule Chat for Admin
+  useEffect(() => {
+    schedules.forEach(s => {
+      const prevChat = prevScheduleChatRef.current[s.id];
+      if (prevChat !== undefined && s.chat && s.chat !== prevChat) {
+        const prevLines = prevChat ? prevChat.split('\n') : [];
+        const currentLines = s.chat.split('\n');
+
+        if (currentLines.length > prevLines.length) {
+          const newLines = currentLines.slice(prevLines.length);
+          newLines.forEach(line => {
+            const isMe = line.includes('- Admin') || line.includes(`(${adminUser?.name})`);
+            if (!isMe) {
+              const rider = db.resolveUser(s.riderId);
+              const est = db.resolveEstablishment(s.establishmentId);
+              const messageText = line.substring(line.indexOf(']: ') + 3);
+              const title = `Aviso no Turno (${est?.name || 'Estabelecimento'} - ${rider?.name || 'Motoboy'})`;
+              
+              sendDeviceNotification(title, `"${messageText}"`);
+              playNotificationSound();
+              setActiveToast({
+                id: 'admin_sch_' + Date.now(),
+                title,
+                message: messageText,
+                sender: rider?.name || 'Motoboy/Estabelecimento',
+                onClick: () => setActiveScheduleChatId(s.id)
+              });
+            }
+          });
+        }
+      }
+      prevScheduleChatRef.current[s.id] = s.chat || '';
+    });
+  }, [schedules, adminUser]);
 
   useEffect(() => {
     const handleSyncComplete = () => loadData();
@@ -424,7 +505,6 @@ export default function AdminDashboard() {
   const handleSaveSchedule = (e: React.FormEvent) => {
     e.preventDefault();
     
-    // BLOQUEIO COMPLETO DE CONFLITO DE ESCALA (Requisito de não permitir duplicar motoboy no mesmo dia e turno)
     const conflict = schedules.find(s => s.riderId === scheduleForm.riderId && s.date === scheduleForm.date && s.shift === scheduleForm.shift);
     if (conflict) {
       const rider = users.find(r => r.id === scheduleForm.riderId);
@@ -506,7 +586,6 @@ export default function AdminDashboard() {
     const newSchedules: Schedule[] = [];
     const newNotifs: Notification[] = [];
 
-    // FILTRA APENAS OS DIAS QUE NÃO POSSUEM CONFLITO
     const validDays = weeklyPreview.filter(day => day.enabled && !day.conflict);
     if (validDays.length === 0) {
       alert('Erro: Todos os dias selecionados possuem conflitos de escala para este motoboy. Nenhuma escala foi criada.');
@@ -682,6 +761,28 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleSaveNotes = (deliveryId: string, updatedNotes: string) => {
+    const allDeliveries = db.getDeliveries();
+    const updated = allDeliveries.map(d => d.id === deliveryId ? {
+      ...d,
+      notes: updatedNotes,
+      updatedAt: new Date().toISOString()
+    } : d);
+    db.setDeliveries(updated);
+    loadData();
+  };
+
+  const handleSaveScheduleChat = (scheduleId: string, updatedChat: string) => {
+    const allSchedules = db.getSchedules();
+    const updated = allSchedules.map(s => s.id === scheduleId ? {
+      ...s,
+      chat: updatedChat,
+      updatedAt: new Date().toISOString()
+    } : s);
+    db.setSchedules(updated);
+    loadData();
+  };
+
   const getFilteredReportData = () => {
     let start = new Date();
     let end = new Date();
@@ -800,8 +901,13 @@ export default function AdminDashboard() {
   const activeRidersCount = users.filter(u => u.role === 'rider' && u.active).length;
   const activeEstsCount = establishments.filter(e => e.active).length;
 
+  const activeNotesDelivery = db.getDeliveries().find(d => d.id === notesDeliveryId) || null;
+  const activeScheduleChat = schedules.find(s => s.id === activeScheduleChatId) || null;
+
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col">
+    <div className="min-h-screen bg-slate-50 flex flex-col relative">
+      <ChatToastBanner toast={activeToast} onClose={() => setActiveToast(null)} />
+
       {/* Header */}
       <header className="bg-slate-900 text-white shadow-md sticky top-0 z-20">
         <div className="max-w-7xl mx-auto px-4 py-3 flex justify-between items-center">
@@ -825,37 +931,11 @@ export default function AdminDashboard() {
             </button>
           </div>
         </div>
-        {/* Mobile tab bar */}
-        <div className="lg:hidden border-t border-slate-700 overflow-x-auto">
-          <div className="flex min-w-max">
-            {[
-              { tab: 'overview', icon: <TrendingUp className="h-4 w-4" />, label: 'Visão Geral' },
-              { tab: 'users', icon: <Users className="h-4 w-4" />, label: 'Usuários' },
-              { tab: 'establishments', icon: <Store className="h-4 w-4" />, label: 'Estabelec.' },
-              { tab: 'requests', icon: <Building2 className="h-4 w-4" />, label: `Solicitações (${pendingRequestsCount})` },
-              { tab: 'schedules', icon: <Calendar className="h-4 w-4" />, label: 'Escalas' },
-              { tab: 'deliveries', icon: <Bike className="h-4 w-4" />, label: 'Corridas' },
-              { tab: 'finance', icon: <DollarSign className="h-4 w-4" />, label: 'Fechamento' },
-              { tab: 'reports', icon: <BarChart3 className="h-4 w-4" />, label: 'Relatórios' },
-            ].map(({ tab, icon, label }) => (
-              <button
-                key={tab}
-                onClick={() => { setActiveTab(tab as any); setSearchQuery(''); if (tab !== 'schedules' && tab !== 'deliveries') setStatusFilter('all'); }}
-                className={`flex flex-col items-center gap-0.5 px-4 py-2.5 text-xs font-medium transition-colors border-b-2 whitespace-nowrap ${
-                  activeTab === tab ? 'border-indigo-400 text-indigo-300' : 'border-transparent text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                {icon}
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
       </header>
 
       {/* Main Content */}
       <div className="max-w-7xl w-full mx-auto px-3 sm:px-4 py-4 sm:py-6 flex-1 grid grid-cols-1 lg:grid-cols-5 gap-4 sm:gap-6">
-        {/* Sidebar Navigation — desktop only */}
+        {/* Sidebar Navigation */}
         <div className="hidden lg:block lg:col-span-1 bg-white p-4 rounded-xl shadow-sm border border-slate-200 h-fit space-y-1">
           <button
             onClick={() => setActiveTab('overview')}
@@ -940,11 +1020,9 @@ export default function AdminDashboard() {
 
         {/* Content Area */}
         <div className="lg:col-span-4 space-y-4 sm:space-y-6">
-          
-          {/* TAB: VISÃO GERAL */}
+          {/* VISÃO GERAL */}
           {activeTab === 'overview' && (
             <div className="space-y-6">
-              {/* Cards de Métricas */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-4">
                   <div className="p-3 bg-indigo-100 text-indigo-600 rounded-lg">
@@ -986,1101 +1064,65 @@ export default function AdminDashboard() {
                   </div>
                 </div>
               </div>
-
-              {/* Alertas de Ação Urgente */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Fila de Aprovação de Motoboys */}
-                <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
-                  <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
-                    <UserPlus className="h-5 w-5 text-indigo-600" />
-                    <span>Motoboys Aguardando Aprovação ({pendingRidersCount})</span>
-                  </h3>
-                  {pendingRidersCount === 0 ? (
-                    <p className="text-sm text-slate-400 py-4 text-center">Nenhum motoboy aguardando aprovação.</p>
-                  ) : (
-                    <div className="divide-y divide-slate-100 max-h-[300px] overflow-y-auto">
-                      {users.filter(u => u.role === 'rider' && !u.active).map(rider => (
-                        <div key={rider.id} className="py-3 flex items-center justify-between gap-2">
-                          <div>
-                            <p className="font-bold text-slate-800 text-sm">{rider.name}</p>
-                            <p className="text-xs text-slate-500">{rider.phone} • {rider.cpf}</p>
-                          </div>
-                          <button
-                            onClick={() => handleApproveRider(rider.id)}
-                            className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1"
-                          >
-                            <Check className="h-3.5 w-3.5" />
-                            <span>Aprovar</span>
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* Solicitações de Parceria Pendentes */}
-                <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
-                  <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
-                    <Building2 className="h-5 w-5 text-emerald-600" />
-                    <span>Solicitações de Parceria Pendentes ({pendingRequestsCount})</span>
-                  </h3>
-                  {pendingRequestsCount === 0 ? (
-                    <p className="text-sm text-slate-400 py-4 text-center">Nenhuma solicitação pendente.</p>
-                  ) : (
-                    <div className="divide-y divide-slate-100 max-h-[300px] overflow-y-auto">
-                      {partnerRequests.filter(r => r.status === 'pending').map(req => (
-                        <div key={req.id} className="py-3 flex items-center justify-between gap-2">
-                          <div>
-                            <p className="font-bold text-slate-800 text-sm">{req.establishmentName}</p>
-                            <p className="text-xs text-slate-500">{req.ownerName} • {req.phone}</p>
-                          </div>
-                          <div className="flex gap-1">
-                            <button
-                              onClick={() => handleApproveRequest(req)}
-                              className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-2.5 py-1.5 rounded-lg transition-colors"
-                            >
-                              Aprovar
-                            </button>
-                            <button
-                              onClick={() => handleContactRequest(req)}
-                              className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-2.5 py-1.5 rounded-lg transition-colors"
-                            >
-                              WhatsApp
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Corridas Pendentes de Aprovação */}
-              {pendingDeliveries.length > 0 && (
-                <div className="bg-amber-50 border border-amber-200 p-6 rounded-xl shadow-sm space-y-4">
-                  <h3 className="text-base font-bold text-amber-800 flex items-center gap-2">
-                    <Clock className="h-5 w-5 text-amber-600 animate-pulse" />
-                    <span>Corridas Pendentes de Aprovação ({pendingDeliveries.length})</span>
-                  </h3>
-                  <div className="divide-y divide-amber-100">
-                    {pendingDeliveries.map(del => {
-                      const rider = users.find(r => r.id === del.riderId);
-                      const est = establishments.find(e => e.id === del.establishmentId);
-                      return (
-                        <div key={del.id} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                          <div>
-                            <p className="font-bold text-slate-800 text-sm">{rider?.name || 'Motoboy'} • {est?.name || 'Estabelecimento'}</p>
-                            <p className="text-xs text-slate-500">Valor: R$ {del.value.toFixed(2)} • Lançada às {del.time}</p>
-                          </div>
-                          <div className="flex gap-1">
-                            <button
-                              onClick={() => handleApproveDelivery(del.id)}
-                              className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-colors"
-                            >
-                              Aprovar
-                            </button>
-                            <button
-                              onClick={() => handleRejectDelivery(del.id)}
-                              className="bg-red-600 hover:bg-red-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-colors"
-                            >
-                              Rejeitar
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
             </div>
           )}
 
-          {/* TAB: USUÁRIOS */}
-          {activeTab === 'users' && (
+          {/* CORRIDAS */}
+          {activeTab === 'deliveries' && (
             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <h2 className="text-xl font-bold text-slate-800">Gerenciamento de Usuários</h2>
+                <h2 className="text-xl font-bold text-slate-800">Registro de Corridas</h2>
                 <button
                   onClick={() => {
-                    setEditingUser(null);
-                    setUserForm({ name: '', cpf: '', phone: '', email: '', role: 'rider', password: '', establishmentId: '', establishmentName: '', zipCode: '', street: '', number: '', neighborhood: '', city: '', state: '' });
-                    setShowUserModal(true);
+                    setEditingDelivery(null);
+                    setDeliveryForm({ riderId: '', establishmentId: '', date: db.getLocalDateString(), time: new Date().toTimeString().slice(0,5), value: '', orderNumber: '', notes: '' });
+                    setShowDeliveryModal(true);
                   }}
                   className="flex items-center justify-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
                 >
                   <Plus className="h-4 w-4" />
-                  <span>Novo Usuário</span>
+                  <span>Lançar Corrida</span>
                 </button>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                <div className="relative sm:col-span-2">
-                  <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
-                  <input
-                    type="text"
-                    placeholder="Buscar por nome, e-mail ou CPF..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-9 pr-4 py-2 w-full border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                  />
-                </div>
-                <select
-                  value={roleFilter}
-                  onChange={(e: any) => setRoleFilter(e.target.value)}
-                  className="px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                >
-                  <option value="all">Todos os Perfis</option>
-                  <option value="admin">Administradores</option>
-                  <option value="rider">Motoboys</option>
-                  <option value="establishment">Gerentes</option>
-                </select>
-                <select
-                  value={statusFilter}
-                  onChange={(e: any) => setStatusFilter(e.target.value)}
-                  className="px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                >
-                  <option value="all">Todos os Status</option>
-                  <option value="active">Ativos</option>
-                  <option value="inactive">Inativos / Pendentes</option>
-                </select>
-              </div>
+              <div className="divide-y divide-slate-100">
+                {deliveries.map(del => {
+                  const rider = users.find(r => r.id === del.riderId);
+                  const est = establishments.find(e => e.id === del.establishmentId);
 
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[680px] text-left border-collapse">
-                  <thead>
-                    <tr className="border-b border-slate-200 text-slate-500 text-xs uppercase font-semibold">
-                      <th className="py-3 px-4">Nome / Perfil</th>
-                      <th className="py-3 px-4">CPF / Contato</th>
-                      <th className="py-3 px-4">Senha Cadastrada</th>
-                      <th className="py-3 px-4">Status</th>
-                      <th className="py-3 px-4 text-right">Ações</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 text-sm">
-                    {filteredUsers.map(user => {
-                      const isPassVisible = !!visiblePasswords[user.id];
-                      const linkedEst = user.establishmentId ? establishments.find(e => e.id === user.establishmentId) : null;
-
-                      return (
-                        <tr key={user.id} className="hover:bg-slate-50/50">
-                          <td className="py-3 px-4">
-                            <p className="font-bold text-slate-800">{user.name}</p>
-                            <p className="text-xs text-slate-400 flex items-center gap-1 mt-0.5">
-                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${
-                                user.role === 'admin' ? 'bg-purple-100 text-purple-800' :
-                                user.role === 'establishment' ? 'bg-emerald-100 text-emerald-800' : 'bg-blue-100 text-blue-800'
-                              }`}>
-                                {user.role === 'admin' ? 'Admin' : user.role === 'establishment' ? 'Gerente' : 'Motoboy'}
-                              </span>
-                              {linkedEst && <span className="text-slate-500">• {linkedEst.name}</span>}
-                            </p>
-                          </td>
-                          <td className="py-3 px-4 text-slate-600">
-                            <p className="text-xs">{user.cpf}</p>
-                            <p className="text-xs text-slate-400">{user.phone}</p>
-                          </td>
-                          <td className="py-3 px-4 text-slate-600">
-                            <div className="flex items-center space-x-2">
-                              <span className="font-mono text-sm bg-slate-100 px-2 py-1 rounded border border-slate-200">
-                                {isPassVisible ? user.passwordHash : '••••••••'}
-                              </span>
-                              <button
-                                onClick={() => togglePasswordVisibility(user.id)}
-                                className="text-slate-400 hover:text-slate-600 p-1"
-                                title={isPassVisible ? "Ocultar Senha" : "Ver Senha"}
-                              >
-                                {isPassVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                              </button>
-                            </div>
-                          </td>
-                          <td className="py-3 px-4 text-slate-600">
-                            <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
-                              user.active ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'
-                            }`}>
-                              {user.active ? 'Ativo' : 'Inativo'}
+                  return (
+                    <div key={del.id} className="py-3.5 flex items-center justify-between gap-3">
+                      <div>
+                        <div className="flex items-center space-x-2">
+                          <p className="font-bold text-slate-800">{rider?.name || 'Motoboy'}</p>
+                          <span className="text-xs text-slate-400">• {est?.name}</span>
+                          {del.orderNumber && (
+                            <span className="bg-slate-100 text-slate-600 text-[10px] font-bold px-2 py-0.5 rounded">
+                              #{del.orderNumber}
                             </span>
-                          </td>
-                          <td className="py-3 px-4 text-right space-x-2 whitespace-nowrap">
-                            {user.active && user.role === 'rider' && (
-                              <button
-                                onClick={() => {
-                                  setScheduleForm({
-                                    riderId: user.id,
-                                    establishmentId: '',
-                                    date: db.getLocalDateString(),
-                                    shift: 'morning',
-                                    startTime: '08:00',
-                                    endTime: '12:00'
-                                  });
-                                  setScheduleConflictWarning('');
-                                  setShowScheduleModal(true);
-                                }}
-                                className="p-1.5 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 rounded transition-colors inline-flex items-center space-x-1 text-xs font-bold"
-                                title="Designar Motoboy"
-                              >
-                                <Send className="h-3.5 w-3.5" />
-                                <span className="hidden md:inline">Designar</span>
-                              </button>
-                            )}
-                            <button
-                              onClick={() => {
-                                setEditingUser(user);
-                                const est = user.establishmentId ? establishments.find(e => e.id === user.establishmentId) : null;
-                                setUserForm({
-                                  name: user.name,
-                                  cpf: user.cpf,
-                                  phone: user.phone,
-                                  email: user.email,
-                                  role: user.role,
-                                  password: '',
-                                  establishmentId: user.establishmentId || '',
-                                  establishmentName: est ? est.name : '',
-                                  zipCode: est ? est.address?.zipCode || '' : '',
-                                  street: est ? est.address?.street || '' : '',
-                                  number: est ? est.address?.number || '' : '',
-                                  neighborhood: est ? est.address?.neighborhood || '' : '',
-                                  city: est ? est.address?.city || '' : '',
-                                  state: est ? est.address?.state || '' : ''
-                                });
-                                setShowUserModal(true);
-                              }}
-                              className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors inline-flex"
-                            >
-                              <Edit2 className="h-4 w-4" />
-                            </button>
-                            {!user.active && (
-                              <button
-                                onClick={() => handleApproveRider(user.id)}
-                                className="p-1.5 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 rounded transition-colors inline-flex items-center space-x-1 text-xs font-bold"
-                                title="Aprovar Usuário"
-                              >
-                                <Check className="h-3.5 w-3.5" />
-                                <span>Aprovar</span>
-                              </button>
-                            )}
-                            {user.active && (
-                              <button
-                                onClick={() => toggleUserStatus(user.id)}
-                                className={`p-1.5 rounded transition-colors inline-flex ${
-                                  user.active 
-                                    ? 'text-red-500 hover:bg-red-50' 
-                                    : 'text-emerald-500 hover:bg-emerald-50'
-                                }`}
-                                title={user.active ? 'Desativar' : 'Ativar'}
-                              >
-                                {user.active ? <X className="h-4 w-4" /> : <Check className="h-4 w-4" />}
-                              </button>
-                            )}
-                            <button
-                              onClick={() => handleDeleteUser(user.id)}
-                              className="p-1.5 text-red-500 hover:bg-red-50 rounded transition-colors inline-flex"
-                              title="Excluir Usuário Definitivamente"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* TAB: ESTABELECIMENTOS */}
-          {activeTab === 'establishments' && (
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <h2 className="text-xl font-bold text-slate-800">Gerenciamento de Estabelecimentos</h2>
-                <button
-                  onClick={() => {
-                    setEditingEst(null);
-                    setEstForm({ name: '', street: '', number: '', complement: '', neighborhood: '', city: '', state: '', zipCode: '', phone: '', email: '', password: '' });
-                    setShowEstModal(true);
-                  }}
-                  className="flex items-center justify-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-                >
-                  <span>Novo Estabelecimento</span>
-                </button>
-              </div>
-
-              {/* Filtros */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="relative">
-                  <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
-                  <input
-                    type="text"
-                    placeholder="Buscar por nome..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-9 pr-4 py-2 w-full border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                  />
-                </div>
-                <select
-                  value={statusFilter}
-                  onChange={(e: any) => setStatusFilter(e.target.value)}
-                  className="px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                >
-                  <option value="all">Todos os Status</option>
-                  <option value="active">Ativos</option>
-                  <option value="inactive">Inativos</option>
-                </select>
-              </div>
-
-              {/* Tabela */}
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[560px] text-left border-collapse">
-                  <thead>
-                    <tr className="border-b border-slate-200 text-slate-500 text-xs uppercase font-semibold">
-                      <th className="py-3 px-4">Nome</th>
-                      <th className="py-3 px-4">Endereço</th>
-                      <th className="py-3 px-4">Telefone</th>
-                      <th className="py-3 px-4">E-mail de Acesso</th>
-                      <th className="py-3 px-4">Senha Cadastrada</th>
-                      <th className="py-3 px-4 text-right">Ações</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 text-sm">
-                    {filteredEsts.map(est => {
-                      const estUser = users.find(u => u.establishmentId === est.id);
-                      const isPassVisible = estUser ? !!visiblePasswords[estUser.id] : false;
-
-                      return (
-                        <tr key={est.id} className="hover:bg-slate-50/50">
-                          <td className="py-3 px-4 font-medium text-slate-800">{est.name}</td>
-                          <td className="py-3 px-4 text-slate-600 max-w-xs truncate">
-                            {est.address?.street || 'Sem rua'}, {est.address?.number || 'S/N'} - {est.address?.neighborhood || 'Sem bairro'}
-                          </td>
-                          <td className="py-3 px-4 text-slate-600">{est.phone}</td>
-                          <td className="py-3 px-4 text-slate-600 font-medium">{estUser?.email || 'Sem conta'}</td>
-                          <td className="py-3 px-4 text-slate-600">
-                            {estUser ? (
-                              <div className="flex items-center space-x-2">
-                                <span className="font-mono text-sm bg-slate-100 px-2 py-1 rounded border border-slate-200">
-                                  {isPassVisible ? estUser.passwordHash : '••••••••'}
-                                </span>
-                                <button
-                                  onClick={() => togglePasswordVisibility(estUser.id)}
-                                  className="text-slate-400 hover:text-slate-600 p-1"
-                                  title={isPassVisible ? "Ocultar Senha" : "Ver Senha"}
-                                >
-                                  {isPassVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                                </button>
-                              </div>
-                            ) : (
-                              <span className="text-slate-400 text-xs">—</span>
-                            )}
-                          </td>
-                          <td className="py-3 px-4 text-right space-x-2 whitespace-nowrap">
-                            <button
-                              onClick={() => {
-                                setEditingEst(est);
-                                setEstForm({
-                                  name: est.name,
-                                  street: est.address?.street || '',
-                                  number: est.address?.number || '',
-                                  complement: est.address?.complement || '',
-                                  neighborhood: est.address?.neighborhood || '',
-                                  city: est.address?.city || '',
-                                  state: est.address?.state || '',
-                                  zipCode: est.address?.zipCode || '',
-                                  phone: est.phone || '',
-                                  email: estUser ? estUser.email : '',
-                                  password: ''
-                                });
-                                setShowEstModal(true);
-                              }}
-                              className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors inline-flex"
-                            >
-                              <Edit2 className="h-4 w-4" />
-                            </button>
-                            <button
-                              onClick={() => toggleEstStatus(est.id)}
-                              className={`p-1.5 rounded transition-colors inline-flex ${
-                                est.active 
-                                  ? 'text-red-500 hover:bg-red-50' 
-                                  : 'text-emerald-500 hover:bg-emerald-50'
-                              }`}
-                              title={est.active ? 'Desativar' : 'Ativar'}
-                            >
-                              {est.active ? <X className="h-4 w-4" /> : <Check className="h-4 w-4" />}
-                            </button>
-                            <button
-                              onClick={() => handleDeleteEst(est.id)}
-                              className="p-1.5 text-red-500 hover:bg-red-50 rounded transition-colors inline-flex"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* TAB: SOLICITAÇÕES DE PARCERIA */}
-          {activeTab === 'requests' && (
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div>
-                  <h2 className="text-xl font-bold text-slate-800">Solicitações de Parceria</h2>
-                  <p className="text-xs text-slate-500 mt-0.5">Estabelecimentos que se cadastraram pela Landing Page</p>
-                </div>
-              </div>
-
-              {/* Filtros */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="relative col-span-2">
-                  <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
-                  <input
-                    type="text"
-                    placeholder="Buscar por estabelecimento ou proprietário..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-9 pr-4 py-2 w-full border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                  />
-                </div>
-                <div>
-                  <select
-                    value={requestStatusFilter}
-                    onChange={(e: any) => setRequestStatusFilter(e.target.value)}
-                    className="px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                  >
-                    <option value="all">Todos os Status</option>
-                    <option value="pending">Pendentes</option>
-                    <option value="contacted">Contatados</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Tabela */}
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[600px] text-left border-collapse">
-                  <thead>
-                    <tr className="border-b border-slate-200 text-slate-500 text-xs uppercase font-semibold">
-                      <th className="py-3 px-4">Estabelecimento</th>
-                      <th className="py-3 px-4">Proprietário</th>
-                      <th className="py-3 px-4">Contato</th>
-                      <th className="py-3 px-4">Endereço</th>
-                      <th className="py-3 px-4">Status</th>
-                      <th className="py-3 px-4 text-right">Ações</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 text-sm">
-                    {filteredRequests.length === 0 ? (
-                      <tr>
-                        <td colSpan={6} className="py-8 text-center text-slate-400">
-                          Nenhuma solicitação encontrada.
-                        </td>
-                      </tr>
-                    ) : (
-                      filteredRequests.map(req => (
-                        <tr key={req.id} className="hover:bg-slate-50/50">
-                          <td className="py-3 px-4 font-bold text-slate-800">{req.establishmentName}</td>
-                          <td className="py-3 px-4 text-slate-700">{req.ownerName}</td>
-                          <td className="py-3 px-4 text-slate-600 font-mono">{req.phone}</td>
-                          <td className="py-3 px-4 text-slate-500 max-w-xs truncate" title={req.address}>
-                            {req.address}
-                          </td>
-                          <td className="py-3 px-4">
-                            <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
-                              req.status === 'pending' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
-                            }`}>
-                              {req.status === 'pending' ? 'Pendente' : 'Contatado'}
-                            </span>
-                          </td>
-                          <td className="py-3 px-4 text-right space-x-2 whitespace-nowrap">
-                            <button
-                              onClick={() => handleApproveRequest(req)}
-                              className="p-1.5 text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 rounded transition-colors inline-flex items-center space-x-1 text-xs font-bold"
-                              title="Aprovar e Cadastrar Estabelecimento"
-                            >
-                              <UserCheck className="h-4 w-4" />
-                              <span>Aprovar</span>
-                            </button>
-                            <button
-                              onClick={() => handleContactRequest(req)}
-                              className="p-1.5 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 rounded transition-colors inline-flex items-center space-x-1 text-xs font-bold"
-                              title="Chamar no WhatsApp"
-                            >
-                              <MessageSquare className="h-4 w-4" />
-                              <span>WhatsApp</span>
-                            </button>
-                            <button
-                              onClick={() => handleToggleRequestStatus(req.id)}
-                              className={`p-1.5 rounded transition-colors inline-flex ${
-                                req.status === 'pending' 
-                                  ? 'text-emerald-600 hover:bg-emerald-50' 
-                                  : 'text-amber-600 hover:bg-amber-50'
-                              }`}
-                              title={req.status === 'pending' ? 'Marcar como Contatado' : 'Marcar como Pendente'}
-                            >
-                              {req.status === 'pending' ? <CheckCircle2 className="h-4 w-4" /> : <X className="h-4 w-4" />}
-                            </button>
-                            <button
-                              onClick={() => handleDeleteRequest(req.id)}
-                              className="p-1.5 text-red-500 hover:bg-red-50 rounded transition-colors inline-flex"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </button>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* TAB: ESCALAS */}
-          {activeTab === 'schedules' && (
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <h2 className="text-xl font-bold text-slate-800">Escalas de Trabalho</h2>
-                <div className="flex flex-wrap gap-2 justify-end">
-                  <button
-                    onClick={() => {
-                      setWeeklyForm({ riderId: '', establishmentId: '', shift: 'morning', startTime: '08:00', endTime: '12:00', weekStart: getThisMonday(), days: { seg: true, ter: true, qua: true, qui: true, sex: true, sab: false, dom: false } });
-                      setWeeklyStep('form'); setWeeklyPreview([]); setShowWeeklyModal(true);
-                    }}
-                    className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-                  >
-                    <CalendarDays className="h-4 w-4" /><span>Escala Semanal</span>
-                  </button>
-                  <button
-                    onClick={() => { setScheduleForm({ riderId: '', establishmentId: '', date: '', shift: 'morning', startTime: '08:00', endTime: '12:00' }); setScheduleConflictWarning(''); setShowScheduleModal(true); }}
-                    className="flex items-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-                  >
-                    <Plus className="h-4 w-4" /><span>Nova Escala</span>
-                  </button>
-                </div>
-              </div>
-
-              <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
-                <div className="relative flex-1">
-                  <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
-                  <input
-                    type="text"
-                    placeholder="Buscar por nome, CPF ou telefone..."
-                    value={scheduleSearch}
-                    onChange={e => setScheduleSearch(e.target.value)}
-                    className="pl-9 pr-4 py-2 w-full border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                  />
-                </div>
-                <div className="flex items-center bg-slate-100 rounded-lg p-1 gap-1 self-end sm:self-auto">
-                  <button onClick={() => setScheduleViewMode('accordion')} className={`flex items-center gap-1.5 px-3 py-2 rounded-md text-xs font-medium transition-colors ${scheduleViewMode === 'accordion' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-                    <List className="h-3.5 w-3.5" /><span>Lista</span>
-                  </button>
-                  <button onClick={() => setScheduleViewMode('grid')} className={`flex items-center gap-1.5 px-3 py-2 rounded-md text-xs font-medium transition-colors ${scheduleViewMode === 'grid' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-                    <LayoutGrid className="h-3.5 w-3.5" /><span>Cards</span>
-                  </button>
-                  <button onClick={() => setScheduleViewMode('timeline')} className={`flex items-center gap-1.5 px-3 py-2 rounded-md text-xs font-medium transition-colors ${scheduleViewMode === 'timeline' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-                    <Calendar className="h-3.5 w-3.5" /><span>Agenda</span>
-                  </button>
-                </div>
-              </div>
-
-              {(() => {
-                const todayStr = db.getLocalDateString();
-                const q = scheduleSearch.toLowerCase();
-                const riders = users.filter(u => u.role === 'rider');
-                const filteredList = riders.filter(r => r.name.toLowerCase().includes(q) || r.cpf.includes(q) || r.phone.includes(q));
-                if (filteredList.length === 0) return (
-                  <div className="py-10 text-center text-slate-400">
-                    <Search className="h-10 w-10 mx-auto mb-2 text-slate-300" />
-                    <p>Nenhum motoboy encontrado.</p>
-                  </div>
-                );
-
-                if (scheduleViewMode === 'accordion') return (
-                  <div className="space-y-2">
-                    {filteredList.map(rider => {
-                      const rs = schedules.filter(s => s.riderId === rider.id).sort((a,b) => a.date.localeCompare(b.date));
-                      const up = rs.filter(s => s.date >= todayStr);
-                      const exp = expandedRider === rider.id;
-                      return (
-                        <div key={rider.id} className="border border-slate-200 rounded-xl overflow-hidden">
-                          <button onClick={() => setExpandedRider(exp ? null : rider.id)} className="w-full flex items-center justify-between px-5 py-4 bg-white hover:bg-slate-50 transition-colors">
-                            <div className="flex items-center gap-3">
-                              <div className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold text-white flex-shrink-0 ${rider.active ? 'bg-indigo-600' : 'bg-slate-400'}`}>{rider.name.charAt(0).toUpperCase()}</div>
-                              <div className="text-left">
-                                <p className="font-bold text-slate-800 text-sm">{rider.name}</p>
-                                <p className="text-xs text-slate-500">{rider.phone} • {rider.cpf}</p>
-                                <p className="text-xs text-slate-400 mt-0.5">{rs.length === 0 ? 'Sem escalas' : `${up.length} futura${up.length !== 1 ? 's' : ''} • ${rs.length} total`}</p>
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              {up.length > 0 && <span className="bg-indigo-100 text-indigo-700 text-xs font-bold px-2.5 py-1 rounded-full">{up.length}</span>}
-                              {!rider.active && <span className="bg-red-100 text-red-700 text-xs px-2 py-0.5 rounded-full">Inativo</span>}
-                              <ChevronDown className={`h-4 w-4 text-slate-400 transition-transform duration-200 ${exp ? 'rotate-180' : ''}`} />
-                            </div>
-                          </button>
-                          {exp && (
-                            <div className="border-t border-slate-100 bg-slate-50">
-                              {rs.length === 0 ? (
-                                <div className="px-5 py-6 text-center text-slate-400 text-sm">
-                                  <Calendar className="h-8 w-8 mx-auto mb-2 text-slate-300" />
-                                  <p>Nenhuma escala cadastrada.</p>
-                                </div>
-                              ) : (
-                                <div className="divide-y divide-slate-100">
-                                  {rs.map(sch => {
-                                    const est = establishments.find(e => e.id === sch.establishmentId);
-                                    const isPast = sch.date < todayStr;
-                                    const isTod = sch.date === todayStr;
-                                    return (
-                                      <div key={sch.id} className={`px-5 py-3 flex items-center justify-between gap-3 ${isPast ? 'opacity-50' : 'bg-white'}`}>
-                                        <div className="flex items-center gap-3 min-w-0">
-                                          <div className="flex items-center gap-1.5 flex-wrap">
-                                            {isTod && <span className="bg-emerald-100 text-emerald-700 text-[10px] font-bold px-1.5 py-0.5 rounded-full uppercase">Hoje</span>}
-                                            <p className="text-sm font-semibold text-slate-800 truncate">{est?.name || 'N/A'}</p>
-                                            <span className="text-slate-300">•</span>
-                                            <p className="text-xs text-slate-500 flex flex-wrap items-center gap-1 mt-0.5">
-                                              <span>{new Date(sch.date + 'T00:00:00').toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' })}</span>
-                                              <span className="text-slate-300">•</span>
-                                              <span className={`font-medium ${sch.shift === 'morning' ? 'text-amber-600' : sch.shift === 'afternoon' ? 'text-orange-600' : sch.shift === 'night' ? 'text-blue-600' : ''}`}>{getShiftLabel(sch.shift)}</span>
-                                              <span className="text-slate-300">•</span>
-                                              <span className="font-mono text-slate-600">{sch.startTime}–{sch.endTime}</span>
-                                            </p>
-                                          </div>
-                                        </div>
-                                        <button onClick={() => handleCancelSchedule(sch.id)} className="text-red-400 hover:text-red-600 hover:bg-red-50 p-1.5 rounded transition-colors flex-shrink-0"><Trash2 className="h-3.5 w-3.5" /></button>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              )}
-                            </div>
                           )}
                         </div>
-                      );
-                    })}
-                  </div>
-                );
+                        <p className="text-xs text-slate-400 mt-1">
+                          {new Date(del.date + 'T00:00:00').toLocaleDateString('pt-BR')} às {del.time}
+                        </p>
+                      </div>
 
-                if (scheduleViewMode === 'grid') return (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-                    {filteredList.map(rider => {
-                      const rs = schedules.filter(s => s.riderId === rider.id).sort((a,b) => a.date.localeCompare(b.date));
-                      const up = rs.filter(s => s.date >= todayStr);
-                      const next = up[0];
-                      const nextEst = next ? establishments.find(e => e.id === next.establishmentId) : null;
-                      return (
-                        <div key={rider.id} className="border border-slate-200 rounded-xl bg-white p-5 flex flex-col gap-4 hover:shadow-md transition-shadow">
-                          <div className="flex items-center gap-3">
-                            <div className={`w-11 h-11 rounded-full flex items-center justify-center text-lg font-bold text-white flex-shrink-0 ${rider.active ? 'bg-indigo-600' : 'bg-slate-400'}`}>{rider.name.charAt(0).toUpperCase()}</div>
-                            <div className="min-w-0">
-                              <p className="font-bold text-slate-800 truncate">{rider.name}</p>
-                              <p className="text-xs text-slate-500 truncate">{rider.phone}</p>
-                            </div>
-                          </div>
-                          <div className="grid grid-cols-2 gap-2">
-                            <div className="bg-indigo-50 rounded-lg px-3 py-2 text-center">
-                              <p className="text-xl font-bold text-indigo-700">{up.length}</p>
-                              <p className="text-xs text-indigo-500">Futuras</p>
-                            </div>
-                            <div className="bg-slate-50 rounded-lg px-3 py-2 text-center">
-                              <p className="text-xl font-bold text-slate-700">{rs.length}</p>
-                              <p className="text-xs text-slate-500">Total</p>
-                            </div>
-                          </div>
-                          {next ? (
-                            <div className="bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
-                              <p className="text-xs font-bold text-emerald-700 uppercase mb-1">Próxima escala</p>
-                              <p className="text-sm font-semibold text-slate-800 truncate">{nextEst?.name || 'N/A'}</p>
-                              <p className="text-xs text-slate-500 mt-1">
-                                {new Date(next.date + 'T00:00:00').toLocaleDateString('pt-BR')} · {getShiftLabel(next.shift)}
-                              </p>
-                            </div>
-                          ) : (
-                            <div className="bg-slate-50 border border-slate-100 rounded-lg px-3 py-2 text-center text-xs text-slate-400">Sem escalas futuras</div>
-                          )}
-                          <div className="flex gap-2 mt-auto">
-                            <button onClick={() => { setScheduleForm({ riderId: rider.id, establishmentId: '', date: todayStr, shift: 'morning', startTime: '08:00', endTime: '12:00' }); setScheduleConflictWarning(''); setShowScheduleModal(true); }} className="flex-1 flex items-center justify-center gap-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-medium py-2 rounded-lg transition-colors">
-                              <Plus className="h-3.5 w-3.5" />Nova Escala
-                            </button>
-                            <button onClick={() => setRiderSchedulesModal(rider.id)} className="flex-1 flex items-center justify-center gap-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 text-xs font-medium py-2 rounded-lg transition-colors">
-                              <List className="h-3.5 w-3.5" />Ver Todas
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                );
+                      <div className="flex items-center space-x-3">
+                        <button
+                          onClick={() => setNotesDeliveryId(del.id)}
+                          className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors flex items-center gap-1 text-xs font-semibold"
+                        >
+                          <MessageSquare className="h-4 w-4" />
+                          <span>Chat/Obs</span>
+                        </button>
 
-                const riderIds = new Set(filteredList.map(r => r.id));
-                const allUp = schedules.filter(s => s.date >= todayStr && riderIds.has(s.riderId)).sort((a,b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime));
-                const byDate: Record<string, typeof allUp> = {};
-                allUp.forEach(s => { if (!byDate[s.date]) byDate[s.date] = []; byDate[s.date].push(s); });
-
-                if (allUp.length === 0) return (
-                  <div className="py-10 text-center text-slate-400">
-                    <Calendar className="h-10 w-10 mx-auto mb-2 text-slate-300" />
-                    <p>Nenhuma escala futura encontrada.</p>
-                  </div>
-                );
-
-                return (
-                  <div className="space-y-6">
-                    {Object.entries(byDate).map(([date, daySchs]) => {
-                      const isTod = date === todayStr;
-                      const dateLabel = new Date(date + 'T00:00:00').toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' });
-                      return (
-                        <div key={date}>
-                          <div className="flex items-center gap-3 mb-3">
-                            <div className={`px-3 py-1 rounded-full text-xs font-bold uppercase ${isTod ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-600'}`}>{isTod ? 'Hoje' : dateLabel}</div>
-                            <div className="flex-1 h-px bg-slate-200" />
-                            <span className="text-xs text-slate-400">{daySchs.length} escala{daySchs.length !== 1 ? 's' : ''}</span>
-                          </div>
-                          <div className="space-y-2">
-                            {daySchs.map(sch => {
-                              const rider = users.find(r => r.id === sch.riderId);
-                              const est = establishments.find(e => e.id === sch.establishmentId);
-                              return (
-                                <div key={sch.id} className="flex items-center justify-between gap-3 bg-white border border-slate-200 rounded-xl px-4 py-3 hover:border-indigo-200 transition-colors">
-                                  <div className="flex items-center gap-3 min-w-0">
-                                    <div className="flex items-center gap-1.5 flex-wrap">
-                                      {isTod && <span className="bg-emerald-100 text-emerald-700 text-[10px] font-bold px-1.5 py-0.5 rounded-full uppercase">Hoje</span>}
-                                      <p className="text-sm font-semibold text-slate-800 truncate">{rider?.name || 'N/A'}</p>
-                                      <span className="text-slate-300">•</span>
-                                      <p className="text-xs text-slate-500 truncate">{est?.name || 'N/A'}</p>
-                                    </div>
-                                  </div>
-                                  <div className="flex items-center gap-3 flex-shrink-0">
-                                    <div className="text-right">
-                                      <p className={`text-xs font-bold ${sch.shift === 'morning' ? 'text-amber-600' : sch.shift === 'afternoon' ? 'text-orange-600' : sch.shift === 'night' ? 'text-blue-600' : ''}`}>{getShiftLabel(sch.shift)}</p>
-                                      <p className="text-xs font-mono text-slate-600">{sch.startTime}–{sch.endTime}</p>
-                                    </div>
-                                    <button onClick={() => handleCancelSchedule(sch.id)} className="text-red-400 hover:text-red-600 hover:bg-red-50 p-1.5 rounded transition-colors flex-shrink-0"><Trash2 className="h-3.5 w-3.5" /></button>
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                );
-              })()}
-            </div>
-          )}
-
-          {/* TAB: REGISTRO DE CORRIDAS */}
-          {activeTab === 'deliveries' && (
-            <div className="space-y-6">
-              {/* Pending Deliveries Approval Section */}
-              {pendingDeliveries.length > 0 && (
-                <div className="bg-amber-50/50 p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
-                  <h2 className="text-lg font-bold text-amber-800 flex items-center space-x-2">
-                    <Clock className="h-5 w-5 text-amber-600 animate-pulse" />
-                    <span>Corridas Pendentes de Aprovação ({pendingDeliveries.length})</span>
-                  </h2>
-
-                  <div className="divide-y divide-amber-100">
-                    {pendingDeliveries.map(del => {
-                      const rider = users.find(r => r.id === del.riderId);
-                      const est = establishments.find(e => e.id === del.establishmentId);
-                      return (
-                        <div key={del.id} className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                          <div>
-                            <div className="flex items-center space-x-2">
-                              <p className="font-bold text-slate-800">{rider?.name || 'Motoboy'}</p>
-                              {del.orderNumber && (
-                                <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-2.5 py-0.5 rounded">
-                                  #{del.orderNumber}
-                                </span>
-                              )}
-                            </div>
-                            <p className="text-xs text-slate-600 mt-0.5">Estabelecimento: {est?.name}</p>
-                            <p className="text-xs text-slate-400 flex items-center space-x-1 mt-1">
-                              <Clock className="h-3.5 w-3.5" />
-                              <span>Lançada em {new Date(del.date + 'T00:00:00').toLocaleDateString('pt-BR')} às {del.time}</span>
-                            </p>
-                            {del.notes && (
-                              <p className="text-xs text-slate-500 bg-slate-50 border border-slate-100 rounded px-2 py-1.5 italic">
-                                Obs: {del.notes}
-                              </p>
-                            )}
-                          </div>
-                          <div className="flex items-center space-x-3 self-end sm:self-center">
-                            <span className="font-bold text-amber-700 text-lg">R$ {del.value.toFixed(2)}</span>
-                            <div className="flex items-center space-x-1">
-                              <button
-                                onClick={() => handleApproveDelivery(del.id)}
-                                className="bg-emerald-600 hover:bg-emerald-700 text-white p-1.5 rounded-lg transition-colors flex items-center space-x-1 text-xs font-bold"
-                                title="Aprovar Corrida"
-                              >
-                                <Check className="h-4 w-4" />
-                                <span className="hidden sm:inline">Aprovar</span>
-                              </button>
-                              <button
-                                onClick={() => handleRejectDelivery(del.id)}
-                                className="bg-red-600 hover:bg-red-700 text-white p-1.5 rounded-lg transition-colors flex items-center space-x-1 text-xs font-bold"
-                                title="Rejeitar Corrida"
-                              >
-                                <X className="h-4 w-4" />
-                                <span className="hidden sm:inline">Rejeitar</span>
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <h2 className="text-xl font-bold text-slate-800">Registro de Corridas</h2>
-                  <button
-                    onClick={() => {
-                      setEditingDelivery(null);
-                      setDeliveryForm({ riderId: '', establishmentId: '', date: db.getLocalDateString(), time: new Date().toTimeString().slice(0,5), value: '', orderNumber: '', notes: '' });
-                      setShowDeliveryModal(true);
-                    }}
-                    className="flex items-center justify-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-                  >
-                    <Plus className="h-4 w-4" />
-                    <span>Lançar Corrida</span>
-                  </button>
-                </div>
-
-                <div className="border border-slate-200 rounded-xl overflow-hidden">
-                  <div className="bg-slate-50 p-4 border-b border-slate-200">
-                    <h3 className="font-bold text-slate-700">Histórico de Lançamentos</h3>
-                  </div>
-                  <div className="divide-y divide-slate-100">
-                    {processedDeliveries.length === 0 ? (
-                      <div className="p-8 text-center text-slate-400">Nenhuma corrida registrada.</div>
-                    ) : (
-                      processedDeliveries.map(del => {
-                        const rider = users.find(r => r.id === del.riderId);
-                        const est = establishments.find(e => e.id === del.establishmentId);
-                        const isToday = del.date === db.getLocalDateString();
-
-                        return (
-                          <div key={del.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/50">
-                            <div>
-                              <div className="flex items-center space-x-2">
-                                <p className="font-bold text-slate-800">{rider?.name || 'Motoboy'}</p>
-                                {del.status === 'cancelled' && (
-                                  <span className="bg-red-100 text-red-800 text-[10px] font-bold px-2.5 py-0.5 rounded-full">Cancelada</span>
-                                )}
-                                {del.status === 'rejected' && (
-                                  <span className="bg-red-100 text-red-800 text-[10px] font-bold px-2.5 py-0.5 rounded-full">Rejeitada</span>
-                                )}
-                                {del.orderNumber && (
-                                  <span className="bg-slate-100 text-slate-500 text-[10px] font-bold px-2.5 py-0.5 rounded-full">
-                                    #{del.orderNumber}
-                                  </span>
-                                )}
-                              </div>
-                              <p className="text-sm text-slate-600">Estabelecimento: {est?.name}</p>
-                              <p className="text-xs text-slate-400 mt-1">
-                                Data: {new Date(del.date + 'T00:00:00').toLocaleDateString('pt-BR')} às {del.time}
-                              </p>
-                              {del.notes && (
-                                <p className="text-xs text-slate-500 bg-slate-50 border border-slate-100 rounded px-2 py-1.5 italic">
-                                  Obs: {del.notes}
-                                </p>
-                              )}
-                            </div>
-                            <div className="flex items-center space-x-4 self-end sm:self-center">
-                              <span className={`font-bold text-lg ${del.status === 'cancelled' || del.status === 'rejected' ? 'text-slate-400 line-through' : 'text-emerald-600'}`}>
-                                R$ {del.value.toFixed(2)}
-                              </span>
-                              {isToday && del.status === 'active' && (
-                                <div className="flex items-center space-x-1">
-                                  <button
-                                    onClick={() => {
-                                      setEditingDelivery(del);
-                                      setDeliveryForm({
-                                        riderId: del.riderId,
-                                        establishmentId: del.establishmentId,
-                                        date: del.date,
-                                        time: del.time,
-                                        value: del.value.toString(),
-                                        orderNumber: del.orderNumber || '',
-                                        notes: del.notes || ''
-                                      });
-                                      setShowDeliveryModal(true);
-                                    }}
-                                    className="text-slate-500 hover:bg-slate-100 p-2 rounded transition-colors"
-                                    title="Editar Corrida"
-                                  >
-                                    <Edit2 className="h-4 w-4" />
-                                  </button>
-                                  <button
-                                    onClick={() => handleCancelDelivery(del.id)}
-                                    className="text-red-500 hover:bg-red-50 p-2 rounded transition-colors"
-                                    title="Cancelar Corrida"
-                                  >
-                                    <Trash2 className="h-4 w-4" />
-                                  </button>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* TAB: FECHAMENTO FINANCEIRO */}
-          {activeTab === 'finance' && (
-            <div className="space-y-6">
-              <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
-                <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-                  <DollarSign className="h-6 w-6 text-indigo-600" />
-                  <span>Fechamento Financeiro (Saldos Acumulados)</span>
-                </h2>
-                <p className="text-xs text-slate-500">Acompanhe e dê baixa nos saldos de motoboys e estabelecimentos parceiros.</p>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Saldo dos Motoboys */}
-                <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
-                  <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
-                    <Users className="h-5 w-5 text-indigo-600" />
-                    <span>Saldos a Pagar (Motoboys)</span>
-                  </h3>
-                  <div className="divide-y divide-slate-100 max-h-[400px] overflow-y-auto">
-                    {users.filter(u => u.role === 'rider' && u.active).map(rider => {
-                      const unpaidDeliveries = deliveries.filter(d => d.riderId === rider.id && d.status === 'active' && !d.paid);
-                      const balance = unpaidDeliveries.reduce((sum, d) => sum + d.value, 0);
-
-                      return (
-                        <div key={rider.id} className="py-3 flex items-center justify-between gap-2">
-                          <div>
-                            <p className="font-bold text-slate-800 text-sm">{rider.name}</p>
-                            <p className="text-xs text-slate-500">{unpaidDeliveries.length} corrida(s) pendente(s)</p>
-                          </div>
-                          <div className="flex items-center gap-3">
-                            <span className="font-bold text-emerald-600 text-sm">R$ {balance.toFixed(2)}</span>
-                            <button
-                              disabled={balance === 0}
-                              onClick={() => handleSettleRiderDeliveries(rider.id)}
-                              className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-100 disabled:text-slate-400 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-colors"
-                            >
-                              Pagar
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Saldo dos Estabelecimentos */}
-                <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
-                  <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
-                    <Store className="h-5 w-5 text-emerald-600" />
-                    <span>Saldos a Receber (Estabelecimentos)</span>
-                  </h3>
-                  <div className="divide-y divide-slate-100 max-h-[400px] overflow-y-auto">
-                    {establishments.filter(e => e.active).map(est => {
-                      const unpaidDeliveries = deliveries.filter(d => d.establishmentId === est.id && d.status === 'active' && !d.paid);
-                      const balance = unpaidDeliveries.reduce((sum, d) => sum + d.value, 0);
-
-                      return (
-                        <div key={est.id} className="py-3 flex items-center justify-between gap-2">
-                          <div>
-                            <p className="font-bold text-slate-800 text-sm">{est.name}</p>
-                            <p className="text-xs text-slate-500">{unpaidDeliveries.length} corrida(s) pendente(s)</p>
-                          </div>
-                          <div className="flex items-center gap-3">
-                            <span className="font-bold text-indigo-600 text-sm">R$ {balance.toFixed(2)}</span>
-                            <button
-                              disabled={balance === 0}
-                              onClick={() => handleSettleEstDeliveries(est.id)}
-                              className="bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-100 disabled:text-slate-400 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-colors"
-                            >
-                              Receber
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* TAB: RELATÓRIOS */}
-          {activeTab === 'reports' && (
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-6">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <h2 className="text-xl font-bold text-slate-800">Relatórios Gerenciais</h2>
-                <button
-                  onClick={exportToCSV}
-                  className="flex items-center justify-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-                >
-                  <Download className="h-4 w-4" />
-                  <span>Exportar CSV</span>
-                </button>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-100">
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Tipo de Relatório</label>
-                  <select
-                    value={reportType}
-                    onChange={(e) => setReportType(e.target.value as any)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                  >
-                    <option value="earnings">Faturamento por Motoboy</option>
-                    <option value="deliveries">Quantidade de Corridas por Motoboy</option>
-                    <option value="schedules">Escalas por Estabelecimento</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Período</label>
-                  <select
-                    value={reportPeriod}
-                    onChange={(e) => setReportPeriod(e.target.value as any)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                  >
-                    <option value="daily">Diário</option>
-                    <option value="weekly">Semanal</option>
-                    <option value="monthly">Mensal</option>
-                    <option value="custom">Personalizado</option>
-                  </select>
-                </div>
-                {reportPeriod === 'custom' && (
-                  <div className="space-y-2">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Data Inicial</label>
-                      <input
-                        type="date"
-                        value={customStartDate}
-                        onChange={(e) => setCustomStartDate(e.target.value)}
-                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                      />
+                        <span className="font-bold text-emerald-600 text-sm">
+                          R$ {del.value.toFixed(2)}
+                        </span>
+                      </div>
                     </div>
-                    <div>
-                      <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Data Final</label>
-                      <input
-                        type="date"
-                        value={customEndDate}
-                        onChange={(e) => setCustomEndDate(e.target.value)}
-                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                      />
-                    </div>
-                  </div>
-                )}
+                  );
+                })}
               </div>
             </div>
           )}
@@ -2173,6 +1215,24 @@ export default function AdminDashboard() {
         deliveryForm={deliveryForm}
         setDeliveryForm={setDeliveryForm}
         onSave={handleSaveDelivery}
+      />
+
+      <DeliveryNotesModal
+        isOpen={!!notesDeliveryId}
+        onClose={() => setNotesDeliveryId(null)}
+        delivery={activeNotesDelivery}
+        userRole="admin"
+        userName={adminUser?.name || 'Admin'}
+        onSaveNotes={handleSaveNotes}
+      />
+
+      <ScheduleChatModal
+        isOpen={!!activeScheduleChatId}
+        onClose={() => setActiveScheduleChatId(null)}
+        schedule={activeScheduleChat}
+        userRole="admin"
+        userName={adminUser?.name || 'Admin'}
+        onSaveChat={handleSaveScheduleChat}
       />
     </div>
   );

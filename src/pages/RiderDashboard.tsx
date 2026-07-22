@@ -12,25 +12,22 @@ import {
   TrendingUp, 
   CheckCircle, 
   MapPin, 
-  Clock,
+  Clock, 
   AlertCircle,
   History,
-  Filter,
   X,
-  Satellite,
-  WifiOff,
   Radio,
   Plus,
-  Hash,
-  Edit2,
   Share2,
   MessageSquare,
-  ShieldAlert
+  ShieldAlert,
+  Check
 } from 'lucide-react';
 import DeliveryNotesModal from '../components/DeliveryNotesModal';
 import CustomerChatModal from '../components/CustomerChatModal';
 import ScheduleChatModal from '../components/ScheduleChatModal';
-import { sendDeviceNotification, playNotificationSound } from '../utils/notifications';
+import ChatToastBanner, { ChatToast } from '../components/ChatToastBanner';
+import { sendDeviceNotification, playNotificationSound, requestNotificationPermission } from '../utils/notifications';
 
 export default function RiderDashboard() {
   const navigate = useNavigate();
@@ -43,6 +40,7 @@ export default function RiderDashboard() {
   const [gpsStatus, setGpsStatus] = useState<'requesting' | 'active' | 'error' | 'denied'>('requesting');
   const [gpsCoords, setGpsCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [activeToast, setActiveToast] = useState<ChatToast | null>(null);
   
   const watchIdRef = useRef<number | null>(null);
   const fallbackIntervalRef = useRef<any>(null);
@@ -120,9 +118,9 @@ export default function RiderDashboard() {
       navigate('/login');
       return;
     }
+    requestNotificationPermission();
     loadData();
 
-    // Sincronização ultra-rápida de 3s
     const interval = setInterval(() => {
       db.pullFromSupabase().then(() => loadData());
     }, 3000);
@@ -130,6 +128,7 @@ export default function RiderDashboard() {
     return () => clearInterval(interval);
   }, [user, navigate, activeTab]);
 
+  // Monitor Delivery Notes Chat
   useEffect(() => {
     deliveries.forEach(d => {
       const prevNotes = prevNotesRef.current[d.id];
@@ -143,22 +142,28 @@ export default function RiderDashboard() {
             const isMe = line.includes('- Motoboy') || line.includes(`(${user?.name})`);
             if (!isMe) {
               const est = resolveEst(d.establishmentId);
+              const sender = line.includes('- Estabelecimento') ? 'Estabelecimento' : 'Admin';
               const messageText = line.substring(line.indexOf(']: ') + 3);
+              const title = `Mensagem de ${sender} (Pedido #${d.orderNumber || d.id.slice(-4)})`;
               
-              sendDeviceNotification(
-                `Mensagem do Estabelecimento`,
-                `Pedido #${d.orderNumber || d.id.slice(-4)} (${est?.name || 'Corrida'}): "${messageText}"`
-              );
-
+              sendDeviceNotification(title, `"${messageText}"`);
               playNotificationSound();
+              setActiveToast({
+                id: 'notes_' + Date.now(),
+                title,
+                message: messageText,
+                sender,
+                onClick: () => setNotesDeliveryId(d.id)
+              });
             }
           });
         }
       }
       prevNotesRef.current[d.id] = d.notes || '';
     });
-  }, [deliveries, user, establishments]);
+  }, [deliveries, user]);
 
+  // Monitor Customer Chat
   useEffect(() => {
     deliveries.forEach(d => {
       const prevChat = prevChatRef.current[d.id];
@@ -172,13 +177,17 @@ export default function RiderDashboard() {
             const isMe = line.includes('- Motoboy') || line.includes(`(${user?.name})`);
             if (!isMe) {
               const messageText = line.substring(line.indexOf(']: ') + 3);
+              const title = `Mensagem do Cliente (Pedido #${d.orderNumber || d.id.slice(-4)})`;
               
-              sendDeviceNotification(
-                `Mensagem do Cliente`,
-                `Pedido #${d.orderNumber || d.id.slice(-4)}: "${messageText}"`
-              );
-
+              sendDeviceNotification(title, `"${messageText}"`);
               playNotificationSound();
+              setActiveToast({
+                id: 'customer_' + Date.now(),
+                title,
+                message: messageText,
+                sender: 'Cliente',
+                onClick: () => setCustomerChatDeliveryId(d.id)
+              });
             }
           });
         }
@@ -187,6 +196,7 @@ export default function RiderDashboard() {
     });
   }, [deliveries, user]);
 
+  // Monitor Schedule Shift Chat
   useEffect(() => {
     schedules.forEach(s => {
       const prevChat = prevScheduleChatRef.current[s.id];
@@ -201,20 +211,24 @@ export default function RiderDashboard() {
             if (!isMe) {
               const est = resolveEst(s.establishmentId);
               const messageText = line.substring(line.indexOf(']: ') + 3);
+              const title = `Aviso no Turno (${est?.name || 'Estabelecimento'})`;
               
-              sendDeviceNotification(
-                `Mensagem de Turno de ${est?.name || 'Estabelecimento'}`,
-                `"${messageText}"`
-              );
-
+              sendDeviceNotification(title, `"${messageText}"`);
               playNotificationSound();
+              setActiveToast({
+                id: 'sch_' + Date.now(),
+                title,
+                message: messageText,
+                sender: est?.name || 'Estabelecimento',
+                onClick: () => setActiveScheduleChatId(s.id)
+              });
             }
           });
         }
       }
       prevScheduleChatRef.current[s.id] = s.chat || '';
     });
-  }, [schedules, user, establishments]);
+  }, [schedules, user]);
 
   useEffect(() => {
     const handleSyncComplete = () => {
@@ -497,7 +511,7 @@ export default function RiderDashboard() {
   const handleSendCustomerMessage = (text: string) => {
     if (!customerChatDeliveryId) return;
     const now = new Date();
-    const timeStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const timeStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     const dateStr = now.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
     
     const formattedMessage = `[${dateStr} ${timeStr} - Motoboy (${user?.name})]: ${text}`;
@@ -558,12 +572,34 @@ export default function RiderDashboard() {
     return d.status === deliveryStatusFilter;
   });
 
+  const historyDeliveries = deliveries.filter(d => {
+    let matchesEst = true;
+    if (historyEstFilter) {
+      const filterEst = establishments.find(e => e.id === historyEstFilter);
+      const delEst = resolveEst(d.establishmentId);
+      if (filterEst && delEst) {
+        matchesEst = filterEst.name.toLowerCase().trim() === delEst.name.toLowerCase().trim();
+      } else {
+        matchesEst = d.establishmentId === historyEstFilter;
+      }
+    }
+    const matchesFrom = historyDateFrom ? d.date >= historyDateFrom : true;
+    const matchesTo = historyDateTo ? d.date <= historyDateTo : true;
+    return matchesEst && matchesFrom && matchesTo;
+  });
+
+  const historyTotalEarnings = historyDeliveries
+    .filter(d => d.status === 'active')
+    .reduce((sum, d) => sum + Number(d.value || 0), 0);
+
   const activeNotesDelivery = deliveries.find(d => d.id === notesDeliveryId) || null;
   const activeCustomerChatDelivery = deliveries.find(d => d.id === customerChatDeliveryId) || null;
   const activeScheduleChat = schedules.find(s => s.id === activeScheduleChatId) || null;
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-16">
+    <div className="min-h-screen bg-slate-50 pb-16 relative">
+      <ChatToastBanner toast={activeToast} onClose={() => setActiveToast(null)} />
+
       <header className="bg-indigo-600 text-white shadow-md sticky top-0 z-10">
         <div className="max-w-4xl mx-auto px-4 py-4 flex justify-between items-center">
           <div>
@@ -653,6 +689,7 @@ export default function RiderDashboard() {
           </button>
         </div>
 
+        {/* TAB 1: GANHOS (DASHBOARD) */}
         {activeTab === 'dashboard' && (
           <div className="space-y-6">
             <div className={`rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border ${
@@ -671,6 +708,31 @@ export default function RiderDashboard() {
                       {gpsCoords.lat.toFixed(5)}, {gpsCoords.lng.toFixed(5)}
                     </p>
                   )}
+                </div>
+              </div>
+            </div>
+
+            {/* Resumo de Ganhos de Hoje */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-4">
+                <div className="p-3 bg-emerald-100 text-emerald-600 rounded-lg">
+                  <DollarSign className="h-6 w-6" />
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500 font-medium uppercase">Total Faturado Hoje</p>
+                  <p className="text-2xl font-bold text-slate-800">R$ {todayEarnings.toFixed(2)}</p>
+                </div>
+              </div>
+
+              <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-4">
+                <div className="p-3 bg-indigo-100 text-indigo-600 rounded-lg">
+                  <TrendingUp className="h-6 w-6" />
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500 font-medium uppercase">Corridas Aprovadas Hoje</p>
+                  <p className="text-2xl font-bold text-slate-800">
+                    {todayDeliveries.filter(d => d.status === 'active').length}
+                  </p>
                 </div>
               </div>
             </div>
@@ -797,7 +859,7 @@ export default function RiderDashboard() {
                           <button
                             onClick={() => setNotesDeliveryId(delivery.id)}
                             className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors relative"
-                            title="Chat com Estabelecimento"
+                            title="Observações da Corrida"
                           >
                             <MessageSquare className="h-4 w-4" />
                           </button>
@@ -838,8 +900,272 @@ export default function RiderDashboard() {
             </div>
           </div>
         )}
+
+        {/* TAB 2: ESCALAS */}
+        {activeTab === 'schedules' && (
+          <div className="space-y-6">
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
+              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                <Calendar className="h-5 w-5 text-indigo-600" />
+                <span>Minhas Escalas de Trabalho (Próximos 30 dias)</span>
+              </h2>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50 p-3 rounded-lg border border-slate-200">
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Filtrar por Estabelecimento</label>
+                  <select
+                    value={scheduleEstFilter}
+                    onChange={(e) => setScheduleEstFilter(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  >
+                    <option value="">Todos os Estabelecimentos</option>
+                    {establishments.map(est => (
+                      <option key={est.id} value={est.id}>{est.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Filtrar por Data</label>
+                  <input
+                    type="date"
+                    value={scheduleDateFilter}
+                    onChange={(e) => setScheduleDateFilter(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  />
+                </div>
+              </div>
+
+              {filteredFutureSchedules.length === 0 ? (
+                <div className="text-center py-12 text-slate-400">
+                  <Calendar className="h-10 w-10 mx-auto mb-2 text-slate-300" />
+                  <p className="text-sm font-medium">Nenhuma escala futura encontrada.</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {filteredFutureSchedules.map((sch) => {
+                    const est = resolveEst(sch.establishmentId);
+                    const isToday = sch.date === todayStr;
+
+                    return (
+                      <div 
+                        key={sch.id}
+                        className={`p-4 rounded-xl border transition-all ${
+                          isToday 
+                            ? 'bg-emerald-50 border-emerald-300 shadow-sm' 
+                            : 'bg-white border-slate-200 hover:border-indigo-200'
+                        }`}
+                      >
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              {isToday && (
+                                <span className="bg-emerald-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full uppercase">
+                                  Hoje
+                                </span>
+                              )}
+                              <h4 className="text-base font-bold text-slate-800">{est?.name || 'Estabelecimento'}</h4>
+                            </div>
+
+                            <p className="text-xs text-slate-600 flex items-center gap-1.5">
+                              <Calendar className="h-3.5 w-3.5 text-slate-400" />
+                              <span>{new Date(sch.date + 'T00:00:00').toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
+                              <span className="text-slate-300">•</span>
+                              <span className="font-bold text-indigo-600">Turno da {getShiftLabel(sch.shift)}</span>
+                              <span className="text-slate-300">•</span>
+                              <span className="font-mono text-slate-500">{sch.startTime}–{sch.endTime}</span>
+                            </p>
+
+                            {est?.address && (
+                              <p className="text-xs text-slate-500 flex items-center gap-1 mt-1">
+                                <MapPin className="h-3.5 w-3.5 text-slate-400 flex-shrink-0" />
+                                <span>{est.address.street}, {est.address.number} - {est.address.neighborhood}, {est.address.city}/{est.address.state}</span>
+                              </p>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-2 self-start sm:self-center">
+                            <button
+                              onClick={() => setActiveScheduleChatId(sch.id)}
+                              className="p-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-bold flex items-center gap-1 transition-colors"
+                              title="Chat do Turno"
+                            >
+                              <MessageSquare className="h-4 w-4" />
+                              <span className="hidden sm:inline">Chat</span>
+                            </button>
+
+                            {est?.address && (
+                              <button
+                                onClick={() => handleOpenGPS(est.address)}
+                                className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors shadow-sm"
+                              >
+                                <Navigation className="h-4 w-4" />
+                                <span>GPS</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* TAB 3: HISTÓRICO */}
+        {activeTab === 'history' && (
+          <div className="space-y-6">
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
+              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                <History className="h-5 w-5 text-indigo-600" />
+                <span>Histórico de Corridas</span>
+              </h2>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-slate-50 p-3 rounded-lg border border-slate-200">
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Estabelecimento</label>
+                  <select
+                    value={historyEstFilter}
+                    onChange={(e) => setHistoryEstFilter(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  >
+                    <option value="">Todos</option>
+                    {establishments.map(est => (
+                      <option key={est.id} value={est.id}>{est.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">De</label>
+                  <input
+                    type="date"
+                    value={historyDateFrom}
+                    onChange={(e) => setHistoryDateFrom(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Até</label>
+                  <input
+                    type="date"
+                    value={historyDateTo}
+                    onChange={(e) => setHistoryDateTo(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 bg-indigo-50/50 p-4 rounded-xl border border-indigo-100">
+                <div>
+                  <p className="text-xs text-indigo-600 font-bold uppercase">Corridas Filtradas</p>
+                  <p className="text-xl font-extrabold text-slate-800 mt-0.5">{historyDeliveries.length}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-emerald-600 font-bold uppercase">Faturamento Total</p>
+                  <p className="text-xl font-extrabold text-emerald-700 mt-0.5">R$ {historyTotalEarnings.toFixed(2)}</p>
+                </div>
+              </div>
+
+              {historyDeliveries.length === 0 ? (
+                <div className="text-center py-12 text-slate-400">
+                  <p className="text-sm font-medium">Nenhum registro encontrado para este filtro.</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-slate-100">
+                  {historyDeliveries.map((del) => {
+                    const est = resolveEst(del.establishmentId);
+                    return (
+                      <div key={del.id} className="py-3 flex justify-between items-center hover:bg-slate-50/50 px-2 rounded-lg">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <p className="font-bold text-slate-800 text-sm">{est?.name || 'Estabelecimento'}</p>
+                            {del.orderNumber && (
+                              <span className="bg-slate-100 text-slate-500 text-[10px] font-bold px-1.5 py-0.5 rounded">
+                                #{del.orderNumber}
+                              </span>
+                            )}
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                              del.status === 'active' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'
+                            }`}>
+                              {del.status === 'active' ? 'Aprovada' : del.status === 'pending' ? 'Pendente' : 'Cancelada'}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-400 mt-0.5">
+                            Data: {new Date(del.date + 'T00:00:00').toLocaleDateString('pt-BR')} às {del.time}
+                          </p>
+                        </div>
+                        <span className={`font-bold ${del.status === 'active' ? 'text-emerald-600' : 'text-slate-400 line-through'}`}>
+                          R$ {Number(del.value || 0).toFixed(2)}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* TAB 4: AVISOS / NOTIFICAÇÕES */}
+        {activeTab === 'notifications' && (
+          <div className="space-y-6">
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
+              <div className="flex justify-between items-center">
+                <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                  <Bell className="h-5 w-5 text-indigo-600" />
+                  <span>Central de Avisos e Notificações</span>
+                </h2>
+                {unreadCount > 0 && (
+                  <span className="bg-red-100 text-red-700 text-xs font-bold px-2.5 py-1 rounded-full">
+                    {unreadCount} não lida(s)
+                  </span>
+                )}
+              </div>
+
+              {notifications.length === 0 ? (
+                <div className="text-center py-12 text-slate-400">
+                  <Bell className="h-10 w-10 mx-auto mb-2 text-slate-300" />
+                  <p className="text-sm font-medium">Nenhum aviso recebido até o momento.</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {notifications.map((notif) => (
+                    <div 
+                      key={notif.id}
+                      className={`p-4 rounded-xl border transition-all ${
+                        !notif.read ? 'bg-indigo-50/70 border-indigo-200 shadow-sm' : 'bg-white border-slate-200'
+                      }`}
+                    >
+                      <div className="flex justify-between items-start gap-3">
+                        <div className="space-y-1">
+                          <h4 className="text-sm font-bold text-slate-800">{notif.title}</h4>
+                          <p className="text-xs text-slate-600 leading-relaxed">{notif.message}</p>
+                          <p className="text-[10px] text-slate-400 mt-1">
+                            {new Date(notif.date).toLocaleString('pt-BR')}
+                          </p>
+                        </div>
+                        {!notif.read && (
+                          <button
+                            onClick={() => handleMarkAsRead(notif.id)}
+                            className="bg-indigo-600 hover:bg-indigo-700 text-white p-1.5 rounded-lg text-xs font-bold transition-colors flex items-center gap-1 flex-shrink-0"
+                            title="Marcar como lida"
+                          >
+                            <Check className="h-3.5 w-3.5" />
+                            <span>Lida</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </main>
 
+      {/* MODAL PARA LANÇAR CORRIDA */}
       {showLaunchModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl max-w-md w-full p-6 space-y-4 shadow-xl">
@@ -866,6 +1192,16 @@ export default function RiderDashboard() {
                 </select>
               </div>
               <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nº do Pedido (Opcional)</label>
+                <input
+                  type="text"
+                  placeholder="Ex: 1042"
+                  value={launchForm.orderNumber}
+                  onChange={(e) => setLaunchForm({ ...launchForm, orderNumber: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none"
+                />
+              </div>
+              <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Valor da Corrida (R$)</label>
                 <input
                   type="number"
@@ -875,6 +1211,16 @@ export default function RiderDashboard() {
                   value={launchForm.value}
                   onChange={(e) => setLaunchForm({ ...launchForm, value: e.target.value })}
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Observações / Instruções (Opcional)</label>
+                <textarea
+                  placeholder="Ex: Entregar na recepção, troco para R$ 50,00..."
+                  value={launchForm.notes}
+                  onChange={(e) => setLaunchForm({ ...launchForm, notes: e.target.value })}
+                  rows={2}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none resize-none"
                 />
               </div>
               <div className="flex justify-end space-x-2 pt-3">

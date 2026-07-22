@@ -2,34 +2,28 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { db, User, Establishment, Schedule, Delivery, RiderLocation, Notification } from '../utils/db';
+import { db, User, Establishment, Schedule, Delivery, RiderLocation } from '../utils/db';
 import { 
   Bike, 
   LogOut, 
   Plus, 
-  Trash2, 
-  Clock, 
   DollarSign, 
-  MapPin, 
   Users, 
-  TrendingUp, 
   Map as MapIcon,
-  RefreshCw,
-  Hash,
-  Check,
   X,
-  Edit2,
   Maximize2,
   Minimize2,
-  Share2,
   Navigation,
-  MessageSquare
+  MessageSquare,
+  Clock,
+  CheckCircle
 } from 'lucide-react';
 
 import L from 'leaflet';
 import DeliveryNotesModal from '../components/DeliveryNotesModal';
 import ScheduleChatModal from '../components/ScheduleChatModal';
-import { sendDeviceNotification, playNotificationSound } from '../utils/notifications';
+import ChatToastBanner, { ChatToast } from '../components/ChatToastBanner';
+import { sendDeviceNotification, playNotificationSound, requestNotificationPermission } from '../utils/notifications';
 
 const KNOWN_CEPS: { [key: string]: { lat: number; lng: number } } = {
   '58433488': { lat: -7.2311, lng: -35.9245 },
@@ -56,7 +50,7 @@ export default function EstablishmentDashboard() {
   const [todayDeliveries, setTodayDeliveries] = useState<Delivery[]>([]);
   const [riderLocations, setRiderLocations] = useState<RiderLocation[]>([]);
   const [estCoords, setEstCoords] = useState<{ lat: number; lng: number } | null>(null);
-  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [activeToast, setActiveToast] = useState<ChatToast | null>(null);
 
   const [isMapExpanded, setIsMapExpanded] = useState(false);
 
@@ -87,7 +81,7 @@ export default function EstablishmentDashboard() {
     navigate('/login');
   };
 
-  const isScheduleForCurrentEst = (s: Schedule, currentEstName: string, matchingEstIds: string[], allEsts: Establishment[]) => {
+  const isScheduleForCurrentEst = (s: Schedule, currentEstName: string, matchingEstIds: string[]) => {
     if (!currentEstName) return false;
     if (matchingEstIds.includes(s.establishmentId)) return true;
     const destEst = db.resolveEstablishment(s.establishmentId);
@@ -101,7 +95,7 @@ export default function EstablishmentDashboard() {
     return false;
   };
 
-  const isDeliveryForCurrentEst = (d: Delivery, currentEstName: string, matchingEstIds: string[], allEsts: Establishment[]) => {
+  const isDeliveryForCurrentEst = (d: Delivery, currentEstName: string, matchingEstIds: string[]) => {
     if (!currentEstName) return false;
     if (matchingEstIds.includes(d.establishmentId)) return true;
     
@@ -176,7 +170,7 @@ export default function EstablishmentDashboard() {
     const todayStr = db.getLocalDateString();
     const allSchedules = db.getSchedules();
     
-    const estSchedules = allSchedules.filter(s => isScheduleForCurrentEst(s, currentEstName, matchingEstIds, allEsts) && s.date === todayStr);
+    const estSchedules = allSchedules.filter(s => isScheduleForCurrentEst(s, currentEstName, matchingEstIds) && s.date === todayStr);
     setTodaySchedules(estSchedules);
 
     const allUsers = db.getUsers();
@@ -191,7 +185,7 @@ export default function EstablishmentDashboard() {
     setScheduledRiders(riders);
 
     const allDeliveries = db.getDeliveries();
-    const estDeliveriesToday = allDeliveries.filter(d => isDeliveryForCurrentEst(d, currentEstName, matchingEstIds, allEsts) && d.date === todayStr);
+    const estDeliveriesToday = allDeliveries.filter(d => isDeliveryForCurrentEst(d, currentEstName, matchingEstIds) && d.date === todayStr);
     setTodayDeliveries(estDeliveriesToday);
 
     const locations = db.getRiderLocations();
@@ -203,6 +197,7 @@ export default function EstablishmentDashboard() {
       navigate('/login');
       return;
     }
+    requestNotificationPermission();
 
     db.pullFromSupabase().then(() => loadData());
 
@@ -221,6 +216,7 @@ export default function EstablishmentDashboard() {
     };
   }, [user, navigate]);
 
+  // Monitor Delivery Notes
   useEffect(() => {
     todayDeliveries.forEach(d => {
       const prevNotes = prevNotesRef.current[d.id];
@@ -236,13 +232,17 @@ export default function EstablishmentDashboard() {
               const rider = db.resolveUser(d.riderId);
               const sender = line.includes('- Motoboy') ? 'Motoboy' : 'Cliente';
               const messageText = line.substring(line.indexOf(']: ') + 3);
+              const title = `Mensagem de ${sender} (Pedido #${d.orderNumber || d.id.slice(-4)})`;
               
-              sendDeviceNotification(
-                `Nova mensagem de ${sender}`,
-                `Pedido #${d.orderNumber || d.id.slice(-4)} (${rider?.name || 'Entregador'}): "${messageText}"`
-              );
-
+              sendDeviceNotification(title, `"${messageText}"`);
               playNotificationSound();
+              setActiveToast({
+                id: 'est_notes_' + Date.now(),
+                title,
+                message: messageText,
+                sender,
+                onClick: () => setNotesDeliveryId(d.id)
+              });
             }
           });
         }
@@ -250,6 +250,40 @@ export default function EstablishmentDashboard() {
       prevNotesRef.current[d.id] = d.notes || '';
     });
   }, [todayDeliveries, user]);
+
+  // Monitor Shift Schedules Chat
+  useEffect(() => {
+    todaySchedules.forEach(s => {
+      const prevChat = prevScheduleChatRef.current[s.id];
+      if (prevChat !== undefined && s.chat && s.chat !== prevChat) {
+        const prevLines = prevChat ? prevChat.split('\n') : [];
+        const currentLines = s.chat.split('\n');
+
+        if (currentLines.length > prevLines.length) {
+          const newLines = currentLines.slice(prevLines.length);
+          newLines.forEach(line => {
+            const isMe = line.includes('- Estabelecimento') || line.includes(`(${user?.name})`);
+            if (!isMe) {
+              const rider = db.resolveUser(s.riderId);
+              const messageText = line.substring(line.indexOf(']: ') + 3);
+              const title = `Mensagem no Chat de Turno (${rider?.name || 'Motoboy'})`;
+              
+              sendDeviceNotification(title, `"${messageText}"`);
+              playNotificationSound();
+              setActiveToast({
+                id: 'est_sch_' + Date.now(),
+                title,
+                message: messageText,
+                sender: rider?.name || 'Motoboy',
+                onClick: () => setActiveScheduleChatId(s.id)
+              });
+            }
+          });
+        }
+      }
+      prevScheduleChatRef.current[s.id] = s.chat || '';
+    });
+  }, [todaySchedules, user]);
 
   useEffect(() => {
     if (!establishment || !mapContainerRef.current) return;
@@ -265,9 +299,9 @@ export default function EstablishmentDashboard() {
     const defaultLat = -7.2247;
     const defaultLng = -35.8878;
 
-    const initMap = async (lat: number, lng: number) => {
+    const initMap = (lat: number, lng: number) => {
       if (mapRef.current) return;
-      const mapInstance = L.map(mapContainerRef.current!).setView([lat, lng], 17);
+      const mapInstance = L.map(mapContainerRef.current!).setView([lat, lng], 16);
       mapRef.current = mapInstance;
 
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -293,26 +327,56 @@ export default function EstablishmentDashboard() {
       if (mapRef.current) return;
       const addr = establishment.address;
 
-      let finalLat = defaultLat;
-      let finalLng = defaultLng;
-      let geocoded = false;
+      let finalLat: number | null = null;
+      let finalLng: number | null = null;
 
-      if (establishment.name.toLowerCase().includes('burgrill') && establishment.address.street === 'Rua Aprígio Veloso') {
+      if (establishment.name.toLowerCase().includes('burgrill') && addr?.street === 'Rua Aprígio Veloso') {
         finalLat = -7.2150;
         finalLng = -35.9130;
-        geocoded = true;
       }
 
-      if (!geocoded && addr) {
-        const cepClean = addr.zipCode ? addr.zipCode.replace(/\D/g, '') : '';
-        if (cepClean && KNOWN_CEPS[cepClean]) {
-          finalLat = KNOWN_CEPS[cepClean].lat;
-          finalLng = KNOWN_CEPS[cepClean].lng;
-          geocoded = true;
+      if (!finalLat && addr && addr.street && addr.city) {
+        try {
+          const fullQuery = `${addr.street} ${addr.number || ''}, ${addr.neighborhood || ''}, ${addr.city} ${addr.state || ''}, Brasil`;
+          const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(fullQuery)}&limit=1`);
+          const data = await res.json();
+          if (data && data.length > 0) {
+            finalLat = parseFloat(data[0].lat);
+            finalLng = parseFloat(data[0].lon);
+          }
+        } catch (err) {
+          console.warn('Geocoding address error:', err);
         }
       }
 
-      await initMap(finalLat, finalLng);
+      if (!finalLat && addr?.zipCode) {
+        const cepClean = addr.zipCode.replace(/\D/g, '');
+        if (KNOWN_CEPS[cepClean]) {
+          finalLat = KNOWN_CEPS[cepClean].lat;
+          finalLng = KNOWN_CEPS[cepClean].lng;
+        } else if (cepClean.length === 8) {
+          try {
+            const vRes = await fetch(`https://viacep.com.br/ws/${cepClean}/json/`);
+            const vData = await vRes.json();
+            if (vData && !vData.erro) {
+              const cepQuery = `${vData.logradouro}, ${vData.bairro}, ${vData.localidade} - ${vData.uf}, Brasil`;
+              const nRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(cepQuery)}&limit=1`);
+              const nData = await nRes.json();
+              if (nData && nData.length > 0) {
+                finalLat = parseFloat(nData[0].lat);
+                finalLng = parseFloat(nData[0].lon);
+              }
+            }
+          } catch (e) {}
+        }
+      }
+
+      if (!finalLat || !finalLng) {
+        finalLat = defaultLat;
+        finalLng = defaultLng;
+      }
+
+      initMap(finalLat, finalLng);
     };
 
     geocodeEstablishment();
@@ -333,8 +397,23 @@ export default function EstablishmentDashboard() {
     if (!currentMap) return;
 
     const allUsers = db.getUsers();
+    const now = Date.now();
+    const ONLINE_THRESHOLD_MS = 60000;
+
+    const activeRiderIdsOnMap = new Set<string>();
 
     riderLocations.forEach(loc => {
+      const lastUpdateMs = loc.updatedAt ? new Date(loc.updatedAt).getTime() : 0;
+      const isOnline = (now - lastUpdateMs) < ONLINE_THRESHOLD_MS;
+
+      if (!isOnline) {
+        if (markersRef.current[loc.riderId]) {
+          currentMap.removeLayer(markersRef.current[loc.riderId]);
+          delete markersRef.current[loc.riderId];
+        }
+        return;
+      }
+
       const isRiderInSchedule = scheduledRiders.some(r => {
         if (r.id === loc.riderId) return true;
         if (r.name.toLowerCase().trim() === loc.riderName.toLowerCase().trim()) return true;
@@ -342,7 +421,15 @@ export default function EstablishmentDashboard() {
         return locUser && locUser.email.toLowerCase() === r.email.toLowerCase();
       });
 
-      if (!isRiderInSchedule && scheduledRiders.length > 0) return;
+      if (!isRiderInSchedule && scheduledRiders.length > 0) {
+        if (markersRef.current[loc.riderId]) {
+          currentMap.removeLayer(markersRef.current[loc.riderId]);
+          delete markersRef.current[loc.riderId];
+        }
+        return;
+      }
+
+      activeRiderIdsOnMap.add(loc.riderId);
 
       const riderName = loc.riderName || 'Entregador';
       const existingMarker = markersRef.current[loc.riderId];
@@ -365,20 +452,30 @@ export default function EstablishmentDashboard() {
       }
     });
 
+    Object.keys(markersRef.current).forEach(rId => {
+      if (!activeRiderIdsOnMap.has(rId)) {
+        currentMap.removeLayer(markersRef.current[rId]);
+        delete markersRef.current[rId];
+      }
+    });
+
     if (!hasSetInitialBoundsRef.current) {
       const points: L.LatLngExpression[] = [];
       if (estCoords) points.push([estCoords.lat, estCoords.lng]);
       
       riderLocations.forEach(loc => {
-        points.push([loc.lat, loc.lng]);
+        const lastUpdateMs = loc.updatedAt ? new Date(loc.updatedAt).getTime() : 0;
+        if ((now - lastUpdateMs) < ONLINE_THRESHOLD_MS) {
+          points.push([loc.lat, loc.lng]);
+        }
       });
 
       if (points.length >= 2) {
         const bounds = L.latLngBounds(points);
-        currentMap.fitBounds(bounds, { padding: [50, 50], maxZoom: 17 });
+        currentMap.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
         hasSetInitialBoundsRef.current = true;
       } else if (points.length === 1 && !hasCenteredEstRef.current) {
-        currentMap.setView(points[0], 17);
+        currentMap.setView(points[0], 16);
         hasCenteredEstRef.current = true;
       }
     }
@@ -388,15 +485,23 @@ export default function EstablishmentDashboard() {
     const currentMap = mapRef.current;
     if (!currentMap) return;
 
+    const now = Date.now();
+    const ONLINE_THRESHOLD_MS = 60000;
+
     const points: L.LatLngExpression[] = [];
     if (estCoords) points.push([estCoords.lat, estCoords.lng]);
-    riderLocations.forEach(loc => points.push([loc.lat, loc.lng]));
+    riderLocations.forEach(loc => {
+      const lastUpdateMs = loc.updatedAt ? new Date(loc.updatedAt).getTime() : 0;
+      if ((now - lastUpdateMs) < ONLINE_THRESHOLD_MS) {
+        points.push([loc.lat, loc.lng]);
+      }
+    });
 
     if (points.length >= 2) {
       const bounds = L.latLngBounds(points);
-      currentMap.fitBounds(bounds, { padding: [50, 50], maxZoom: 17 });
+      currentMap.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
     } else if (points.length === 1) {
-      currentMap.setView(points[0], 17);
+      currentMap.setView(points[0], 16);
     }
   };
 
@@ -472,14 +577,6 @@ export default function EstablishmentDashboard() {
     loadData();
   };
 
-  const handleCopyTrackingLink = (deliveryId: string) => {
-    const link = `${window.location.origin}/#/track/${deliveryId}`;
-    navigator.clipboard.writeText(link).then(() => {
-      setCopiedId(deliveryId);
-      setTimeout(() => setCopiedId(null), 2000);
-    });
-  };
-
   const totalEstEarningsToday = todayDeliveries
     .filter(d => d.status === 'active')
     .reduce((sum, d) => sum + Number(d.value || 0), 0);
@@ -488,7 +585,9 @@ export default function EstablishmentDashboard() {
   const activeScheduleChat = todaySchedules.find(s => s.id === activeScheduleChatId) || null;
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col">
+    <div className="min-h-screen bg-slate-50 flex flex-col relative">
+      <ChatToastBanner toast={activeToast} onClose={() => setActiveToast(null)} />
+
       <header className="bg-slate-900 text-white shadow-md sticky top-0 z-20">
         <div className="max-w-7xl mx-auto px-4 py-3 flex justify-between items-center">
           <div className="flex items-center space-x-3">
@@ -575,7 +674,11 @@ export default function EstablishmentDashboard() {
                 {scheduledRiders.map(rider => {
                   const riderDeliveries = todayDeliveries.filter(d => d.riderId === rider.id && d.status === 'active');
                   const total = riderDeliveries.reduce((sum, d) => sum + Number(d.value || 0), 0);
-                  const isOnline = riderLocations.some(l => l.riderId === rider.id || l.riderName.toLowerCase().trim() === rider.name.toLowerCase().trim());
+                  const isOnline = riderLocations.some(l => {
+                    const isSameRider = l.riderId === rider.id || l.riderName.toLowerCase().trim() === rider.name.toLowerCase().trim();
+                    const isRecent = Date.now() - new Date(l.updatedAt).getTime() < 60000;
+                    return isSameRider && isRecent;
+                  });
                   const riderSchedule = todaySchedules.find(s => s.riderId === rider.id);
 
                   return (
@@ -613,6 +716,67 @@ export default function EstablishmentDashboard() {
                           <p className="text-xs text-slate-400">Total</p>
                           <p className="text-sm font-bold text-emerald-600">R$ {Number(total || 0).toFixed(2)}</p>
                         </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Histórico de Corridas de Hoje */}
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
+            <h3 className="text-lg font-bold text-slate-800 flex items-center justify-between">
+              <span className="flex items-center gap-2">
+                <CheckCircle className="h-5 w-5 text-indigo-600" />
+                <span>Corridas Lançadas Hoje</span>
+              </span>
+              <span className="text-xs text-slate-400 font-normal">{todayDeliveries.length} lançamento(s)</span>
+            </h3>
+
+            {todayDeliveries.length === 0 ? (
+              <div className="text-center py-8 text-slate-400 text-sm">
+                Nenhuma corrida lançada hoje.
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-100">
+                {todayDeliveries.map(del => {
+                  const rider = scheduledRiders.find(r => r.id === del.riderId) || db.resolveUser(del.riderId);
+                  return (
+                    <div key={del.id} className="py-3 flex items-center justify-between gap-3">
+                      <div>
+                        <div className="flex items-center space-x-2">
+                          <p className="font-bold text-slate-800 text-sm">{rider?.name || 'Motoboy'}</p>
+                          {del.orderNumber && (
+                            <span className="bg-slate-100 text-slate-500 text-[10px] font-bold px-1.5 py-0.5 rounded">
+                              #{del.orderNumber}
+                            </span>
+                          )}
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                            del.status === 'active' ? 'bg-emerald-100 text-emerald-800' :
+                            del.status === 'pending' ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-red-800'
+                          }`}>
+                            {del.status === 'active' ? 'Aprovada' : del.status === 'pending' ? 'Pendente' : 'Cancelada'}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1">
+                          <Clock className="h-3 w-3" />
+                          <span>{del.time}</span>
+                        </p>
+                      </div>
+
+                      <div className="flex items-center space-x-2">
+                        <button
+                          onClick={() => setNotesDeliveryId(del.id)}
+                          className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors flex items-center gap-1 text-xs font-semibold"
+                          title="Observações da Corrida"
+                        >
+                          <MessageSquare className="h-4 w-4" />
+                          <span className="hidden sm:inline">Observações</span>
+                        </button>
+                        <span className="font-bold text-emerald-600 text-sm">
+                          R$ {Number(del.value || 0).toFixed(2)}
+                        </span>
                       </div>
                     </div>
                   );
@@ -693,6 +857,16 @@ export default function EstablishmentDashboard() {
                   value={deliveryForm.value}
                   onChange={(e) => setDeliveryForm({ ...deliveryForm, value: e.target.value })}
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Observações / Instruções (Opcional)</label>
+                <textarea
+                  placeholder="Ex: Troco para R$ 50,00, condomínio bloco B..."
+                  value={deliveryForm.notes}
+                  onChange={(e) => setDeliveryForm({ ...deliveryForm, notes: e.target.value })}
+                  rows={2}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none resize-none"
                 />
               </div>
               <div className="flex justify-end space-x-2 pt-3">
