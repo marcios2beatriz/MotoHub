@@ -16,14 +16,14 @@ import {
   Navigation,
   MessageSquare,
   Clock,
-  CheckCircle,
-  AlertCircle
+  CheckCircle
 } from 'lucide-react';
 
 import L from 'leaflet';
 import DeliveryNotesModal from '../components/DeliveryNotesModal';
 import ScheduleChatModal from '../components/ScheduleChatModal';
-import { sendDeviceNotification, playNotificationSound } from '../utils/notifications';
+import ChatToastBanner, { ChatToast } from '../components/ChatToastBanner';
+import { sendDeviceNotification, playNotificationSound, requestNotificationPermission } from '../utils/notifications';
 
 const KNOWN_CEPS: { [key: string]: { lat: number; lng: number } } = {
   '58433488': { lat: -7.2311, lng: -35.9245 },
@@ -50,10 +50,12 @@ export default function EstablishmentDashboard() {
   const [todayDeliveries, setTodayDeliveries] = useState<Delivery[]>([]);
   const [riderLocations, setRiderLocations] = useState<RiderLocation[]>([]);
   const [estCoords, setEstCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [activeToast, setActiveToast] = useState<ChatToast | null>(null);
 
   const [isMapExpanded, setIsMapExpanded] = useState(false);
 
   const prevNotesRef = useRef<Record<string, string>>({});
+  const prevScheduleChatRef = useRef<Record<string, string>>({});
 
   const [showDeliveryModal, setShowDeliveryModal] = useState(false);
   const [editingDelivery, setEditingDelivery] = useState<Delivery | null>(null);
@@ -195,6 +197,7 @@ export default function EstablishmentDashboard() {
       navigate('/login');
       return;
     }
+    requestNotificationPermission();
 
     db.pullFromSupabase().then(() => loadData());
 
@@ -213,6 +216,7 @@ export default function EstablishmentDashboard() {
     };
   }, [user, navigate]);
 
+  // Monitor Delivery Notes
   useEffect(() => {
     todayDeliveries.forEach(d => {
       const prevNotes = prevNotesRef.current[d.id];
@@ -228,13 +232,17 @@ export default function EstablishmentDashboard() {
               const rider = db.resolveUser(d.riderId);
               const sender = line.includes('- Motoboy') ? 'Motoboy' : 'Cliente';
               const messageText = line.substring(line.indexOf(']: ') + 3);
+              const title = `Mensagem de ${sender} (Pedido #${d.orderNumber || d.id.slice(-4)})`;
               
-              sendDeviceNotification(
-                `Nova mensagem de ${sender}`,
-                `Pedido #${d.orderNumber || d.id.slice(-4)} (${rider?.name || 'Entregador'}): "${messageText}"`
-              );
-
+              sendDeviceNotification(title, `"${messageText}"`);
               playNotificationSound();
+              setActiveToast({
+                id: 'est_notes_' + Date.now(),
+                title,
+                message: messageText,
+                sender,
+                onClick: () => setNotesDeliveryId(d.id)
+              });
             }
           });
         }
@@ -242,6 +250,40 @@ export default function EstablishmentDashboard() {
       prevNotesRef.current[d.id] = d.notes || '';
     });
   }, [todayDeliveries, user]);
+
+  // Monitor Shift Schedules Chat
+  useEffect(() => {
+    todaySchedules.forEach(s => {
+      const prevChat = prevScheduleChatRef.current[s.id];
+      if (prevChat !== undefined && s.chat && s.chat !== prevChat) {
+        const prevLines = prevChat ? prevChat.split('\n') : [];
+        const currentLines = s.chat.split('\n');
+
+        if (currentLines.length > prevLines.length) {
+          const newLines = currentLines.slice(prevLines.length);
+          newLines.forEach(line => {
+            const isMe = line.includes('- Estabelecimento') || line.includes(`(${user?.name})`);
+            if (!isMe) {
+              const rider = db.resolveUser(s.riderId);
+              const messageText = line.substring(line.indexOf(']: ') + 3);
+              const title = `Mensagem no Chat de Turno (${rider?.name || 'Motoboy'})`;
+              
+              sendDeviceNotification(title, `"${messageText}"`);
+              playNotificationSound();
+              setActiveToast({
+                id: 'est_sch_' + Date.now(),
+                title,
+                message: messageText,
+                sender: rider?.name || 'Motoboy',
+                onClick: () => setActiveScheduleChatId(s.id)
+              });
+            }
+          });
+        }
+      }
+      prevScheduleChatRef.current[s.id] = s.chat || '';
+    });
+  }, [todaySchedules, user]);
 
   useEffect(() => {
     if (!establishment || !mapContainerRef.current) return;
@@ -543,7 +585,9 @@ export default function EstablishmentDashboard() {
   const activeScheduleChat = todaySchedules.find(s => s.id === activeScheduleChatId) || null;
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col">
+    <div className="min-h-screen bg-slate-50 flex flex-col relative">
+      <ChatToastBanner toast={activeToast} onClose={() => setActiveToast(null)} />
+
       <header className="bg-slate-900 text-white shadow-md sticky top-0 z-20">
         <div className="max-w-7xl mx-auto px-4 py-3 flex justify-between items-center">
           <div className="flex items-center space-x-3">

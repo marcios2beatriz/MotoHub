@@ -15,20 +15,19 @@ import {
   Clock, 
   AlertCircle,
   History,
-  Filter,
   X,
   Radio,
   Plus,
   Share2,
   MessageSquare,
   ShieldAlert,
-  Check,
-  Search
+  Check
 } from 'lucide-react';
 import DeliveryNotesModal from '../components/DeliveryNotesModal';
 import CustomerChatModal from '../components/CustomerChatModal';
 import ScheduleChatModal from '../components/ScheduleChatModal';
-import { sendDeviceNotification, playNotificationSound } from '../utils/notifications';
+import ChatToastBanner, { ChatToast } from '../components/ChatToastBanner';
+import { sendDeviceNotification, playNotificationSound, requestNotificationPermission } from '../utils/notifications';
 
 export default function RiderDashboard() {
   const navigate = useNavigate();
@@ -41,6 +40,7 @@ export default function RiderDashboard() {
   const [gpsStatus, setGpsStatus] = useState<'requesting' | 'active' | 'error' | 'denied'>('requesting');
   const [gpsCoords, setGpsCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [activeToast, setActiveToast] = useState<ChatToast | null>(null);
   
   const watchIdRef = useRef<number | null>(null);
   const fallbackIntervalRef = useRef<any>(null);
@@ -118,6 +118,7 @@ export default function RiderDashboard() {
       navigate('/login');
       return;
     }
+    requestNotificationPermission();
     loadData();
 
     const interval = setInterval(() => {
@@ -127,6 +128,7 @@ export default function RiderDashboard() {
     return () => clearInterval(interval);
   }, [user, navigate, activeTab]);
 
+  // Monitor Delivery Notes Chat
   useEffect(() => {
     deliveries.forEach(d => {
       const prevNotes = prevNotesRef.current[d.id];
@@ -140,22 +142,28 @@ export default function RiderDashboard() {
             const isMe = line.includes('- Motoboy') || line.includes(`(${user?.name})`);
             if (!isMe) {
               const est = resolveEst(d.establishmentId);
+              const sender = line.includes('- Estabelecimento') ? 'Estabelecimento' : 'Admin';
               const messageText = line.substring(line.indexOf(']: ') + 3);
+              const title = `Mensagem de ${sender} (Pedido #${d.orderNumber || d.id.slice(-4)})`;
               
-              sendDeviceNotification(
-                `Mensagem do Estabelecimento`,
-                `Pedido #${d.orderNumber || d.id.slice(-4)} (${est?.name || 'Corrida'}): "${messageText}"`
-              );
-
+              sendDeviceNotification(title, `"${messageText}"`);
               playNotificationSound();
+              setActiveToast({
+                id: 'notes_' + Date.now(),
+                title,
+                message: messageText,
+                sender,
+                onClick: () => setNotesDeliveryId(d.id)
+              });
             }
           });
         }
       }
       prevNotesRef.current[d.id] = d.notes || '';
     });
-  }, [deliveries, user, establishments]);
+  }, [deliveries, user]);
 
+  // Monitor Customer Chat
   useEffect(() => {
     deliveries.forEach(d => {
       const prevChat = prevChatRef.current[d.id];
@@ -169,13 +177,17 @@ export default function RiderDashboard() {
             const isMe = line.includes('- Motoboy') || line.includes(`(${user?.name})`);
             if (!isMe) {
               const messageText = line.substring(line.indexOf(']: ') + 3);
+              const title = `Mensagem do Cliente (Pedido #${d.orderNumber || d.id.slice(-4)})`;
               
-              sendDeviceNotification(
-                `Mensagem do Cliente`,
-                `Pedido #${d.orderNumber || d.id.slice(-4)}: "${messageText}"`
-              );
-
+              sendDeviceNotification(title, `"${messageText}"`);
               playNotificationSound();
+              setActiveToast({
+                id: 'customer_' + Date.now(),
+                title,
+                message: messageText,
+                sender: 'Cliente',
+                onClick: () => setCustomerChatDeliveryId(d.id)
+              });
             }
           });
         }
@@ -184,6 +196,7 @@ export default function RiderDashboard() {
     });
   }, [deliveries, user]);
 
+  // Monitor Schedule Shift Chat
   useEffect(() => {
     schedules.forEach(s => {
       const prevChat = prevScheduleChatRef.current[s.id];
@@ -198,20 +211,24 @@ export default function RiderDashboard() {
             if (!isMe) {
               const est = resolveEst(s.establishmentId);
               const messageText = line.substring(line.indexOf(']: ') + 3);
+              const title = `Aviso no Turno (${est?.name || 'Estabelecimento'})`;
               
-              sendDeviceNotification(
-                `Mensagem de Turno de ${est?.name || 'Estabelecimento'}`,
-                `"${messageText}"`
-              );
-
+              sendDeviceNotification(title, `"${messageText}"`);
               playNotificationSound();
+              setActiveToast({
+                id: 'sch_' + Date.now(),
+                title,
+                message: messageText,
+                sender: est?.name || 'Estabelecimento',
+                onClick: () => setActiveScheduleChatId(s.id)
+              });
             }
           });
         }
       }
       prevScheduleChatRef.current[s.id] = s.chat || '';
     });
-  }, [schedules, user, establishments]);
+  }, [schedules, user]);
 
   useEffect(() => {
     const handleSyncComplete = () => {
@@ -580,7 +597,9 @@ export default function RiderDashboard() {
   const activeScheduleChat = schedules.find(s => s.id === activeScheduleChatId) || null;
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-16">
+    <div className="min-h-screen bg-slate-50 pb-16 relative">
+      <ChatToastBanner toast={activeToast} onClose={() => setActiveToast(null)} />
+
       <header className="bg-indigo-600 text-white shadow-md sticky top-0 z-10">
         <div className="max-w-4xl mx-auto px-4 py-4 flex justify-between items-center">
           <div>
