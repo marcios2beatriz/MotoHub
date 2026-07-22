@@ -2,26 +2,17 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { db, User, Establishment, Schedule, Delivery, RiderLocation, Notification } from '../utils/db';
+import { db, User, Establishment, Schedule, Delivery, RiderLocation } from '../utils/db';
 import { 
   Bike, 
   LogOut, 
   Plus, 
-  Trash2, 
-  Clock, 
   DollarSign, 
-  MapPin, 
   Users, 
-  TrendingUp, 
   Map as MapIcon,
-  RefreshCw,
-  Hash,
-  Check,
   X,
-  Edit2,
   Maximize2,
   Minimize2,
-  Share2,
   Navigation,
   MessageSquare
 } from 'lucide-react';
@@ -56,12 +47,10 @@ export default function EstablishmentDashboard() {
   const [todayDeliveries, setTodayDeliveries] = useState<Delivery[]>([]);
   const [riderLocations, setRiderLocations] = useState<RiderLocation[]>([]);
   const [estCoords, setEstCoords] = useState<{ lat: number; lng: number } | null>(null);
-  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const [isMapExpanded, setIsMapExpanded] = useState(false);
 
   const prevNotesRef = useRef<Record<string, string>>({});
-  const prevScheduleChatRef = useRef<Record<string, string>>({});
 
   const [showDeliveryModal, setShowDeliveryModal] = useState(false);
   const [editingDelivery, setEditingDelivery] = useState<Delivery | null>(null);
@@ -87,7 +76,7 @@ export default function EstablishmentDashboard() {
     navigate('/login');
   };
 
-  const isScheduleForCurrentEst = (s: Schedule, currentEstName: string, matchingEstIds: string[], allEsts: Establishment[]) => {
+  const isScheduleForCurrentEst = (s: Schedule, currentEstName: string, matchingEstIds: string[]) => {
     if (!currentEstName) return false;
     if (matchingEstIds.includes(s.establishmentId)) return true;
     const destEst = db.resolveEstablishment(s.establishmentId);
@@ -101,7 +90,7 @@ export default function EstablishmentDashboard() {
     return false;
   };
 
-  const isDeliveryForCurrentEst = (d: Delivery, currentEstName: string, matchingEstIds: string[], allEsts: Establishment[]) => {
+  const isDeliveryForCurrentEst = (d: Delivery, currentEstName: string, matchingEstIds: string[]) => {
     if (!currentEstName) return false;
     if (matchingEstIds.includes(d.establishmentId)) return true;
     
@@ -176,7 +165,7 @@ export default function EstablishmentDashboard() {
     const todayStr = db.getLocalDateString();
     const allSchedules = db.getSchedules();
     
-    const estSchedules = allSchedules.filter(s => isScheduleForCurrentEst(s, currentEstName, matchingEstIds, allEsts) && s.date === todayStr);
+    const estSchedules = allSchedules.filter(s => isScheduleForCurrentEst(s, currentEstName, matchingEstIds) && s.date === todayStr);
     setTodaySchedules(estSchedules);
 
     const allUsers = db.getUsers();
@@ -191,7 +180,7 @@ export default function EstablishmentDashboard() {
     setScheduledRiders(riders);
 
     const allDeliveries = db.getDeliveries();
-    const estDeliveriesToday = allDeliveries.filter(d => isDeliveryForCurrentEst(d, currentEstName, matchingEstIds, allEsts) && d.date === todayStr);
+    const estDeliveriesToday = allDeliveries.filter(d => isDeliveryForCurrentEst(d, currentEstName, matchingEstIds) && d.date === todayStr);
     setTodayDeliveries(estDeliveriesToday);
 
     const locations = db.getRiderLocations();
@@ -265,9 +254,9 @@ export default function EstablishmentDashboard() {
     const defaultLat = -7.2247;
     const defaultLng = -35.8878;
 
-    const initMap = async (lat: number, lng: number) => {
+    const initMap = (lat: number, lng: number) => {
       if (mapRef.current) return;
-      const mapInstance = L.map(mapContainerRef.current!).setView([lat, lng], 17);
+      const mapInstance = L.map(mapContainerRef.current!).setView([lat, lng], 16);
       mapRef.current = mapInstance;
 
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -293,26 +282,60 @@ export default function EstablishmentDashboard() {
       if (mapRef.current) return;
       const addr = establishment.address;
 
-      let finalLat = defaultLat;
-      let finalLng = defaultLng;
-      let geocoded = false;
+      let finalLat: number | null = null;
+      let finalLng: number | null = null;
 
-      if (establishment.name.toLowerCase().includes('burgrill') && establishment.address.street === 'Rua Aprígio Veloso') {
+      // 1. Check known overrides
+      if (establishment.name.toLowerCase().includes('burgrill') && addr?.street === 'Rua Aprígio Veloso') {
         finalLat = -7.2150;
         finalLng = -35.9130;
-        geocoded = true;
       }
 
-      if (!geocoded && addr) {
-        const cepClean = addr.zipCode ? addr.zipCode.replace(/\D/g, '') : '';
-        if (cepClean && KNOWN_CEPS[cepClean]) {
-          finalLat = KNOWN_CEPS[cepClean].lat;
-          finalLng = KNOWN_CEPS[cepClean].lng;
-          geocoded = true;
+      // 2. Try Nominatim Geocoding API with complete street address
+      if (!finalLat && addr && addr.street && addr.city) {
+        try {
+          const fullQuery = `${addr.street} ${addr.number || ''}, ${addr.neighborhood || ''}, ${addr.city} ${addr.state || ''}, Brasil`;
+          const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(fullQuery)}&limit=1`);
+          const data = await res.json();
+          if (data && data.length > 0) {
+            finalLat = parseFloat(data[0].lat);
+            finalLng = parseFloat(data[0].lon);
+          }
+        } catch (err) {
+          console.warn('Geocoding address error:', err);
         }
       }
 
-      await initMap(finalLat, finalLng);
+      // 3. Fallback to CEP search if full address geocode failed
+      if (!finalLat && addr?.zipCode) {
+        const cepClean = addr.zipCode.replace(/\D/g, '');
+        if (KNOWN_CEPS[cepClean]) {
+          finalLat = KNOWN_CEPS[cepClean].lat;
+          finalLng = KNOWN_CEPS[cepClean].lng;
+        } else if (cepClean.length === 8) {
+          try {
+            const vRes = await fetch(`https://viacep.com.br/ws/${cepClean}/json/`);
+            const vData = await vRes.json();
+            if (vData && !vData.erro) {
+              const cepQuery = `${vData.logradouro}, ${vData.bairro}, ${vData.localidade} - ${vData.uf}, Brasil`;
+              const nRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(cepQuery)}&limit=1`);
+              const nData = await nRes.json();
+              if (nData && nData.length > 0) {
+                finalLat = parseFloat(nData[0].lat);
+                finalLng = parseFloat(nData[0].lon);
+              }
+            }
+          } catch (e) {}
+        }
+      }
+
+      // Fallback to default coordinates
+      if (!finalLat || !finalLng) {
+        finalLat = defaultLat;
+        finalLng = defaultLng;
+      }
+
+      initMap(finalLat, finalLng);
     };
 
     geocodeEstablishment();
@@ -333,8 +356,24 @@ export default function EstablishmentDashboard() {
     if (!currentMap) return;
 
     const allUsers = db.getUsers();
+    const now = Date.now();
+    const ONLINE_THRESHOLD_MS = 60000; // Rider is offline if no update for 60 seconds
+
+    const activeRiderIdsOnMap = new Set<string>();
 
     riderLocations.forEach(loc => {
+      const lastUpdateMs = loc.updatedAt ? new Date(loc.updatedAt).getTime() : 0;
+      const isOnline = (now - lastUpdateMs) < ONLINE_THRESHOLD_MS;
+
+      // If rider is offline, remove marker
+      if (!isOnline) {
+        if (markersRef.current[loc.riderId]) {
+          currentMap.removeLayer(markersRef.current[loc.riderId]);
+          delete markersRef.current[loc.riderId];
+        }
+        return;
+      }
+
       const isRiderInSchedule = scheduledRiders.some(r => {
         if (r.id === loc.riderId) return true;
         if (r.name.toLowerCase().trim() === loc.riderName.toLowerCase().trim()) return true;
@@ -342,7 +381,15 @@ export default function EstablishmentDashboard() {
         return locUser && locUser.email.toLowerCase() === r.email.toLowerCase();
       });
 
-      if (!isRiderInSchedule && scheduledRiders.length > 0) return;
+      if (!isRiderInSchedule && scheduledRiders.length > 0) {
+        if (markersRef.current[loc.riderId]) {
+          currentMap.removeLayer(markersRef.current[loc.riderId]);
+          delete markersRef.current[loc.riderId];
+        }
+        return;
+      }
+
+      activeRiderIdsOnMap.add(loc.riderId);
 
       const riderName = loc.riderName || 'Entregador';
       const existingMarker = markersRef.current[loc.riderId];
@@ -365,20 +412,31 @@ export default function EstablishmentDashboard() {
       }
     });
 
+    // Remove any markers for riders that are no longer online/active
+    Object.keys(markersRef.current).forEach(rId => {
+      if (!activeRiderIdsOnMap.has(rId)) {
+        currentMap.removeLayer(markersRef.current[rId]);
+        delete markersRef.current[rId];
+      }
+    });
+
     if (!hasSetInitialBoundsRef.current) {
       const points: L.LatLngExpression[] = [];
       if (estCoords) points.push([estCoords.lat, estCoords.lng]);
       
       riderLocations.forEach(loc => {
-        points.push([loc.lat, loc.lng]);
+        const lastUpdateMs = loc.updatedAt ? new Date(loc.updatedAt).getTime() : 0;
+        if ((now - lastUpdateMs) < ONLINE_THRESHOLD_MS) {
+          points.push([loc.lat, loc.lng]);
+        }
       });
 
       if (points.length >= 2) {
         const bounds = L.latLngBounds(points);
-        currentMap.fitBounds(bounds, { padding: [50, 50], maxZoom: 17 });
+        currentMap.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
         hasSetInitialBoundsRef.current = true;
       } else if (points.length === 1 && !hasCenteredEstRef.current) {
-        currentMap.setView(points[0], 17);
+        currentMap.setView(points[0], 16);
         hasCenteredEstRef.current = true;
       }
     }
@@ -388,15 +446,23 @@ export default function EstablishmentDashboard() {
     const currentMap = mapRef.current;
     if (!currentMap) return;
 
+    const now = Date.now();
+    const ONLINE_THRESHOLD_MS = 60000;
+
     const points: L.LatLngExpression[] = [];
     if (estCoords) points.push([estCoords.lat, estCoords.lng]);
-    riderLocations.forEach(loc => points.push([loc.lat, loc.lng]));
+    riderLocations.forEach(loc => {
+      const lastUpdateMs = loc.updatedAt ? new Date(loc.updatedAt).getTime() : 0;
+      if ((now - lastUpdateMs) < ONLINE_THRESHOLD_MS) {
+        points.push([loc.lat, loc.lng]);
+      }
+    });
 
     if (points.length >= 2) {
       const bounds = L.latLngBounds(points);
-      currentMap.fitBounds(bounds, { padding: [50, 50], maxZoom: 17 });
+      currentMap.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
     } else if (points.length === 1) {
-      currentMap.setView(points[0], 17);
+      currentMap.setView(points[0], 16);
     }
   };
 
@@ -470,14 +536,6 @@ export default function EstablishmentDashboard() {
     } : s);
     db.setSchedules(updated);
     loadData();
-  };
-
-  const handleCopyTrackingLink = (deliveryId: string) => {
-    const link = `${window.location.origin}/#/track/${deliveryId}`;
-    navigator.clipboard.writeText(link).then(() => {
-      setCopiedId(deliveryId);
-      setTimeout(() => setCopiedId(null), 2000);
-    });
   };
 
   const totalEstEarningsToday = todayDeliveries
@@ -575,7 +633,11 @@ export default function EstablishmentDashboard() {
                 {scheduledRiders.map(rider => {
                   const riderDeliveries = todayDeliveries.filter(d => d.riderId === rider.id && d.status === 'active');
                   const total = riderDeliveries.reduce((sum, d) => sum + Number(d.value || 0), 0);
-                  const isOnline = riderLocations.some(l => l.riderId === rider.id || l.riderName.toLowerCase().trim() === rider.name.toLowerCase().trim());
+                  const isOnline = riderLocations.some(l => {
+                    const isSameRider = l.riderId === rider.id || l.riderName.toLowerCase().trim() === rider.name.toLowerCase().trim();
+                    const isRecent = Date.now() - new Date(l.updatedAt).getTime() < 60000;
+                    return isSameRider && isRecent;
+                  });
                   const riderSchedule = todaySchedules.find(s => s.riderId === rider.id);
 
                   return (

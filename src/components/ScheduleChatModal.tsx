@@ -24,7 +24,6 @@ export default function ScheduleChatModal({
   const [newMessage, setNewMessage] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll para a última mensagem
   useEffect(() => {
     if (isOpen) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -38,7 +37,7 @@ export default function ScheduleChatModal({
     if (!newMessage.trim()) return;
 
     const now = new Date();
-    const timeStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const timeStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     const dateStr = now.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
     
     const senderLabel = userRole === 'establishment' ? 'Estabelecimento' : userRole === 'rider' ? 'Motoboy' : 'Admin';
@@ -70,7 +69,6 @@ export default function ScheduleChatModal({
           </button>
         </div>
 
-        {/* Histórico de Mensagens */}
         <div className="flex-1 overflow-y-auto space-y-2 p-2 bg-slate-50 rounded-lg min-h-[200px] max-h-[400px]">
           {messages.length === 0 ? (
             <div className="text-center py-12 text-slate-400 text-xs">
@@ -112,7 +110,6 @@ export default function ScheduleChatModal({
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Campo de Envio */}
         <form onSubmit={handleSend} className="flex gap-2 pt-2 border-t border-slate-100">
           <input
             type="text"

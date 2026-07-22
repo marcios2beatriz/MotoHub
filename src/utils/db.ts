@@ -118,16 +118,31 @@ const saveMissingColumnsCache = (cache: Record<string, string[]>) => {
   localStorage.setItem(KEYS.MISSING_COLUMNS, JSON.stringify(cache));
 };
 
-// Helper para mesclar mensagens de chat sem duplicação de linhas
+// Helper para mesclar mensagens de chat preservando mensagens repetidas enviadas em momentos diferentes
 function mergeChatStrings(localChat: string | undefined, remoteChat: string | undefined): string {
   if (!localChat) return remoteChat || '';
   if (!remoteChat) return localChat || '';
+  if (localChat === remoteChat) return localChat;
   
   const localLines = localChat.split('\n').map(l => l.trim()).filter(Boolean);
   const remoteLines = remoteChat.split('\n').map(l => l.trim()).filter(Boolean);
   
-  const uniqueLines = Array.from(new Set([...localLines, ...remoteLines]));
-  return uniqueLines.join('\n');
+  const merged: string[] = [];
+  const seen = new Set<string>();
+  
+  localLines.forEach(l => {
+    merged.push(l);
+    seen.add(l);
+  });
+  
+  remoteLines.forEach(l => {
+    if (!seen.has(l)) {
+      merged.push(l);
+      seen.add(l);
+    }
+  });
+
+  return merged.join('\n');
 }
 
 function isAddressEmptyOrPlaceholder(addr: any): boolean {
@@ -242,7 +257,6 @@ export const db = {
   setSchedules(schedules: Schedule[]) {
     localStorage.setItem(KEYS.SCHEDULES, JSON.stringify(schedules));
     schedules.forEach(s => {
-      // Serializa o chat em JSON no campo created_by para garantia de sincronização multiplataforma
       const serializedCreatedBy = JSON.stringify({
         createdBy: s.createdBy || '',
         chat: s.chat || '',
@@ -273,7 +287,6 @@ export const db = {
   setDeliveries(deliveries: Delivery[]) {
     localStorage.setItem(KEYS.DELIVERIES, JSON.stringify(deliveries));
     deliveries.forEach(d => {
-      // Serializa orderNumber, notes, customerChat no campo order_number para envio 100% garantido
       const serializedOrderNumber = JSON.stringify({
         orderNumber: d.orderNumber || '',
         notes: d.notes || '',

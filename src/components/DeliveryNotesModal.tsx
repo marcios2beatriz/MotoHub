@@ -24,7 +24,6 @@ export default function DeliveryNotesModal({
   const [newMessage, setNewMessage] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll para a última mensagem
   useEffect(() => {
     if (isOpen && !delivery?.status?.includes('rejected')) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -33,7 +32,6 @@ export default function DeliveryNotesModal({
 
   if (!isOpen || !delivery) return null;
 
-  // Calcula se o chat já expirou (10 horas desde o lançamento da corrida)
   const deliveryDateTime = new Date(`${delivery.date}T${delivery.time}:00`);
   const timeDifferenceMs = Date.now() - deliveryDateTime.getTime();
   const tenHoursInMs = 10 * 60 * 60 * 1000;
@@ -50,7 +48,7 @@ export default function DeliveryNotesModal({
     if (!newMessage.trim()) return;
 
     const now = new Date();
-    const timeStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const timeStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     const dateStr = now.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
     
     const senderLabel = userRole === 'establishment' ? 'Estabelecimento' : userRole === 'rider' ? 'Motoboy' : 'Admin';
@@ -66,7 +64,6 @@ export default function DeliveryNotesModal({
 
   const messages = delivery.notes ? delivery.notes.split('\n') : [];
 
-  // Extrai a justificativa de rejeição de forma amigável (somente o motivo)
   const getRejectionJustification = () => {
     if (!delivery.notes) return 'Não especificado';
     if (delivery.notes.includes('Rejeitado:')) {
@@ -97,7 +94,6 @@ export default function DeliveryNotesModal({
         </div>
 
         {isRejected ? (
-          /* Se rejeitado, exibe APENAS a justificativa de rejeição de forma limpa e direta */
           <div className="flex-1 flex flex-col justify-center items-center py-8 px-4 text-center space-y-4">
             <div className="p-4 bg-red-50 rounded-full text-red-600">
               <AlertCircle className="h-12 w-12" />
@@ -113,7 +109,6 @@ export default function DeliveryNotesModal({
             </p>
           </div>
         ) : (
-          /* Caso contrário, exibe o histórico completo do chat e campo de envio */
           <>
             {isExpired && (
               <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-start gap-2 text-amber-800 text-xs">
@@ -125,7 +120,6 @@ export default function DeliveryNotesModal({
               </div>
             )}
 
-            {/* Histórico de Mensagens */}
             <div className="flex-1 overflow-y-auto space-y-2 p-2 bg-slate-50 rounded-lg min-h-[200px] max-h-[400px]">
               {messages.length === 0 ? (
                 <div className="text-center py-12 text-slate-400 text-xs">
@@ -167,7 +161,6 @@ export default function DeliveryNotesModal({
               <div ref={messagesEndRef} />
             </div>
 
-            {/* Campo de Envio */}
             <form onSubmit={handleSend} className="flex gap-2 pt-2 border-t border-slate-100">
               <input
                 type="text"

@@ -22,7 +22,6 @@ export default function CustomerChatModal({
   const [newMessage, setNewMessage] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll para a última mensagem
   useEffect(() => {
     if (isOpen && !delivery?.status?.includes('rejected')) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -31,10 +30,9 @@ export default function CustomerChatModal({
 
   if (!isOpen || !delivery) return null;
 
-  // Calcula se o chat já expirou (2 horas desde o lançamento da corrida)
   const deliveryDateTime = new Date(`${delivery.date}T${delivery.time}:00`);
   const timeDifferenceMs = Date.now() - deliveryDateTime.getTime();
-  const twoHoursInMs = 120 * 60 * 1000; // 2h
+  const twoHoursInMs = 120 * 60 * 1000;
   const isExpired = timeDifferenceMs > twoHoursInMs;
   const isRejected = delivery.status === 'rejected';
   const isBlocked = isExpired || isRejected;
@@ -53,7 +51,6 @@ export default function CustomerChatModal({
 
   const messages = delivery.customerChat ? delivery.customerChat.split('\n') : [];
 
-  // Extrai a justificativa de rejeição de forma amigável
   const getRejectionJustification = () => {
     if (!delivery.notes) return 'Não especificado';
     if (delivery.notes.includes('Rejeitado:')) {
@@ -70,7 +67,6 @@ export default function CustomerChatModal({
   return (
     <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center p-0 sm:p-4 z-50">
       <div className="bg-white rounded-t-2xl sm:rounded-xl max-w-md w-full p-6 space-y-4 shadow-2xl flex flex-col h-[80vh] sm:h-[600px]">
-        {/* Header */}
         <div className="flex justify-between items-center border-b border-slate-100 pb-3">
           <div className="flex items-center gap-2">
             <MessageSquare className="h-5 w-5 text-indigo-600" />
@@ -87,7 +83,6 @@ export default function CustomerChatModal({
         </div>
 
         {isRejected ? (
-          /* Se rejeitado, exibe APENAS a justificativa de rejeição de forma limpa e direta */
           <div className="flex-1 flex flex-col justify-center items-center py-8 px-4 text-center space-y-4">
             <div className="p-4 bg-red-50 rounded-full text-red-600">
               <AlertCircle className="h-12 w-12" />
@@ -103,7 +98,6 @@ export default function CustomerChatModal({
             </p>
           </div>
         ) : (
-          /* Caso contrário, exibe o histórico completo do chat e campo de envio */
           <>
             {isExpired && (
               <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-start gap-2 text-amber-800 text-xs">
@@ -115,7 +109,6 @@ export default function CustomerChatModal({
               </div>
             )}
 
-            {/* Histórico de Mensagens */}
             <div className="flex-1 overflow-y-auto space-y-2 p-2 bg-slate-50 rounded-lg">
               {messages.length === 0 ? (
                 <div className="text-center py-12 text-slate-400 text-xs">
@@ -157,7 +150,6 @@ export default function CustomerChatModal({
               <div ref={messagesEndRef} />
             </div>
 
-            {/* Campo de Envio */}
             <form onSubmit={handleSend} className="flex gap-2 pt-2 border-t border-slate-100">
               <input
                 type="text"
