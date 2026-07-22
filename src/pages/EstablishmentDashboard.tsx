@@ -14,7 +14,10 @@ import {
   Maximize2,
   Minimize2,
   Navigation,
-  MessageSquare
+  MessageSquare,
+  Clock,
+  CheckCircle,
+  AlertCircle
 } from 'lucide-react';
 
 import L from 'leaflet';
@@ -285,13 +288,11 @@ export default function EstablishmentDashboard() {
       let finalLat: number | null = null;
       let finalLng: number | null = null;
 
-      // 1. Check known overrides
       if (establishment.name.toLowerCase().includes('burgrill') && addr?.street === 'Rua Aprígio Veloso') {
         finalLat = -7.2150;
         finalLng = -35.9130;
       }
 
-      // 2. Try Nominatim Geocoding API with complete street address
       if (!finalLat && addr && addr.street && addr.city) {
         try {
           const fullQuery = `${addr.street} ${addr.number || ''}, ${addr.neighborhood || ''}, ${addr.city} ${addr.state || ''}, Brasil`;
@@ -306,7 +307,6 @@ export default function EstablishmentDashboard() {
         }
       }
 
-      // 3. Fallback to CEP search if full address geocode failed
       if (!finalLat && addr?.zipCode) {
         const cepClean = addr.zipCode.replace(/\D/g, '');
         if (KNOWN_CEPS[cepClean]) {
@@ -329,7 +329,6 @@ export default function EstablishmentDashboard() {
         }
       }
 
-      // Fallback to default coordinates
       if (!finalLat || !finalLng) {
         finalLat = defaultLat;
         finalLng = defaultLng;
@@ -357,7 +356,7 @@ export default function EstablishmentDashboard() {
 
     const allUsers = db.getUsers();
     const now = Date.now();
-    const ONLINE_THRESHOLD_MS = 60000; // Rider is offline if no update for 60 seconds
+    const ONLINE_THRESHOLD_MS = 60000;
 
     const activeRiderIdsOnMap = new Set<string>();
 
@@ -365,7 +364,6 @@ export default function EstablishmentDashboard() {
       const lastUpdateMs = loc.updatedAt ? new Date(loc.updatedAt).getTime() : 0;
       const isOnline = (now - lastUpdateMs) < ONLINE_THRESHOLD_MS;
 
-      // If rider is offline, remove marker
       if (!isOnline) {
         if (markersRef.current[loc.riderId]) {
           currentMap.removeLayer(markersRef.current[loc.riderId]);
@@ -412,7 +410,6 @@ export default function EstablishmentDashboard() {
       }
     });
 
-    // Remove any markers for riders that are no longer online/active
     Object.keys(markersRef.current).forEach(rId => {
       if (!activeRiderIdsOnMap.has(rId)) {
         currentMap.removeLayer(markersRef.current[rId]);
@@ -682,6 +679,67 @@ export default function EstablishmentDashboard() {
               </div>
             )}
           </div>
+
+          {/* Histórico de Corridas de Hoje */}
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
+            <h3 className="text-lg font-bold text-slate-800 flex items-center justify-between">
+              <span className="flex items-center gap-2">
+                <CheckCircle className="h-5 w-5 text-indigo-600" />
+                <span>Corridas Lançadas Hoje</span>
+              </span>
+              <span className="text-xs text-slate-400 font-normal">{todayDeliveries.length} lançamento(s)</span>
+            </h3>
+
+            {todayDeliveries.length === 0 ? (
+              <div className="text-center py-8 text-slate-400 text-sm">
+                Nenhuma corrida lançada hoje.
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-100">
+                {todayDeliveries.map(del => {
+                  const rider = scheduledRiders.find(r => r.id === del.riderId) || db.resolveUser(del.riderId);
+                  return (
+                    <div key={del.id} className="py-3 flex items-center justify-between gap-3">
+                      <div>
+                        <div className="flex items-center space-x-2">
+                          <p className="font-bold text-slate-800 text-sm">{rider?.name || 'Motoboy'}</p>
+                          {del.orderNumber && (
+                            <span className="bg-slate-100 text-slate-500 text-[10px] font-bold px-1.5 py-0.5 rounded">
+                              #{del.orderNumber}
+                            </span>
+                          )}
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                            del.status === 'active' ? 'bg-emerald-100 text-emerald-800' :
+                            del.status === 'pending' ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-red-800'
+                          }`}>
+                            {del.status === 'active' ? 'Aprovada' : del.status === 'pending' ? 'Pendente' : 'Cancelada'}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1">
+                          <Clock className="h-3 w-3" />
+                          <span>{del.time}</span>
+                        </p>
+                      </div>
+
+                      <div className="flex items-center space-x-2">
+                        <button
+                          onClick={() => setNotesDeliveryId(del.id)}
+                          className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors flex items-center gap-1 text-xs font-semibold"
+                          title="Observações da Corrida"
+                        >
+                          <MessageSquare className="h-4 w-4" />
+                          <span className="hidden sm:inline">Observações</span>
+                        </button>
+                        <span className="font-bold text-emerald-600 text-sm">
+                          R$ {Number(del.value || 0).toFixed(2)}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="space-y-6">
@@ -755,6 +813,16 @@ export default function EstablishmentDashboard() {
                   value={deliveryForm.value}
                   onChange={(e) => setDeliveryForm({ ...deliveryForm, value: e.target.value })}
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Observações / Instruções (Opcional)</label>
+                <textarea
+                  placeholder="Ex: Troco para R$ 50,00, condomínio bloco B..."
+                  value={deliveryForm.notes}
+                  onChange={(e) => setDeliveryForm({ ...deliveryForm, notes: e.target.value })}
+                  rows={2}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none resize-none"
                 />
               </div>
               <div className="flex justify-end space-x-2 pt-3">

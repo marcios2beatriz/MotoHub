@@ -840,7 +840,7 @@ export default function RiderDashboard() {
                           <button
                             onClick={() => setNotesDeliveryId(delivery.id)}
                             className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors relative"
-                            title="Chat com Estabelecimento"
+                            title="Observações da Corrida"
                           >
                             <MessageSquare className="h-4 w-4" />
                           </button>
@@ -1173,6 +1173,16 @@ export default function RiderDashboard() {
                 </select>
               </div>
               <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nº do Pedido (Opcional)</label>
+                <input
+                  type="text"
+                  placeholder="Ex: 1042"
+                  value={launchForm.orderNumber}
+                  onChange={(e) => setLaunchForm({ ...launchForm, orderNumber: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none"
+                />
+              </div>
+              <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Valor da Corrida (R$)</label>
                 <input
                   type="number"
@@ -1182,6 +1192,16 @@ export default function RiderDashboard() {
                   value={launchForm.value}
                   onChange={(e) => setLaunchForm({ ...launchForm, value: e.target.value })}
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Observações / Instruções (Opcional)</label>
+                <textarea
+                  placeholder="Ex: Entregar na recepção, troco para R$ 50,00..."
+                  value={launchForm.notes}
+                  onChange={(e) => setLaunchForm({ ...launchForm, notes: e.target.value })}
+                  rows={2}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none resize-none"
                 />
               </div>
               <div className="flex justify-end space-x-2 pt-3">
