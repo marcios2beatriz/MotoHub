@@ -29,7 +29,13 @@ import {
   Eye,
   EyeOff,
   TrendingUp,
-  DollarSign
+  DollarSign,
+  Phone,
+  MapPin,
+  Ban,
+  CheckCircle,
+  FileSpreadsheet,
+  CalendarCheck
 } from 'lucide-react';
 
 import UserModal from '../components/UserModal';
@@ -45,14 +51,6 @@ import { sendDeviceNotification, playNotificationSound, requestNotificationPermi
 
 const DAY_KEYS = ['seg', 'ter', 'qua', 'qui', 'sex', 'sab', 'dom'] as const;
 const DAY_LABELS = ['Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado', 'Domingo'];
-
-const getThisMonday = () => {
-  const today = new Date();
-  const day = today.getDay();
-  const diff = today.getDate() - day + (day === 0 ? -6 : 1);
-  const monday = new Date(today.setDate(diff));
-  return monday.toISOString().split('T')[0];
-};
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
@@ -103,7 +101,6 @@ export default function AdminDashboard() {
   const [weeklyStep, setWeeklyStep] = useState<'form' | 'preview'>('form');
 
   const [expandedRider, setExpandedRider] = useState<string | null>(null);
-  const [scheduleViewMode, setScheduleViewMode] = useState<'accordion' | 'grid' | 'timeline'>('accordion');
   const [scheduleSearch, setScheduleSearch] = useState('');
   const [riderSchedulesModal, setRiderSchedulesModal] = useState<string | null>(null);
 
@@ -893,7 +890,6 @@ export default function AdminDashboard() {
   const pendingRequestsCount = partnerRequests.filter(r => r.status === 'pending').length;
   const pendingRidersCount = users.filter(u => u.role === 'rider' && !u.active).length;
   const pendingDeliveries = deliveries.filter(d => d.status === 'pending');
-  const processedDeliveries = deliveries.filter(d => d.status !== 'pending');
 
   const todayStr = db.getLocalDateString();
   const activeDeliveriesToday = deliveries.filter(d => d.date === todayStr && d.status === 'active');
@@ -1018,8 +1014,21 @@ export default function AdminDashboard() {
           </button>
         </div>
 
+        {/* Mobile Navigation bar */}
+        <div className="lg:hidden grid grid-cols-4 sm:grid-cols-8 gap-1 bg-white p-2 rounded-xl border border-slate-200">
+          <button onClick={() => setActiveTab('overview')} className={`p-2 text-xs text-center rounded ${activeTab === 'overview' ? 'bg-indigo-600 text-white font-bold' : 'text-slate-600'}`}>Visão</button>
+          <button onClick={() => setActiveTab('users')} className={`p-2 text-xs text-center rounded ${activeTab === 'users' ? 'bg-indigo-600 text-white font-bold' : 'text-slate-600'}`}>Usuários</button>
+          <button onClick={() => setActiveTab('establishments')} className={`p-2 text-xs text-center rounded ${activeTab === 'establishments' ? 'bg-indigo-600 text-white font-bold' : 'text-slate-600'}`}>Lojas</button>
+          <button onClick={() => setActiveTab('requests')} className={`p-2 text-xs text-center rounded relative ${activeTab === 'requests' ? 'bg-indigo-600 text-white font-bold' : 'text-slate-600'}`}>Pedidos</button>
+          <button onClick={() => setActiveTab('schedules')} className={`p-2 text-xs text-center rounded ${activeTab === 'schedules' ? 'bg-indigo-600 text-white font-bold' : 'text-slate-600'}`}>Escalas</button>
+          <button onClick={() => setActiveTab('deliveries')} className={`p-2 text-xs text-center rounded ${activeTab === 'deliveries' ? 'bg-indigo-600 text-white font-bold' : 'text-slate-600'}`}>Corridas</button>
+          <button onClick={() => setActiveTab('finance')} className={`p-2 text-xs text-center rounded ${activeTab === 'finance' ? 'bg-indigo-600 text-white font-bold' : 'text-slate-600'}`}>Fechamento</button>
+          <button onClick={() => setActiveTab('reports')} className={`p-2 text-xs text-center rounded ${activeTab === 'reports' ? 'bg-indigo-600 text-white font-bold' : 'text-slate-600'}`}>Relatórios</button>
+        </div>
+
         {/* Content Area */}
         <div className="lg:col-span-4 space-y-4 sm:space-y-6">
+          
           {/* VISÃO GERAL */}
           {activeTab === 'overview' && (
             <div className="space-y-6">
@@ -1063,6 +1072,300 @@ export default function AdminDashboard() {
                     <p className="text-2xl font-bold text-slate-800">{activeEstsCount}</p>
                   </div>
                 </div>
+              </div>
+
+              {pendingDeliveries.length > 0 && (
+                <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 space-y-3">
+                  <h3 className="font-bold text-amber-900 flex items-center gap-2 text-sm">
+                    <Clock className="h-5 w-5 text-amber-600" />
+                    Corridas Pendentes de Aprovação ({pendingDeliveries.length})
+                  </h3>
+                  <div className="divide-y divide-amber-200/60">
+                    {pendingDeliveries.map(del => {
+                      const rider = users.find(u => u.id === del.riderId);
+                      const est = establishments.find(e => e.id === del.establishmentId);
+                      return (
+                        <div key={del.id} className="py-2.5 flex items-center justify-between">
+                          <div>
+                            <p className="text-xs font-bold text-slate-800">{rider?.name} — {est?.name}</p>
+                            <p className="text-[11px] text-slate-500">{del.date} às {del.time} • R$ {del.value.toFixed(2)}</p>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <button onClick={() => handleApproveDelivery(del.id)} className="px-2.5 py-1 bg-emerald-600 text-white rounded text-xs font-bold hover:bg-emerald-700">Aprovar</button>
+                            <button onClick={() => handleRejectDelivery(del.id)} className="px-2.5 py-1 bg-red-100 text-red-700 rounded text-xs font-bold hover:bg-red-200">Rejeitar</button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* USUÁRIOS */}
+          {activeTab === 'users' && (
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <h2 className="text-xl font-bold text-slate-800">Gerenciamento de Usuários</h2>
+                <button
+                  onClick={() => {
+                    setEditingUser(null);
+                    setUserForm({ name: '', cpf: '', phone: '', email: '', role: 'rider', password: '', establishmentId: '', establishmentName: '', zipCode: '', street: '', number: '', neighborhood: '', city: '', state: '' });
+                    setShowUserModal(true);
+                  }}
+                  className="flex items-center justify-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                >
+                  <Plus className="h-4 w-4" />
+                  <span>Cadastrar Usuário</span>
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <input
+                  type="text"
+                  placeholder="Buscar por nome, CPF ou email..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="px-3 py-2 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                />
+                <select
+                  value={roleFilter}
+                  onChange={(e) => setRoleFilter(e.target.value as any)}
+                  className="px-3 py-2 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                >
+                  <option value="all">Todas as Funções</option>
+                  <option value="rider">Motoboys</option>
+                  <option value="establishment">Gerentes de Estabelecimento</option>
+                  <option value="admin">Administradores</option>
+                </select>
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value as any)}
+                  className="px-3 py-2 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                >
+                  <option value="all">Todos os Status</option>
+                  <option value="active">Ativos</option>
+                  <option value="inactive">Inativos / Pendentes</option>
+                </select>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs text-slate-600">
+                  <thead className="bg-slate-50 uppercase font-bold text-slate-500 border-b border-slate-200">
+                    <tr>
+                      <th className="p-3">Nome</th>
+                      <th className="p-3">Função</th>
+                      <th className="p-3">Telefone / CPF</th>
+                      <th className="p-3">E-mail</th>
+                      <th className="p-3">Senha</th>
+                      <th className="p-3">Status</th>
+                      <th className="p-3 text-right">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filteredUsers.map(u => (
+                      <tr key={u.id} className="hover:bg-slate-50/50">
+                        <td className="p-3 font-semibold text-slate-800">{u.name}</td>
+                        <td className="p-3">
+                          <span className={`px-2 py-0.5 rounded-full font-bold text-[10px] uppercase ${
+                            u.role === 'admin' ? 'bg-purple-100 text-purple-800' :
+                            u.role === 'establishment' ? 'bg-blue-100 text-blue-800' :
+                            'bg-emerald-100 text-emerald-800'
+                          }`}>
+                            {u.role === 'admin' ? 'Admin' : u.role === 'establishment' ? 'Gerente' : 'Motoboy'}
+                          </span>
+                        </td>
+                        <td className="p-3">{u.phone}<br/><span className="text-[10px] text-slate-400">{u.cpf}</span></td>
+                        <td className="p-3">{u.email}</td>
+                        <td className="p-3">
+                          <div className="flex items-center gap-1 font-mono">
+                            <span>{visiblePasswords[u.id] ? u.passwordHash : '••••••••'}</span>
+                            <button onClick={() => togglePasswordVisibility(u.id)} className="text-slate-400 hover:text-slate-600">
+                              {visiblePasswords[u.id] ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                            </button>
+                          </div>
+                        </td>
+                        <td className="p-3">
+                          <button onClick={() => toggleUserStatus(u.id)} className={`px-2 py-0.5 rounded-full font-bold text-[10px] uppercase ${u.active ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}`}>
+                            {u.active ? 'Ativo' : 'Inativo'}
+                          </button>
+                        </td>
+                        <td className="p-3 text-right space-x-1">
+                          {!u.active && (
+                            <button onClick={() => handleApproveRider(u.id)} className="p-1 text-emerald-600 hover:bg-emerald-50 rounded" title="Aprovar">
+                              <Check className="h-4 w-4" />
+                            </button>
+                          )}
+                          <button onClick={() => {
+                            setEditingUser(u);
+                            setUserForm({
+                              name: u.name, cpf: u.cpf, phone: u.phone, email: u.email, role: u.role, password: '', establishmentId: u.establishmentId || '', establishmentName: '', zipCode: '', street: '', number: '', neighborhood: '', city: '', state: ''
+                            });
+                            setShowUserModal(true);
+                          }} className="p-1 text-indigo-600 hover:bg-indigo-50 rounded" title="Editar">
+                            <Edit2 className="h-4 w-4" />
+                          </button>
+                          <button onClick={() => handleDeleteUser(u.id)} className="p-1 text-red-600 hover:bg-red-50 rounded" title="Excluir">
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* ESTABELECIMENTOS */}
+          {activeTab === 'establishments' && (
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <h2 className="text-xl font-bold text-slate-800">Estabelecimentos Parceiros</h2>
+                <button
+                  onClick={() => {
+                    setEditingEst(null);
+                    setEstForm({ name: '', street: '', number: '', complement: '', neighborhood: '', city: '', state: '', zipCode: '', phone: '', email: '', password: '' });
+                    setShowEstModal(true);
+                  }}
+                  className="flex items-center justify-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                >
+                  <Plus className="h-4 w-4" />
+                  <span>Cadastrar Estabelecimento</span>
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {filteredEsts.map(e => (
+                  <div key={e.id} className="border border-slate-200 rounded-xl p-4 space-y-2 bg-slate-50/50">
+                    <div className="flex justify-between items-start">
+                      <h3 className="font-bold text-slate-800 text-base">{e.name}</h3>
+                      <button onClick={() => toggleEstStatus(e.id)} className={`px-2 py-0.5 rounded-full font-bold text-[10px] uppercase ${e.active ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}`}>
+                        {e.active ? 'Ativo' : 'Inativo'}
+                      </button>
+                    </div>
+                    <p className="text-xs text-slate-500 flex items-center gap-1">
+                      <MapPin className="h-3.5 w-3.5 text-slate-400" />
+                      {e.address?.street}, {e.address?.number} - {e.address?.neighborhood}, {e.address?.city}/{e.address?.state}
+                    </p>
+                    <p className="text-xs text-slate-500 flex items-center gap-1">
+                      <Phone className="h-3.5 w-3.5 text-slate-400" />
+                      {e.phone}
+                    </p>
+                    <div className="pt-2 border-t border-slate-200 flex justify-end space-x-2">
+                      <button onClick={() => {
+                        setEditingEst(e);
+                        setEstForm({
+                          name: e.name,
+                          street: e.address?.street || '',
+                          number: e.address?.number || '',
+                          complement: e.address?.complement || '',
+                          neighborhood: e.address?.neighborhood || '',
+                          city: e.address?.city || '',
+                          state: e.address?.state || '',
+                          zipCode: e.address?.zipCode || '',
+                          phone: e.phone || '',
+                          email: e.email || '',
+                          password: ''
+                        });
+                        setShowEstModal(true);
+                      }} className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded text-xs font-bold">
+                        Editar
+                      </button>
+                      <button onClick={() => handleDeleteEst(e.id)} className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 rounded text-xs font-bold">
+                        Excluir
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* SOLICITAÇÕES */}
+          {activeTab === 'requests' && (
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
+              <h2 className="text-xl font-bold text-slate-800">Solicitações de Parceria</h2>
+              <div className="divide-y divide-slate-100">
+                {filteredRequests.map(req => (
+                  <div key={req.id} className="py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div>
+                      <h3 className="font-bold text-slate-800">{req.establishmentName}</h3>
+                      <p className="text-xs text-slate-500">Contato: {req.ownerName} ({req.phone})</p>
+                      <p className="text-xs text-slate-400 mt-0.5">{req.address}</p>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <button onClick={() => handleContactRequest(req)} className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded text-xs font-bold">
+                        WhatsApp
+                      </button>
+                      <button onClick={() => handleApproveRequest(req)} className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-xs font-bold">
+                        Aprovar
+                      </button>
+                      <button onClick={() => handleDeleteRequest(req.id)} className="p-1.5 text-red-500 hover:bg-red-50 rounded">
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ESCALAS */}
+          {activeTab === 'schedules' && (
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <h2 className="text-xl font-bold text-slate-800">Gerenciamento de Escalas</h2>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      setScheduleForm({ riderId: '', establishmentId: '', date: db.getLocalDateString(), shift: 'morning', startTime: '08:00', endTime: '12:00' });
+                      setScheduleConflictWarning('');
+                      setShowScheduleModal(true);
+                    }}
+                    className="flex items-center space-x-1 bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded-lg text-xs font-bold"
+                  >
+                    <Plus className="h-4 w-4" />
+                    <span>Nova Escala Individual</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setWeeklyForm({ riderId: '', establishmentId: '', shift: 'morning', startTime: '08:00', endTime: '12:00', weekStart: getThisMonday(), days: { seg: true, ter: true, qua: true, qui: true, sex: true, sab: false, dom: false } });
+                      setWeeklyStep('form');
+                      setShowWeeklyModal(true);
+                    }}
+                    className="flex items-center space-x-1 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg text-xs font-bold"
+                  >
+                    <CalendarDays className="h-4 w-4" />
+                    <span>Escala Semanal</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="divide-y divide-slate-100">
+                {schedules.map(sch => {
+                  const rider = users.find(u => u.id === sch.riderId);
+                  const est = establishments.find(e => e.id === sch.establishmentId);
+                  return (
+                    <div key={sch.id} className="py-3 flex items-center justify-between">
+                      <div>
+                        <p className="font-bold text-slate-800 text-sm">{rider?.name} — {est?.name}</p>
+                        <p className="text-xs text-slate-400 mt-0.5">
+                          Data: {new Date(sch.date + 'T00:00:00').toLocaleDateString('pt-BR')} • Turno da {getShiftLabel(sch.shift)} ({sch.startTime}-{sch.endTime})
+                        </p>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <button onClick={() => setActiveScheduleChatId(sch.id)} className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded" title="Chat do Turno">
+                          <MessageSquare className="h-4 w-4" />
+                        </button>
+                        <button onClick={() => handleCancelSchedule(sch.id)} className="p-1.5 text-red-500 hover:bg-red-50 rounded" title="Cancelar Escala">
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -1113,7 +1416,7 @@ export default function AdminDashboard() {
                           className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors flex items-center gap-1 text-xs font-semibold"
                         >
                           <MessageSquare className="h-4 w-4" />
-                          <span>Chat/Obs</span>
+                          <span>Observações</span>
                         </button>
 
                         <span className="font-bold text-emerald-600 text-sm">
@@ -1126,6 +1429,125 @@ export default function AdminDashboard() {
               </div>
             </div>
           )}
+
+          {/* FECHAMENTO (FINANCE) */}
+          {activeTab === 'finance' && (
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-6">
+              <h2 className="text-xl font-bold text-slate-800">Fechamento Financeiro</h2>
+              
+              <div className="space-y-4">
+                <h3 className="font-bold text-slate-700 text-sm">Fechamento por Motoboy</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {users.filter(u => u.role === 'rider').map(r => {
+                    const riderDels = deliveries.filter(d => d.riderId === r.id && d.status === 'active' && !d.paid);
+                    const totalRider = riderDels.reduce((sum, d) => sum + d.value, 0);
+
+                    return (
+                      <div key={r.id} className="p-4 border border-slate-200 rounded-xl bg-slate-50/50 flex justify-between items-center">
+                        <div>
+                          <p className="font-bold text-slate-800">{r.name}</p>
+                          <p className="text-xs text-slate-500">{riderDels.length} corrida(s) a pagar</p>
+                          <p className="text-base font-extrabold text-emerald-600 mt-1">R$ {totalRider.toFixed(2)}</p>
+                        </div>
+                        {totalRider > 0 && (
+                          <button onClick={() => handleSettleRiderDeliveries(r.id)} className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-bold">
+                            Dar Baixa
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="space-y-4 border-t border-slate-100 pt-4">
+                <h3 className="font-bold text-slate-700 text-sm">Fechamento por Estabelecimento</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {establishments.map(e => {
+                    const estDels = deliveries.filter(d => d.establishmentId === e.id && d.status === 'active' && !d.paid);
+                    const totalEst = estDels.reduce((sum, d) => sum + d.value, 0);
+
+                    return (
+                      <div key={e.id} className="p-4 border border-slate-200 rounded-xl bg-slate-50/50 flex justify-between items-center">
+                        <div>
+                          <p className="font-bold text-slate-800">{e.name}</p>
+                          <p className="text-xs text-slate-500">{estDels.length} corrida(s) a receber</p>
+                          <p className="text-base font-extrabold text-indigo-600 mt-1">R$ {totalEst.toFixed(2)}</p>
+                        </div>
+                        {totalEst > 0 && (
+                          <button onClick={() => handleSettleEstDeliveries(e.id)} className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-xs font-bold">
+                            Dar Baixa
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* RELATÓRIOS */}
+          {activeTab === 'reports' && (
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <h2 className="text-xl font-bold text-slate-800">Relatórios Gerenciais</h2>
+                <button onClick={exportToCSV} className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-xs font-bold">
+                  <Download className="h-4 w-4" />
+                  <span>Exportar CSV</span>
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Tipo de Relatório</label>
+                  <select value={reportType} onChange={(e) => setReportType(e.target.value as any)} className="w-full p-2 border border-slate-300 rounded text-xs">
+                    <option value="earnings">Faturamento por Motoboy</option>
+                    <option value="deliveries">Quantidade de Corridas por Motoboy</option>
+                    <option value="schedules">Escalas por Estabelecimento</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Período</label>
+                  <select value={reportPeriod} onChange={(e) => setReportPeriod(e.target.value as any)} className="w-full p-2 border border-slate-300 rounded text-xs">
+                    <option value="daily">Diário (Hoje)</option>
+                    <option value="weekly">Semanal (Esta Semana)</option>
+                    <option value="monthly">Mensal (Este Mês)</option>
+                    <option value="custom">Personalizado</option>
+                  </select>
+                </div>
+              </div>
+
+              {reportPeriod === 'custom' && (
+                <div className="grid grid-cols-2 gap-2">
+                  <input type="date" value={customStartDate} onChange={(e) => setCustomStartDate(e.target.value)} className="p-2 border rounded text-xs" />
+                  <input type="date" value={customEndDate} onChange={(e) => setCustomEndDate(e.target.value)} className="p-2 border rounded text-xs" />
+                </div>
+              )}
+
+              <div className="overflow-x-auto border rounded-xl">
+                <table className="w-full text-left text-xs text-slate-600">
+                  <thead className="bg-slate-50 font-bold uppercase border-b">
+                    <tr>
+                      <th className="p-3">Nome</th>
+                      {reportType === 'earnings' && <th className="p-3">Total (R$)</th>}
+                      <th className="p-3">Quantidade</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {getFilteredReportData().map((row: any, idx: number) => (
+                      <tr key={idx}>
+                        <td className="p-3 font-semibold text-slate-800">{row.name}</td>
+                        {reportType === 'earnings' && <td className="p-3 font-bold text-emerald-600">R$ {row.total.toFixed(2)}</td>}
+                        <td className="p-3">{row.count}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
         </div>
       </div>
 
