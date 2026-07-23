@@ -410,6 +410,18 @@ export default function RiderDashboard() {
     setActiveTab('navigation');
   };
 
+  const openWaze = (est: Establishment) => {
+    if (!est.address) return;
+    const query = encodeURIComponent(`${est.name}, ${est.address.street}, ${est.address.number}, ${est.address.city}`);
+    window.open(`https://waze.com/ul?q=${query}&navigate=yes`, '_blank');
+  };
+
+  const openGoogleMaps = (est: Establishment) => {
+    if (!est.address) return;
+    const query = encodeURIComponent(`${est.name}, ${est.address.street}, ${est.address.number}, ${est.address.city}`);
+    window.open(`https://www.google.com/maps/dir/?api=1&destination=${query}&travelmode=driving`, '_blank');
+  };
+
   const todayStr = db.getLocalDateString();
 
   const todayDeliveries = deliveries.filter(d => d.date === todayStr);
@@ -724,13 +736,28 @@ export default function RiderDashboard() {
                       <h3 className="text-base font-bold text-slate-800">{est.name}</h3>
                       <p className="text-xs text-slate-500 mt-0.5">{est.address?.street}, {est.address?.number} - {est.address?.neighborhood}</p>
                     </div>
-                    <button
-                      onClick={() => handleStartInAppNavigation(est)}
-                      className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center space-x-1.5 shadow-md"
-                    >
-                      <Navigation className="h-4 w-4" />
-                      <span>Iniciar Rota no App</span>
-                    </button>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <button
+                        onClick={() => openWaze(est)}
+                        className="bg-sky-500 hover:bg-sky-600 text-white px-3 py-2 rounded-xl font-bold text-xs flex items-center gap-1 shadow-sm"
+                      >
+                        <span>💧 Waze</span>
+                      </button>
+                      <button
+                        onClick={() => openGoogleMaps(est)}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-xl font-bold text-xs flex items-center gap-1 shadow-sm"
+                      >
+                        <MapPin className="h-3.5 w-3.5" />
+                        <span>Google Maps</span>
+                      </button>
+                      <button
+                        onClick={() => handleStartInAppNavigation(est)}
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded-xl font-bold text-xs flex items-center gap-1 shadow-sm"
+                      >
+                        <Navigation className="h-3.5 w-3.5" />
+                        <span>No App</span>
+                      </button>
+                    </div>
                   </div>
                 );
               })()
@@ -828,13 +855,21 @@ export default function RiderDashboard() {
                           </div>
                         </div>
 
-                        <button
-                          onClick={() => handleStartInAppNavigation(est)}
-                          className="bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2.5 rounded-xl text-xs font-extrabold transition-all flex items-center justify-center gap-1.5 shadow-md"
-                        >
-                          <Navigation className="h-4 w-4" />
-                          <span>Navegar no App</span>
-                        </button>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <button
+                            onClick={() => openWaze(est)}
+                            className="bg-sky-500 hover:bg-sky-600 text-white px-3 py-2 rounded-xl text-xs font-extrabold transition-all flex items-center gap-1 shadow-md"
+                          >
+                            <span>💧 Waze</span>
+                          </button>
+                          <button
+                            onClick={() => openGoogleMaps(est)}
+                            className="bg-emerald-500 hover:bg-emerald-600 text-white px-3 py-2 rounded-xl text-xs font-extrabold transition-all flex items-center gap-1 shadow-md"
+                          >
+                            <MapPin className="h-3.5 w-3.5" />
+                            <span>Maps</span>
+                          </button>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -1040,7 +1075,7 @@ export default function RiderDashboard() {
                             )}
                           </div>
 
-                          <div className="flex items-center gap-2 self-start sm:self-center">
+                          <div className="flex items-center gap-2 flex-wrap self-start sm:self-center">
                             <button
                               onClick={() => setActiveScheduleChatId(sch.id)}
                               className="p-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-bold flex items-center gap-1 transition-colors"
@@ -1051,13 +1086,23 @@ export default function RiderDashboard() {
                             </button>
 
                             {est?.address && (
-                              <button
-                                onClick={() => handleStartInAppNavigation(est)}
-                                className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors shadow-sm"
-                              >
-                                <Navigation className="h-4 w-4" />
-                                <span>Navegar GPS</span>
-                              </button>
+                              <>
+                                <button
+                                  onClick={() => openWaze(est)}
+                                  className="px-2.5 py-2 bg-sky-500 hover:bg-sky-600 text-white rounded-lg text-xs font-extrabold flex items-center gap-1 transition-colors shadow-sm"
+                                  title="Abrir Rota no Waze"
+                                >
+                                  <span>💧 Waze</span>
+                                </button>
+                                <button
+                                  onClick={() => openGoogleMaps(est)}
+                                  className="px-2.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-extrabold flex items-center gap-1 transition-colors shadow-sm"
+                                  title="Abrir Rota no Google Maps"
+                                >
+                                  <MapPin className="h-3.5 w-3.5" />
+                                  <span>Maps</span>
+                                </button>
+                              </>
                             )}
                           </div>
                         </div>

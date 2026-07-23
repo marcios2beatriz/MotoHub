@@ -65,7 +65,6 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
 
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [autoFollow, setAutoFollow] = useState(true);
-  const [soundEnabled, setSoundEnabled] = useState(true);
   const [routeInfo, setRouteInfo] = useState<{
     distanceKm: string;
     durationMin: number;
@@ -365,10 +364,27 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
     }
   };
 
-  const handleOpenExternalGoogleMaps = () => {
+  // Funções para abrir diretamente no Waze e Google Maps no modo navegação ativa
+  const handleOpenWazeNavigation = () => {
     if (!activeDestination) return;
-    const query = encodeURIComponent(`${activeDestination.name}, ${activeDestination.addressText}`);
-    window.open(`https://www.google.com/maps/search/?api=1&query=${query}`, '_blank');
+    let url = '';
+    if (destCoords) {
+      url = `https://waze.com/ul?ll=${destCoords.lat},${destCoords.lng}&navigate=yes`;
+    } else {
+      url = `https://waze.com/ul?q=${encodeURIComponent(activeDestination.name + ' ' + activeDestination.addressText)}&navigate=yes`;
+    }
+    window.open(url, '_blank');
+  };
+
+  const handleOpenGoogleMapsNavigation = () => {
+    if (!activeDestination) return;
+    let url = '';
+    if (destCoords) {
+      url = `https://www.google.com/maps/dir/?api=1&destination=${destCoords.lat},${destCoords.lng}&travelmode=driving`;
+    } else {
+      url = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(activeDestination.name + ' ' + activeDestination.addressText)}&travelmode=driving`;
+    }
+    window.open(url, '_blank');
   };
 
   const currentNextStep = routeInfo?.steps?.[0] || {
@@ -379,14 +395,14 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
 
   return (
     <div className={`flex flex-col bg-slate-900 text-white rounded-2xl overflow-hidden shadow-2xl border border-slate-800 transition-all ${
-      isFullscreen ? 'fixed inset-0 z-50 rounded-none' : 'relative h-[620px] w-full'
+      isFullscreen ? 'fixed inset-0 z-50 rounded-none' : 'relative h-[660px] w-full'
     }`}>
       {/* BARRA DE PESQUISA DE ENDEREÇO EM TEMPO REAL */}
       <div className="bg-slate-900 border-b border-slate-800 p-3 z-30 relative space-y-2">
         <form onSubmit={handleSearchAddresses} className="relative flex items-center">
           <input
             type="text"
-            placeholder="Pesquisar rua, bairro, CEP ou cliente no GPS..."
+            placeholder="Digite o endereço ou cliente para navegar..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full bg-slate-800 text-white placeholder-slate-400 text-xs sm:text-sm pl-9 pr-24 py-3 rounded-xl border border-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-inner"
@@ -397,7 +413,7 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
             disabled={isSearching}
             className="absolute right-1.5 bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center gap-1 shadow-sm"
           >
-            {isSearching ? <Navigation className="h-3.5 w-3.5 animate-spin" /> : <span>Navegar</span>}
+            {isSearching ? <Navigation className="h-3.5 w-3.5 animate-spin" /> : <span>Buscar</span>}
           </button>
         </form>
 
@@ -428,20 +444,12 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
             <Compass className="h-6 w-6" />
           </div>
           <div className="min-w-0">
-            <p className="text-[10px] font-extrabold uppercase tracking-wider text-indigo-200">Próxima Manobra</p>
+            <p className="text-[10px] font-extrabold uppercase tracking-wider text-indigo-200">Navegação Guiada</p>
             <h3 className="text-sm sm:text-base font-black truncate leading-tight">{currentNextStep.instruction}</h3>
           </div>
         </div>
 
         <div className="flex items-center space-x-2 flex-shrink-0">
-          <button
-            onClick={() => setSoundEnabled(!soundEnabled)}
-            className="p-2 hover:bg-white/10 rounded-xl transition-colors text-indigo-100"
-            title={soundEnabled ? 'Áudio Ativado' : 'Áudio Mudo'}
-          >
-            {soundEnabled ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}
-          </button>
-
           <button
             onClick={() => setIsFullscreen(!isFullscreen)}
             className="p-2 hover:bg-white/10 rounded-xl transition-colors text-indigo-100"
@@ -477,16 +485,6 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
           >
             <RotateCcw className="h-5 w-5" />
           </button>
-
-          {activeDestination && (
-            <button
-              onClick={handleOpenExternalGoogleMaps}
-              className="p-3 bg-slate-800 hover:bg-slate-700 text-emerald-400 rounded-2xl shadow-xl border border-slate-700 transition-all flex items-center justify-center"
-              title="Abrir no Google Maps Externo"
-            >
-              <ExternalLink className="h-5 w-5" />
-            </button>
-          )}
         </div>
 
         {/* CARREGAMENTO DE ROTA */}
@@ -500,7 +498,28 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
         )}
       </div>
 
-      {/* RODAPÉ INFORMATIVO DO WAZE (TEMPO / DISTÂNCIA / DESTINO) */}
+      {/* BOTÕES DE ATALHO DIRETO PARA WAZE E GOOGLE MAPS */}
+      {activeDestination && (
+        <div className="bg-slate-800/90 border-t border-slate-700 p-3 z-20 flex items-center justify-between gap-2">
+          <button
+            onClick={handleOpenWazeNavigation}
+            className="flex-1 bg-sky-500 hover:bg-sky-600 text-white font-extrabold text-xs py-3 px-3 rounded-xl flex items-center justify-center gap-2 shadow-lg transition-transform hover:scale-[1.02]"
+          >
+            <span className="text-sm">💧</span>
+            <span>Iniciar no Waze (Voz)</span>
+          </button>
+
+          <button
+            onClick={handleOpenGoogleMapsNavigation}
+            className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs py-3 px-3 rounded-xl flex items-center justify-center gap-2 shadow-lg transition-transform hover:scale-[1.02]"
+          >
+            <MapPin className="h-4 w-4" />
+            <span>Iniciar no Google Maps</span>
+          </button>
+        </div>
+      )}
+
+      {/* RODAPÉ INFORMATIVO (TEMPO / DISTÂNCIA) */}
       <div className="bg-slate-900 border-t border-slate-800 p-4 z-20 space-y-3">
         {activeDestination ? (
           <div className="flex items-center justify-between bg-slate-800/80 p-3 rounded-xl border border-slate-700/50">
@@ -530,7 +549,7 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
         ) : (
           <div className="bg-slate-800/50 p-3 rounded-xl border border-slate-700/40 text-center">
             <p className="text-xs text-slate-400">
-              💡 Digite um endereço na barra de busca acima para iniciar a navegação da rota em tempo real.
+              💡 Digite um endereço na busca acima para ver os botões de voz do Waze e Google Maps.
             </p>
           </div>
         )}
