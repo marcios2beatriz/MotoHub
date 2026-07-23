@@ -11,10 +11,13 @@ import {
   Clock, 
   Route, 
   X, 
+  Search,
   Volume2, 
   VolumeX,
   ExternalLink,
-  ChevronRight
+  ChevronRight,
+  CheckCircle2,
+  Sparkles
 } from 'lucide-react';
 import L from 'leaflet';
 
@@ -35,12 +38,30 @@ interface RouteStep {
   duration: number; // seconds
 }
 
-export default function RiderNavigationMap({ currentLocation, destination, onClose }: RiderNavigationMapProps) {
+interface SearchResult {
+  place_id: number;
+  display_name: string;
+  lat: string;
+  lon: string;
+}
+
+export default function RiderNavigationMap({ currentLocation, destination: initialDestination, onClose }: RiderNavigationMapProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const riderMarkerRef = useRef<L.Marker | null>(null);
   const destMarkerRef = useRef<L.Marker | null>(null);
   const routePolylineRef = useRef<L.Polyline | null>(null);
+
+  const [activeDestination, setActiveDestination] = useState<{
+    name: string;
+    addressText: string;
+    lat?: number;
+    lng?: number;
+  } | null>(initialDestination);
+
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
 
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [autoFollow, setAutoFollow] = useState(true);
@@ -53,16 +74,59 @@ export default function RiderNavigationMap({ currentLocation, destination, onClo
   const [destCoords, setDestCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [loadingRoute, setLoadingRoute] = useState(false);
 
-  // Fallback default coordinates (Campina Grande center)
+  // Fallback default coordinates (Campina Grande / Brasil center)
   const defaultLat = -7.2247;
   const defaultLng = -35.8878;
 
-  // Geocode destination if coordinates are not direct
   useEffect(() => {
-    if (!destination) return;
+    if (initialDestination) {
+      setActiveDestination(initialDestination);
+    }
+  }, [initialDestination]);
 
-    if (destination.lat && destination.lng) {
-      setDestCoords({ lat: destination.lat, lng: destination.lng });
+  // Handle Search Input Geocoding via Nominatim API
+  const handleSearchAddresses = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!searchQuery.trim()) return;
+
+    setIsSearching(true);
+    try {
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery.trim() + ', Brasil')}&limit=5`
+      );
+      const data = await res.json();
+      setSearchResults(data || []);
+    } catch (err) {
+      console.warn('Erro ao buscar endereço:', err);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  const handleSelectSearchResult = (result: SearchResult) => {
+    const lat = parseFloat(result.lat);
+    const lng = parseFloat(result.lon);
+
+    const nameParts = result.display_name.split(',');
+    const title = nameParts[0] || 'Destino Selecionado';
+
+    setActiveDestination({
+      name: title,
+      addressText: result.display_name,
+      lat,
+      lng
+    });
+
+    setSearchResults([]);
+    setSearchQuery('');
+  };
+
+  // Geocode active destination if direct coordinates aren't available
+  useEffect(() => {
+    if (!activeDestination) return;
+
+    if (activeDestination.lat && activeDestination.lng) {
+      setDestCoords({ lat: activeDestination.lat, lng: activeDestination.lng });
       return;
     }
 
@@ -71,13 +135,13 @@ export default function RiderNavigationMap({ currentLocation, destination, onClo
       let foundLat: number | null = null;
       let foundLng: number | null = null;
 
-      if (destination.name.toLowerCase().includes('burgrill') || destination.addressText.includes('Aprígio Veloso')) {
+      if (activeDestination.name.toLowerCase().includes('burgrill') || activeDestination.addressText.includes('Aprígio Veloso')) {
         foundLat = -7.2150;
         foundLng = -35.9130;
       } else {
         try {
           const res = await fetch(
-            `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(destination.addressText + ', Brasil')}&limit=1`
+            `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(activeDestination.addressText + ', Brasil')}&limit=1`
           );
           const data = await res.json();
           if (data && data.length > 0) {
@@ -97,7 +161,7 @@ export default function RiderNavigationMap({ currentLocation, destination, onClo
     };
 
     geocode();
-  }, [destination?.addressText, destination?.name]);
+  }, [activeDestination?.addressText, activeDestination?.name]);
 
   // Initialize Leaflet Map
   useEffect(() => {
@@ -133,7 +197,7 @@ export default function RiderNavigationMap({ currentLocation, destination, onClo
     };
   }, []);
 
-  // Update Rider Location Marker and Map Center
+  // Update Rider Location Marker and Map Center in real time
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !currentLocation) return;
@@ -141,17 +205,16 @@ export default function RiderNavigationMap({ currentLocation, destination, onClo
     const riderIcon = L.divIcon({
       html: `
         <div style="
-          background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+          background: linear-gradient(135deg, #2563eb, #1d4ed8);
           color: white;
-          width: 42px;
-          height: 42px;
+          width: 44px;
+          height: 44px;
           border-radius: 50%;
-          border: 3px solid white;
-          box-shadow: 0 4px 12px rgba(29,78,216,0.5);
+          border: 3.5px solid white;
+          box-shadow: 0 6px 16px rgba(37,99,235,0.6);
           display: flex;
           align-items: center;
           justify-content: center;
-          position: relative;
         ">
           <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <polygon points="12 2 19 21 12 17 5 21 12 2"></polygon>
@@ -159,8 +222,8 @@ export default function RiderNavigationMap({ currentLocation, destination, onClo
         </div>
       `,
       className: 'custom-navigation-rider-icon',
-      iconSize: [42, 42],
-      iconAnchor: [21, 21]
+      iconSize: [44, 44],
+      iconAnchor: [22, 22]
     });
 
     if (riderMarkerRef.current) {
@@ -168,7 +231,7 @@ export default function RiderNavigationMap({ currentLocation, destination, onClo
     } else {
       riderMarkerRef.current = L.marker([currentLocation.lat, currentLocation.lng], { icon: riderIcon })
         .addTo(map)
-        .bindPopup('<b>Você (Sua Posição)</b>');
+        .bindPopup('<b>Sua Moto (Sua Posição)</b>');
     }
 
     if (autoFollow) {
@@ -176,7 +239,7 @@ export default function RiderNavigationMap({ currentLocation, destination, onClo
     }
   }, [currentLocation, autoFollow]);
 
-  // Fetch Route from OSRM and Render Route Line
+  // Fetch Route from OSRM and Render Real-time Polyline
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !currentLocation || !destCoords) return;
@@ -187,24 +250,24 @@ export default function RiderNavigationMap({ currentLocation, destination, onClo
         <div style="
           background: #ef4444;
           color: white;
-          width: 38px;
-          height: 38px;
+          width: 40px;
+          height: 40px;
           border-radius: 50%;
           border: 3px solid white;
-          box-shadow: 0 4px 10px rgba(239,68,68,0.5);
+          box-shadow: 0 6px 16px rgba(239,68,68,0.6);
           display: flex;
           align-items: center;
           justify-content: center;
         ">
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"></path>
             <circle cx="12" cy="10" r="3"></circle>
           </svg>
         </div>
       `,
       className: 'custom-navigation-dest-icon',
-      iconSize: [38, 38],
-      iconAnchor: [19, 19]
+      iconSize: [40, 40],
+      iconAnchor: [20, 20]
     });
 
     if (destMarkerRef.current) {
@@ -212,10 +275,10 @@ export default function RiderNavigationMap({ currentLocation, destination, onClo
     } else {
       destMarkerRef.current = L.marker([destCoords.lat, destCoords.lng], { icon: destIcon })
         .addTo(map)
-        .bindPopup(`<b>${destination?.name || 'Destino'}</b>`);
+        .bindPopup(`<b>${activeDestination?.name || 'Destino'}</b>`);
     }
 
-    // Fetch OSRM driving route
+    // Fetch driving route
     const fetchRoute = async () => {
       setLoadingRoute(true);
       try {
@@ -227,20 +290,18 @@ export default function RiderNavigationMap({ currentLocation, destination, onClo
           const route = data.routes[0];
           const coordinates = route.geometry.coordinates.map((c: [number, number]) => [c[1], c[0]] as [number, number]);
 
-          // Draw Polyline
           if (routePolylineRef.current) {
             routePolylineRef.current.setLatLngs(coordinates);
           } else {
             routePolylineRef.current = L.polyline(coordinates, {
               color: '#3b82f6',
-              weight: 6,
+              weight: 7,
               opacity: 0.85,
               lineCap: 'round',
               lineJoin: 'round'
             }).addTo(map);
           }
 
-          // Parse Route Steps
           const steps: RouteStep[] = route.legs[0].steps.map((step: any) => ({
             instruction: formatOsmInstruction(step.maneuver, step.name),
             distance: step.distance,
@@ -253,7 +314,6 @@ export default function RiderNavigationMap({ currentLocation, destination, onClo
             steps
           });
 
-          // Fit bounds once at beginning
           const bounds = L.latLngBounds([
             [currentLocation.lat, currentLocation.lng],
             [destCoords.lat, destCoords.lng]
@@ -270,7 +330,6 @@ export default function RiderNavigationMap({ currentLocation, destination, onClo
     fetchRoute();
   }, [currentLocation?.lat, currentLocation?.lng, destCoords]);
 
-  // Translate OSRM maneuvers to friendly Portuguese instructions
   const formatOsmInstruction = (maneuver: any, streetName: string) => {
     const type = maneuver.type;
     const modifier = maneuver.modifier;
@@ -307,22 +366,62 @@ export default function RiderNavigationMap({ currentLocation, destination, onClo
   };
 
   const handleOpenExternalGoogleMaps = () => {
-    if (!destination) return;
-    const query = encodeURIComponent(`${destination.name}, ${destination.addressText}`);
+    if (!activeDestination) return;
+    const query = encodeURIComponent(`${activeDestination.name}, ${activeDestination.addressText}`);
     window.open(`https://www.google.com/maps/search/?api=1&query=${query}`, '_blank');
   };
 
   const currentNextStep = routeInfo?.steps?.[0] || {
-    instruction: destination ? `Em direção a ${destination.name}` : 'Calculando rota...',
+    instruction: activeDestination ? `Em direção a ${activeDestination.name}` : 'Pesquise um endereço acima para navegar',
     distance: 0,
     duration: 0
   };
 
   return (
     <div className={`flex flex-col bg-slate-900 text-white rounded-2xl overflow-hidden shadow-2xl border border-slate-800 transition-all ${
-      isFullscreen ? 'fixed inset-0 z-50 rounded-none' : 'relative h-[550px] w-full'
+      isFullscreen ? 'fixed inset-0 z-50 rounded-none' : 'relative h-[620px] w-full'
     }`}>
-      {/* Top Banner Navigation Header */}
+      {/* BARRA DE PESQUISA DE ENDEREÇO EM TEMPO REAL */}
+      <div className="bg-slate-900 border-b border-slate-800 p-3 z-30 relative space-y-2">
+        <form onSubmit={handleSearchAddresses} className="relative flex items-center">
+          <input
+            type="text"
+            placeholder="Pesquisar rua, bairro, CEP ou cliente no GPS..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full bg-slate-800 text-white placeholder-slate-400 text-xs sm:text-sm pl-9 pr-24 py-3 rounded-xl border border-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-inner"
+          />
+          <Search className="h-4 w-4 text-slate-400 absolute left-3 pointer-events-none" />
+          <button
+            type="submit"
+            disabled={isSearching}
+            className="absolute right-1.5 bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center gap-1 shadow-sm"
+          >
+            {isSearching ? <Navigation className="h-3.5 w-3.5 animate-spin" /> : <span>Navegar</span>}
+          </button>
+        </form>
+
+        {/* SUGESTÕES DE PESQUISA DROPDOWN */}
+        {searchResults.length > 0 && (
+          <div className="absolute left-3 right-3 top-full mt-1 bg-slate-800 rounded-xl border border-slate-700 shadow-2xl z-50 overflow-hidden divide-y divide-slate-700/60 max-h-56 overflow-y-auto">
+            {searchResults.map((res) => (
+              <button
+                key={res.place_id}
+                onClick={() => handleSelectSearchResult(res)}
+                className="w-full p-3 text-left hover:bg-slate-700 transition-colors flex items-start space-x-2.5"
+              >
+                <MapPin className="h-4 w-4 text-emerald-400 flex-shrink-0 mt-0.5" />
+                <div className="min-w-0">
+                  <p className="text-xs font-bold text-white truncate">{res.display_name.split(',')[0]}</p>
+                  <p className="text-[10px] text-slate-400 truncate">{res.display_name}</p>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* PAINEL CABEÇALHO WAZE (INSTRUÇÃO DA PRÓXIMA CURVA) */}
       <div className="bg-indigo-600 px-4 py-3 flex items-center justify-between z-20 shadow-md">
         <div className="flex items-center space-x-3 min-w-0">
           <div className="p-2 bg-white/20 rounded-xl text-white flex-shrink-0 animate-pulse">
@@ -330,7 +429,7 @@ export default function RiderNavigationMap({ currentLocation, destination, onClo
           </div>
           <div className="min-w-0">
             <p className="text-[10px] font-extrabold uppercase tracking-wider text-indigo-200">Próxima Manobra</p>
-            <h3 className="text-base font-black truncate leading-tight">{currentNextStep.instruction}</h3>
+            <h3 className="text-sm sm:text-base font-black truncate leading-tight">{currentNextStep.instruction}</h3>
           </div>
         </div>
 
@@ -363,11 +462,11 @@ export default function RiderNavigationMap({ currentLocation, destination, onClo
         </div>
       </div>
 
-      {/* Map Container */}
+      {/* MAP CONTAINER */}
       <div className="relative flex-1">
         <div ref={mapContainerRef} className="absolute inset-0 z-10 bg-slate-950" />
 
-        {/* Floating Controls over Map */}
+        {/* CONTROLES FLUTUANTES NO MAPA */}
         <div className="absolute top-4 right-4 z-20 flex flex-col space-y-2">
           <button
             onClick={handleRecenter}
@@ -379,16 +478,18 @@ export default function RiderNavigationMap({ currentLocation, destination, onClo
             <RotateCcw className="h-5 w-5" />
           </button>
 
-          <button
-            onClick={handleOpenExternalGoogleMaps}
-            className="p-3 bg-slate-800 hover:bg-slate-700 text-emerald-400 rounded-2xl shadow-xl border border-slate-700 transition-all flex items-center justify-center"
-            title="Abrir no Google Maps Externo"
-          >
-            <ExternalLink className="h-5 w-5" />
-          </button>
+          {activeDestination && (
+            <button
+              onClick={handleOpenExternalGoogleMaps}
+              className="p-3 bg-slate-800 hover:bg-slate-700 text-emerald-400 rounded-2xl shadow-xl border border-slate-700 transition-all flex items-center justify-center"
+              title="Abrir no Google Maps Externo"
+            >
+              <ExternalLink className="h-5 w-5" />
+            </button>
+          )}
         </div>
 
-        {/* Loading Overlay */}
+        {/* CARREGAMENTO DE ROTA */}
         {loadingRoute && (
           <div className="absolute inset-0 z-30 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center">
             <div className="bg-slate-900 border border-slate-700 p-4 rounded-2xl flex items-center space-x-3 text-indigo-400 font-bold text-sm shadow-2xl">
@@ -399,26 +500,45 @@ export default function RiderNavigationMap({ currentLocation, destination, onClo
         )}
       </div>
 
-      {/* Bottom Route Summary Bar (Waze style) */}
+      {/* RODAPÉ INFORMATIVO DO WAZE (TEMPO / DISTÂNCIA / DESTINO) */}
       <div className="bg-slate-900 border-t border-slate-800 p-4 z-20 space-y-3">
-        {destination && (
+        {activeDestination ? (
           <div className="flex items-center justify-between bg-slate-800/80 p-3 rounded-xl border border-slate-700/50">
             <div className="flex items-center space-x-2.5 min-w-0">
               <div className="p-2 bg-red-500/20 text-red-400 rounded-lg">
                 <MapPin className="h-5 w-5" />
               </div>
               <div className="min-w-0">
-                <p className="text-xs font-bold text-white truncate">{destination.name}</p>
-                <p className="text-[11px] text-slate-400 truncate">{destination.addressText}</p>
+                <p className="text-xs font-bold text-white truncate">{activeDestination.name}</p>
+                <p className="text-[11px] text-slate-400 truncate">{activeDestination.addressText}</p>
               </div>
             </div>
+            <button
+              onClick={() => {
+                setActiveDestination(null);
+                setRouteInfo(null);
+                if (routePolylineRef.current) {
+                  routePolylineRef.current.remove();
+                  routePolylineRef.current = null;
+                }
+              }}
+              className="text-xs text-slate-400 hover:text-red-400 font-bold px-2 py-1 rounded hover:bg-slate-700"
+            >
+              Limpar Rota
+            </button>
+          </div>
+        ) : (
+          <div className="bg-slate-800/50 p-3 rounded-xl border border-slate-700/40 text-center">
+            <p className="text-xs text-slate-400">
+              💡 Digite um endereço na barra de busca acima para iniciar a navegação da rota em tempo real.
+            </p>
           </div>
         )}
 
         <div className="grid grid-cols-3 gap-3 text-center">
           <div className="bg-emerald-500/10 border border-emerald-500/20 p-2.5 rounded-xl">
             <p className="text-[10px] uppercase font-extrabold text-emerald-400">Tempo Estimado</p>
-            <p className="text-xl font-black text-emerald-400 flex items-center justify-center gap-1 mt-0.5">
+            <p className="text-lg sm:text-xl font-black text-emerald-400 flex items-center justify-center gap-1 mt-0.5">
               <Clock className="h-4 w-4" />
               <span>{routeInfo ? `${routeInfo.durationMin} min` : '--'}</span>
             </p>
@@ -426,7 +546,7 @@ export default function RiderNavigationMap({ currentLocation, destination, onClo
 
           <div className="bg-blue-500/10 border border-blue-500/20 p-2.5 rounded-xl">
             <p className="text-[10px] uppercase font-extrabold text-blue-400">Distância Rota</p>
-            <p className="text-xl font-black text-blue-400 flex items-center justify-center gap-1 mt-0.5">
+            <p className="text-lg sm:text-xl font-black text-blue-400 flex items-center justify-center gap-1 mt-0.5">
               <Route className="h-4 w-4" />
               <span>{routeInfo ? `${routeInfo.distanceKm} km` : '--'}</span>
             </p>
