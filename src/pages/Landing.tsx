@@ -137,6 +137,7 @@ export default function Landing() {
       address: {
         street: estForm.street,
         number: estForm.number,
+        complement: '',
         neighborhood: estForm.neighborhood,
         city: estForm.city,
         state: estForm.state,
@@ -146,17 +147,19 @@ export default function Landing() {
       active: false // Inativo até aprovação
     };
 
-    // Criar o usuário gerente vinculado
+    // Criar o usuário gerente vinculado com CPF único
     const newEstUser: User = {
       id: 'u_' + Date.now(),
       name: estForm.ownerName,
-      cpf: '000.000.000-00',
+      cpf: db.generateUniqueDummyCpf(),
       phone: estForm.phone,
       email: estForm.email,
       role: 'establishment',
       active: false,
       passwordHash: estForm.password,
-      establishmentId: estId
+      establishmentId: estId,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
     };
 
     // Criar a solicitação de parceria formatada
@@ -171,7 +174,7 @@ export default function Landing() {
       createdAt: new Date().toISOString()
     };
 
-    // Salvar no banco de dados
+    // Salvar no banco de dados local e Supabase
     const allEsts = db.getEstablishments();
     db.setEstablishments([...allEsts, newEst]);
     db.setUsers([...allUsers, newEstUser]);
@@ -381,13 +384,6 @@ export default function Landing() {
             <span className="text-lg font-bold text-white">MotoHub Delivery</span>
           </div>
           
-          {/* Informações do Desenvolvedor */}
-          <div className="text-center md:text-right space-y-1">
-            <p className="text-xs text-slate-300 font-medium">
-              Desenvolvido por <span className="text-indigo-400 font-semibold">Juveniciu\'s Tech Soluções Automatizada</span>
-            </p>
-          </div>
-
           <p className="text-xs">
             &copy; {new Date().getFullYear()} MotoHub Delivery. Todos os direitos reservados.
           </p>
