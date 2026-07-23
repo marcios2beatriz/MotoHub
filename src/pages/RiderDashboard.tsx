@@ -21,11 +21,13 @@ import {
   Share2,
   MessageSquare,
   ShieldAlert,
-  Check
+  Check,
+  Compass
 } from 'lucide-react';
 import DeliveryNotesModal from '../components/DeliveryNotesModal';
 import CustomerChatModal from '../components/CustomerChatModal';
 import ScheduleChatModal from '../components/ScheduleChatModal';
+import RiderNavigationMap from '../components/RiderNavigationMap';
 import ChatToastBanner, { ChatToast } from '../components/ChatToastBanner';
 import { sendDeviceNotification, playNotificationSound, requestNotificationPermission } from '../utils/notifications';
 
@@ -36,11 +38,19 @@ export default function RiderDashboard() {
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [establishments, setEstablishments] = useState<Establishment[]>([]);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'schedules' | 'history' | 'notifications'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'schedules' | 'history' | 'notifications' | 'navigation'>('dashboard');
   const [gpsStatus, setGpsStatus] = useState<'requesting' | 'active' | 'error' | 'denied'>('requesting');
   const [gpsCoords, setGpsCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [activeToast, setActiveToast] = useState<ChatToast | null>(null);
+
+  // Selected navigation destination state
+  const [navDestination, setNavDestination] = useState<{
+    name: string;
+    addressText: string;
+    lat?: number;
+    lng?: number;
+  } | null>(null);
   
   const watchIdRef = useRef<number | null>(null);
   const fallbackIntervalRef = useRef<any>(null);
@@ -390,6 +400,16 @@ export default function RiderDashboard() {
     });
   };
 
+  const handleStartInAppNavigation = (est: Establishment) => {
+    if (!est.address) return;
+    const addrText = `${est.address.street}, ${est.address.number} - ${est.address.neighborhood}, ${est.address.city}/${est.address.state}`;
+    setNavDestination({
+      name: est.name,
+      addressText: addrText
+    });
+    setActiveTab('navigation');
+  };
+
   const todayStr = db.getLocalDateString();
 
   const todayDeliveries = deliveries.filter(d => d.date === todayStr);
@@ -420,12 +440,6 @@ export default function RiderDashboard() {
     const matchesDate = scheduleDateFilter ? s.date === scheduleDateFilter : true;
     return matchesEst && matchesDate;
   });
-
-  const handleOpenGPS = (address: any) => {
-    if (!address) return;
-    const query = encodeURIComponent(`${address.street || ''}, ${address.number || ''}, ${address.neighborhood || ''}, ${address.city || ''} - ${address.state || ''}`);
-    window.open(`https://www.google.com/maps/search/?api=1&query=${query}`, '_blank');
-  };
 
   const handleMarkAsRead = (id: string) => {
     const updated = notifications.map(n => n.id === id ? { ...n, read: true } : n);
@@ -643,10 +657,10 @@ export default function RiderDashboard() {
           </div>
         </div>
 
-        <div className="grid grid-cols-4 bg-white rounded-lg p-1 shadow-sm mb-6 border border-slate-200 gap-1">
+        <div className="grid grid-cols-5 bg-white rounded-lg p-1 shadow-sm mb-6 border border-slate-200 gap-1 text-xs sm:text-sm">
           <button
             onClick={() => setActiveTab('dashboard')}
-            className={`py-2.5 text-sm font-medium rounded-md flex items-center justify-center space-x-1.5 transition-colors ${
+            className={`py-2.5 font-medium rounded-md flex items-center justify-center space-x-1 transition-colors ${
               activeTab === 'dashboard' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-100'
             }`}
           >
@@ -654,18 +668,26 @@ export default function RiderDashboard() {
             <span>Ganhos</span>
           </button>
           <button
+            onClick={() => setActiveTab('navigation')}
+            className={`py-2.5 font-medium rounded-md flex items-center justify-center space-x-1 transition-colors ${
+              activeTab === 'navigation' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            <Compass className="h-4 w-4 text-emerald-400 animate-spin-slow" />
+            <span>GPS App</span>
+          </button>
+          <button
             onClick={() => setActiveTab('schedules')}
-            className={`py-2.5 text-sm font-medium rounded-md flex items-center justify-center space-x-1.5 transition-colors ${
+            className={`py-2.5 font-medium rounded-md flex items-center justify-center space-x-1 transition-colors ${
               activeTab === 'schedules' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-100'
             }`}
           >
             <Calendar className="h-4 w-4" />
-            <span className="hidden sm:inline">Escalas</span>
-            <span className="sm:hidden">Escala</span>
+            <span>Escalas</span>
           </button>
           <button
             onClick={() => setActiveTab('history')}
-            className={`py-2.5 text-sm font-medium rounded-md flex items-center justify-center space-x-1.5 transition-colors ${
+            className={`py-2.5 font-medium rounded-md flex items-center justify-center space-x-1 transition-colors ${
               activeTab === 'history' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-100'
             }`}
           >
@@ -674,7 +696,7 @@ export default function RiderDashboard() {
           </button>
           <button
             onClick={() => setActiveTab('notifications')}
-            className={`py-2.5 text-sm font-medium rounded-md flex items-center justify-center space-x-1.5 relative ${
+            className={`py-2.5 font-medium rounded-md flex items-center justify-center space-x-1 relative ${
               activeTab === 'notifications' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-100'
             }`}
           >
@@ -687,6 +709,40 @@ export default function RiderDashboard() {
             )}
           </button>
         </div>
+
+        {/* TAB NAVEGAÇÃO GPS DENTRO DO APP (ESTILO WAZE) */}
+        {activeTab === 'navigation' && (
+          <div className="space-y-4">
+            {!navDestination && todaySchedule ? (
+              (() => {
+                const est = resolveEst(todaySchedule.establishmentId);
+                if (!est) return null;
+                return (
+                  <div className="bg-indigo-50 border border-indigo-200 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-bold uppercase text-indigo-600">Sua Escala Hoje</p>
+                      <h3 className="text-base font-bold text-slate-800">{est.name}</h3>
+                      <p className="text-xs text-slate-500 mt-0.5">{est.address?.street}, {est.address?.number} - {est.address?.neighborhood}</p>
+                    </div>
+                    <button
+                      onClick={() => handleStartInAppNavigation(est)}
+                      className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center space-x-1.5 shadow-md"
+                    >
+                      <Navigation className="h-4 w-4" />
+                      <span>Iniciar Rota no App</span>
+                    </button>
+                  </div>
+                );
+              })()
+            ) : null}
+
+            <RiderNavigationMap
+              currentLocation={gpsCoords}
+              destination={navDestination}
+              onClose={() => setActiveTab('dashboard')}
+            />
+          </div>
+        )}
 
         {/* TAB 1: GANHOS (DASHBOARD) */}
         {activeTab === 'dashboard' && (
@@ -771,12 +827,13 @@ export default function RiderDashboard() {
                             <p>{est.address.neighborhood} • {est.address.city}/{est.address.state}</p>
                           </div>
                         </div>
+
                         <button
-                          onClick={() => handleOpenGPS(est.address)}
-                          className="bg-white text-indigo-700 hover:bg-indigo-50 px-4 py-2.5 rounded-xl text-xs font-extrabold transition-all flex items-center justify-center gap-1.5 shadow-md"
+                          onClick={() => handleStartInAppNavigation(est)}
+                          className="bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2.5 rounded-xl text-xs font-extrabold transition-all flex items-center justify-center gap-1.5 shadow-md"
                         >
                           <Navigation className="h-4 w-4" />
-                          <span>Abrir no GPS</span>
+                          <span>Navegar no App</span>
                         </button>
                       </div>
                     )}
@@ -995,11 +1052,11 @@ export default function RiderDashboard() {
 
                             {est?.address && (
                               <button
-                                onClick={() => handleOpenGPS(est.address)}
-                                className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors shadow-sm"
+                                onClick={() => handleStartInAppNavigation(est)}
+                                className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors shadow-sm"
                               >
                                 <Navigation className="h-4 w-4" />
-                                <span>GPS</span>
+                                <span>Navegar GPS</span>
                               </button>
                             )}
                           </div>
