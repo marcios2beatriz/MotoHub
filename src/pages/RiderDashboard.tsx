@@ -6,7 +6,6 @@ import { db, Schedule, Delivery, Notification, Establishment } from '../utils/db
 import { 
   DollarSign, 
   Calendar, 
-  Navigation, 
   Bell, 
   LogOut, 
   TrendingUp, 
@@ -16,14 +15,12 @@ import {
   AlertCircle,
   History,
   X,
-  Radio,
   Plus,
   Share2,
   MessageSquare,
   ShieldAlert,
   Check,
-  Compass,
-  Map as MapIcon
+  Compass
 } from 'lucide-react';
 import DeliveryNotesModal from '../components/DeliveryNotesModal';
 import CustomerChatModal from '../components/CustomerChatModal';
@@ -716,29 +713,9 @@ export default function RiderDashboard() {
           </button>
         </div>
 
-        {/* TAB 1: INÍCIO E NAVEGADOR COMPACTO EM TEMPO REAL */}
+        {/* TAB 1: INÍCIO / GANHOS */}
         {activeTab === 'dashboard' && (
           <div className="space-y-6">
-            
-            {/* MAPA EM TEMPO REAL EMBUTIDO EM CONTAINER COMPACTO */}
-            <div className="space-y-2">
-              <div className="flex justify-between items-center px-1">
-                <h3 className="text-sm font-black uppercase tracking-wider text-slate-700 flex items-center gap-2">
-                  <MapIcon className="h-4 w-4 text-indigo-600" />
-                  <span>Sua Posição no Mapa</span>
-                </h3>
-                <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
-                  <Radio className="h-3 w-3 animate-pulse text-emerald-600" /> GPS Ao Vivo
-                </span>
-              </div>
-
-              <RiderNavigationMap
-                currentLocation={gpsCoords}
-                destination={navDestination}
-                defaultFullscreen={false}
-              />
-            </div>
-
             {/* Resumo de Ganhos de Hoje */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-4">
@@ -922,7 +899,7 @@ export default function RiderDashboard() {
           </div>
         )}
 
-        {/* TAB GPS NAVEGAÇÃO EXPANDIDA */}
+        {/* TAB GPS NAVEGAÇÃO EXPANDIDA (RENDERIZAÇÃO EXCLUSIVA DO MAPA) */}
         {activeTab === 'navigation' && (
           <div className="space-y-4">
             <RiderNavigationMap
