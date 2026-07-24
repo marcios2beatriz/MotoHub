@@ -77,7 +77,6 @@ export default function EstablishmentDashboard() {
   const markersRef = useRef<{ [key: string]: L.Marker }>({});
   
   const hasSetInitialBoundsRef = useRef(false);
-  const hasCenteredEstRef = useRef(false);
 
   const handleLogout = () => {
     db.setCurrentUser(null);
@@ -179,7 +178,7 @@ export default function EstablishmentDashboard() {
     const allUsers = db.getUsers();
     
     const riders = allUsers.filter(u => 
-      u.role === 'rider' && (
+      u.role === 'rider' && u.active && (
         u.establishmentId === currentEst?.id ||
         estSchedules.some(s => {
           if (s.riderId === u.id) return true;
@@ -235,7 +234,6 @@ export default function EstablishmentDashboard() {
           newLines.forEach(line => {
             const isMe = line.includes('- Estabelecimento') || line.includes(`(${user?.name})`);
             if (!isMe) {
-              const rider = db.resolveUser(d.riderId);
               const sender = line.includes('- Motoboy') ? 'Motoboy' : 'Cliente';
               const messageText = line.substring(line.indexOf(']: ') + 3);
               const title = `Mensagem de ${sender} (Pedido #${d.orderNumber || d.id.slice(-4)})`;
@@ -362,20 +360,6 @@ export default function EstablishmentDashboard() {
         if (KNOWN_CEPS[cepClean]) {
           finalLat = KNOWN_CEPS[cepClean].lat;
           finalLng = KNOWN_CEPS[cepClean].lng;
-        } else if (cepClean.length === 8) {
-          try {
-            const vRes = await fetch(`https://viacep.com.br/ws/${cepClean}/json/`);
-            const vData = await vRes.json();
-            if (vData && !vData.erro) {
-              const cepQuery = `${vData.logradouro}, ${vData.bairro}, ${vData.localidade} - ${vData.uf}, Brasil`;
-              const nRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(cepQuery)}&limit=1`);
-              const nData = await nRes.json();
-              if (nData && nData.length > 0) {
-                finalLat = parseFloat(nData[0].lat);
-                finalLng = parseFloat(nData[0].lon);
-              }
-            }
-          } catch (e) {}
         }
       }
 
@@ -395,19 +379,20 @@ export default function EstablishmentDashboard() {
         mapRef.current = null;
         markersRef.current = {};
         hasSetInitialBoundsRef.current = false;
-        hasCenteredEstRef.current = false;
       }
     };
   }, [establishment?.id]);
 
-  // Atualização em Tempo Real de TODOS os Motoboys no Mapa Simultaneamente
+  // Atualização em Tempo Real com FILTRO ESTRITO
   useEffect(() => {
     const currentMap = mapRef.current;
     if (!currentMap) return;
 
     const allUsers = db.getUsers();
     const now = Date.now();
-    const ONLINE_THRESHOLD_MS = 120000;
+    
+    // LIMITE DE TEMPO ONLINE: 45 segundos sem atualização = OFFLINE
+    const ONLINE_THRESHOLD_MS = 45000;
 
     const activeRiderIdsOnMap = new Set<string>();
 
@@ -415,6 +400,7 @@ export default function EstablishmentDashboard() {
       const lastUpdateMs = loc.updatedAt ? new Date(loc.updatedAt).getTime() : 0;
       const isOnline = (now - lastUpdateMs) < ONLINE_THRESHOLD_MS;
 
+      // 1. SE O MOTOBOY ESTÁ OFFLINE HÁ MAIS DE 45 SEG, REMOVER IMEDIATAMENTE
       if (!isOnline) {
         if (markersRef.current[loc.riderId]) {
           currentMap.removeLayer(markersRef.current[loc.riderId]);
@@ -423,7 +409,7 @@ export default function EstablishmentDashboard() {
         return;
       }
 
-      // Verificar se o motoboy pertence a este estabelecimento
+      // 2. VERIFICAR SE O MOTOBOY REALMENTE PERTENCE OU TEM ESCALA/CORRIDA NESTA LOJA HOJE
       const isRiderBelongsToEst = scheduledRiders.some(r => {
         if (r.id === loc.riderId) return true;
         if (r.name.toLowerCase().trim() === loc.riderName.toLowerCase().trim()) return true;
@@ -431,7 +417,8 @@ export default function EstablishmentDashboard() {
         return locUser && locUser.email.toLowerCase() === r.email.toLowerCase();
       }) || todayDeliveries.some(d => d.riderId === loc.riderId);
 
-      if (!isRiderBelongsToEst && scheduledRiders.length > 0) {
+      // Se não for motoboy desta loja, remover do mapa imediatamente
+      if (!isRiderBelongsToEst) {
         if (markersRef.current[loc.riderId]) {
           currentMap.removeLayer(markersRef.current[loc.riderId]);
           delete markersRef.current[loc.riderId];
@@ -500,7 +487,7 @@ export default function EstablishmentDashboard() {
       }
     });
 
-    // Remover marcadores de motoboys que ficaram offline
+    // LIMPEZA FINAL: Remover marcadores de motoboys deslogados ou fora do escopo
     Object.keys(markersRef.current).forEach(rId => {
       if (!activeRiderIdsOnMap.has(rId)) {
         currentMap.removeLayer(markersRef.current[rId]);
@@ -508,27 +495,28 @@ export default function EstablishmentDashboard() {
       }
     });
 
-    // Ajuste inicial de enquadramento da câmera englobando TODOS os motoboys e o estabelecimento
     if (!hasSetInitialBoundsRef.current && activeRiderIdsOnMap.size > 0) {
       handleRecenterMap();
       hasSetInitialBoundsRef.current = true;
     }
   }, [scheduledRiders, riderLocations, estCoords, todayDeliveries]);
 
-  // Centralizar o mapa enquadrando TODOS os motoboys da loja simultaneamente
   const handleRecenterMap = () => {
     const currentMap = mapRef.current;
     if (!currentMap) return;
 
     const now = Date.now();
-    const ONLINE_THRESHOLD_MS = 120000;
+    const ONLINE_THRESHOLD_MS = 45000;
 
     const points: L.LatLngExpression[] = [];
     if (estCoords) points.push([estCoords.lat, estCoords.lng]);
 
     riderLocations.forEach(loc => {
       const lastUpdateMs = loc.updatedAt ? new Date(loc.updatedAt).getTime() : 0;
-      if ((now - lastUpdateMs) < ONLINE_THRESHOLD_MS) {
+      const isOnline = (now - lastUpdateMs) < ONLINE_THRESHOLD_MS;
+      const isRiderBelongsToEst = scheduledRiders.some(r => r.id === loc.riderId || r.name.toLowerCase().trim() === loc.riderName.toLowerCase().trim());
+
+      if (isOnline && isRiderBelongsToEst) {
         points.push([loc.lat, loc.lng]);
       }
     });
@@ -659,7 +647,7 @@ export default function EstablishmentDashboard() {
   const onlineRidersCount = scheduledRiders.filter(r => {
     return riderLocations.some(l => {
       const isSameRider = l.riderId === r.id || l.riderName.toLowerCase().trim() === r.name.toLowerCase().trim();
-      const isRecent = Date.now() - new Date(l.updatedAt).getTime() < 120000;
+      const isRecent = Date.now() - new Date(l.updatedAt).getTime() < 45000;
       return isSameRider && isRecent;
     });
   }).length;
@@ -747,7 +735,7 @@ export default function EstablishmentDashboard() {
 
             {scheduledRiders.length === 0 ? (
               <div className="text-center py-8 text-slate-400 text-sm">
-                Nenhum motoboy escalado para hoje. Fale com o administrador para criar escalas.
+                Nenum motoboy escalado para hoje. Fale com o administrador para criar escalas.
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -756,7 +744,7 @@ export default function EstablishmentDashboard() {
                   const total = riderDeliveries.reduce((sum, d) => sum + Number(d.value || 0), 0);
                   const isOnline = riderLocations.some(l => {
                     const isSameRider = l.riderId === rider.id || l.riderName.toLowerCase().trim() === rider.name.toLowerCase().trim();
-                    const isRecent = Date.now() - new Date(l.updatedAt).getTime() < 120000;
+                    const isRecent = Date.now() - new Date(l.updatedAt).getTime() < 45000;
                     return isSameRider && isRecent;
                   });
                   const riderSchedule = todaySchedules.find(s => s.riderId === rider.id);
@@ -825,15 +813,15 @@ export default function EstablishmentDashboard() {
                   const isPending = del.status === 'pending';
 
                   return (
-                    <div key={del.id} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="flex items-center space-x-2 flex-wrap gap-y-1">
-                          <p className="font-bold text-slate-800 text-sm">{rider?.name || 'Motoboy'}</p>
+                    <div key={del.id} className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="min-w-0 space-y-1">
+                        <div className="flex items-center gap-2 flex-wrap">
                           {del.orderNumber && (
-                            <span className="bg-slate-100 text-slate-500 text-[10px] font-bold px-1.5 py-0.5 rounded">
+                            <span className="bg-indigo-600 text-white text-xs font-black px-2.5 py-0.5 rounded-lg shadow-sm flex-shrink-0">
                               #{del.orderNumber}
                             </span>
                           )}
+                          <p className="font-bold text-slate-800 text-sm">{rider?.name || 'Motoboy'}</p>
                           <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                             del.status === 'active' ? 'bg-emerald-100 text-emerald-800' :
                             del.status === 'pending' ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-red-800'
@@ -841,13 +829,13 @@ export default function EstablishmentDashboard() {
                             {del.status === 'active' ? 'Aprovada' : del.status === 'pending' ? 'Pendente Aprovação' : 'Rejeitada'}
                           </span>
                         </div>
-                        <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1">
+                        <p className="text-xs text-slate-400 flex items-center gap-1">
                           <Clock className="h-3 w-3" />
-                          <span>Lançada às {del.time} — Valor: <strong className="text-emerald-600">R$ {Number(del.value || 0).toFixed(2)}</strong></span>
+                          <span>Lançada às {del.time} — Valor: <strong className="text-emerald-600 font-extrabold">R$ {Number(del.value || 0).toFixed(2)}</strong></span>
                         </p>
                       </div>
 
-                      <div className="flex items-center space-x-2 flex-wrap">
+                      <div className="flex items-center space-x-2 flex-wrap justify-between sm:justify-end">
                         {isPending && (
                           <>
                             <button

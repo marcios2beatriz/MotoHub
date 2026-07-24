@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { X, CalendarDays, Check, AlertTriangle } from 'lucide-react';
-import { User, Establishment } from '../utils/db';
+import { User, Establishment, db } from '../utils/db';
 
 interface WeeklyScheduleModalProps {
   isOpen: boolean;
@@ -53,6 +53,8 @@ export default function WeeklyScheduleModal({
 }: WeeklyScheduleModalProps) {
   if (!isOpen) return null;
 
+  const validEsts = db.getValidEstablishments();
+
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
       <div className="bg-white rounded-xl max-w-lg w-full p-6 space-y-4 shadow-xl max-h-[90vh] overflow-y-auto">
@@ -97,7 +99,7 @@ export default function WeeklyScheduleModal({
                 className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500"
               >
                 <option value="">Selecione um Estabelecimento</option>
-                {establishments.filter(e => e.active).map(e => (
+                {validEsts.map(e => (
                   <option key={e.id} value={e.id}>{e.name}</option>
                 ))}
               </select>

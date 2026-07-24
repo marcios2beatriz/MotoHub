@@ -1433,32 +1433,38 @@ export default function AdminDashboard() {
                   const est = establishments.find(e => e.id === del.establishmentId);
 
                   return (
-                    <div key={del.id} className="py-3.5 flex items-center justify-between gap-3">
-                      <div>
-                        <div className="flex items-center space-x-2">
-                          <p className="font-bold text-slate-800">{rider?.name || 'Motoboy'}</p>
-                          <span className="text-xs text-slate-400">• {est?.name}</span>
+                    <div key={del.id} className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="min-w-0 space-y-1">
+                        <div className="flex items-center gap-2 flex-wrap">
                           {del.orderNumber && (
-                            <span className="bg-slate-100 text-slate-600 text-[10px] font-bold px-2 py-0.5 rounded">
+                            <span className="bg-indigo-600 text-white text-xs font-black px-2.5 py-0.5 rounded-lg shadow-sm flex-shrink-0">
                               #{del.orderNumber}
                             </span>
                           )}
+                          <p className="font-bold text-slate-800 text-sm">{rider?.name || 'Motoboy'}</p>
+                          <span className="text-xs text-slate-500 font-medium">• {est?.name}</span>
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                            del.status === 'active' ? 'bg-emerald-100 text-emerald-800' :
+                            del.status === 'pending' ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-red-800'
+                          }`}>
+                            {del.status === 'active' ? 'Aprovada' : del.status === 'pending' ? 'Pendente' : 'Cancelada'}
+                          </span>
                         </div>
-                        <p className="text-xs text-slate-400 mt-1">
+                        <p className="text-xs text-slate-400">
                           {new Date(del.date + 'T00:00:00').toLocaleDateString('pt-BR')} às {del.time}
                         </p>
                       </div>
 
-                      <div className="flex items-center space-x-3">
+                      <div className="flex items-center gap-2 justify-between sm:justify-end">
                         <button
                           onClick={() => setNotesDeliveryId(del.id)}
-                          className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors flex items-center gap-1 text-xs font-semibold"
+                          className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg transition-colors flex items-center gap-1 text-xs font-bold"
                         >
                           <MessageSquare className="h-4 w-4" />
                           <span>Observações</span>
                         </button>
 
-                        <span className="font-bold text-emerald-600 text-sm">
+                        <span className="font-black text-emerald-600 text-sm">
                           R$ {del.value.toFixed(2)}
                         </span>
                       </div>

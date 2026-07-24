@@ -23,10 +23,12 @@ import {
   CompassIcon,
   Loader2,
   Home,
-  Check
+  Check,
+  Building2,
+  Store
 } from 'lucide-react';
 import L from 'leaflet';
-import { gpsTracker, GpsState, isPointOffRoute, calculateDistanceMeters } from '../utils/gpsTracker';
+import { gpsTracker, GpsState, isPointOffRoute } from '../utils/gpsTracker';
 
 interface RiderNavigationMapProps {
   currentLocation: { lat: number; lng: number } | null;
@@ -46,11 +48,14 @@ interface RouteStep {
   duration: number;
 }
 
-interface SearchResult {
-  place_id: number;
-  display_name: string;
-  lat: string;
-  lon: string;
+interface CustomSearchResult {
+  id: string;
+  title: string;
+  subtitle: string;
+  fullAddress: string;
+  lat: number;
+  lng: number;
+  type: 'poi' | 'street' | 'condo';
 }
 
 type MapProviderType = 'google_roadmap' | 'google_satellite' | 'google_terrain' | 'osm';
@@ -88,11 +93,11 @@ export default function RiderNavigationMap({
   } | null>(initialDestination);
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [searchResults, setSearchResults] = useState<CustomSearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
 
-  // ESTADO PARA O NÚMERO DA RESIDÊNCIA
-  const [selectedStreetResult, setSelectedStreetResult] = useState<SearchResult | null>(null);
+  // ESTADO PARA O NÚMERO DA RESIDÊNCIA (QUANDO É UMA RUA)
+  const [selectedStreetResult, setSelectedStreetResult] = useState<CustomSearchResult | null>(null);
   const [houseNumberInput, setHouseNumberInput] = useState('');
 
   const [isFullscreen, setIsFullscreen] = useState(defaultFullscreen);
@@ -478,7 +483,7 @@ export default function RiderNavigationMap({
     }
   };
 
-  // BUSCA COM AUTOCOMPLETAR EM TEMPO REAL AO DIGITAR
+  // NOVO MOTOR DE BUSCA AVANÇADO (PHOTON + NOMINATIM + LOCALIZAÇÃO BIAS)
   const handleSearchInput = (value: string) => {
     setSearchQuery(value);
     
@@ -486,37 +491,144 @@ export default function RiderNavigationMap({
       clearTimeout(searchTimeoutRef.current);
     }
 
-    if (value.trim().length >= 3) {
+    const rawText = value.trim();
+
+    if (rawText.length >= 2) {
       setIsSearching(true);
       searchTimeoutRef.current = setTimeout(async () => {
         try {
-          const rawText = value.trim();
-          const formattedQuery = rawText.toLowerCase().includes('campina grande') 
-            ? rawText 
-            : `${rawText}, Campina Grande - PB, Brasil`;
+          const lat = activePos ? activePos.lat : -7.2247;
+          const lng = activePos ? activePos.lng : -35.8878;
 
-          const res = await fetch(
-            `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(formattedQuery)}&limit=6`
-          );
-          const data = await res.json();
-          setSearchResults(data || []);
+          // 1. Consulta ao Photon API (Proximidade com Elasticsearch POIs)
+          const photonUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(rawText)}&lat=${lat}&lon=${lng}&limit=7`;
+          
+          // 2. Consulta ao Nominatim com Bias
+          const nominatimQuery = rawText.toLowerCase().includes('campina grande') 
+            ? rawText 
+            : `${rawText}, Campina Grande - PB`;
+          const nomUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(nominatimQuery)}&limit=5&viewbox=${lng-0.4},${lat+0.4},${lng+0.4},${lat-0.4}`;
+
+          const [photonRes, nomRes] = await Promise.all([
+            fetch(photonUrl).then(r => r.json()).catch(() => null),
+            fetch(nomUrl).then(r => r.json()).catch(() => null)
+          ]);
+
+          const combined: CustomSearchResult[] = [];
+          const seenKeys = new Set<string>();
+
+          // Processar resultados do Photon (Excelente para condomínios, órgãos, lanchonetes)
+          if (photonRes && photonRes.features) {
+            photonRes.features.forEach((feat: any) => {
+              const props = feat.properties;
+              const coords = feat.geometry.coordinates; // [lon, lat]
+              
+              if (!coords || coords.length < 2) return;
+
+              const title = props.name || props.street || 'Local';
+              const district = props.district || props.suburb || props.neighbourhood || '';
+              const city = props.city || props.town || 'Campina Grande';
+              const state = props.state || 'PB';
+
+              let subtitleParts = [];
+              if (props.street && props.street !== title) subtitleParts.push(props.street);
+              if (district) subtitleParts.push(district);
+              if (city) subtitleParts.push(`${city}/${state}`);
+
+              const subtitle = subtitleParts.join(' • ') || `${city}/${state}`;
+              const key = `${coords[1].toFixed(4)},${coords[0].toFixed(4)}`;
+
+              let type: 'poi' | 'street' | 'condo' = 'poi';
+              const lowerTitle = title.toLowerCase();
+              if (lowerTitle.includes('condom') || lowerTitle.includes('residencial') || lowerTitle.includes('edificio') || lowerTitle.includes('torre')) {
+                type = 'condo';
+              } else if (props.osm_key === 'highway' || lowerTitle.startsWith('rua') || lowerTitle.startsWith('av') || lowerTitle.startsWith('alameda')) {
+                type = 'street';
+              }
+
+              if (!seenKeys.has(key)) {
+                seenKeys.add(key);
+                combined.push({
+                  id: 'photon_' + Math.random(),
+                  title,
+                  subtitle,
+                  fullAddress: `${title}, ${subtitle}`,
+                  lat: coords[1],
+                  lng: coords[0],
+                  type
+                });
+              }
+            });
+          }
+
+          // Processar resultados do Nominatim
+          if (nomRes && Array.isArray(nomRes)) {
+            nomRes.forEach((item: any) => {
+              const itemLat = parseFloat(item.lat);
+              const itemLng = parseFloat(item.lon);
+              const key = `${itemLat.toFixed(4)},${itemLng.toFixed(4)}`;
+
+              if (!seenKeys.has(key)) {
+                seenKeys.add(key);
+                const parts = item.display_name.split(',');
+                const title = parts[0] || 'Endereço';
+                const subtitle = parts.slice(1, 4).join(',').trim();
+
+                let type: 'poi' | 'street' | 'condo' = 'street';
+                const lower = item.display_name.toLowerCase();
+                if (lower.includes('condom') || lower.includes('residencial') || lower.includes('edificio')) {
+                  type = 'condo';
+                } else if (item.class === 'amenity' || item.class === 'shop' || item.class === 'building' || item.class === 'office') {
+                  type = 'poi';
+                }
+
+                combined.push({
+                  id: 'nom_' + item.place_id,
+                  title,
+                  subtitle,
+                  fullAddress: item.display_name,
+                  lat: itemLat,
+                  lng: itemLng,
+                  type
+                });
+              }
+            });
+          }
+
+          setSearchResults(combined);
         } catch (err) {
-          console.warn('Erro no autocomplete:', err);
+          console.warn('Erro na busca de locais:', err);
         } finally {
           setIsSearching(false);
         }
-      }, 350);
+      }, 300);
     } else {
       setSearchResults([]);
       setIsSearching(false);
     }
   };
 
-  // AO SELECCIONAR A RUA, ABRIR PAINEL DE NÚMERO
-  const handleSelectSearchResult = (result: SearchResult) => {
-    setSelectedStreetResult(result);
-    setHouseNumberInput('');
-    setSearchResults([]);
+  // SELEÇÃO DO RESULTADO DA BUSCA
+  const handleSelectSearchResult = (result: CustomSearchResult) => {
+    // Se for uma rua simples, pede o número do imóvel para ser preciso
+    if (result.type === 'street') {
+      setSelectedStreetResult(result);
+      setHouseNumberInput('');
+      setSearchResults([]);
+    } else {
+      // Se for Condomínio, Órgão Público ou Estabelecimento, traça a rota direto para a portaria/entrada do local
+      lastFetchedDestRef.current = '';
+      setActiveDestination({
+        name: result.title,
+        addressText: result.fullAddress,
+        lat: result.lat,
+        lng: result.lng
+      });
+
+      setAutoFollow(true);
+      setSearchResults([]);
+      setSearchQuery('');
+    }
   };
 
   // CONFIRMAR ROTA COM O NÚMERO DA RESIDÊNCIA
@@ -524,20 +636,19 @@ export default function RiderNavigationMap({
     if (!selectedStreetResult) return;
 
     const num = numberOverride !== undefined ? numberOverride : houseNumberInput.trim();
-    const streetNameOnly = selectedStreetResult.display_name.split(',')[0] || 'Rua';
-    const restOfAddress = selectedStreetResult.display_name.split(',').slice(1).join(',').trim();
+    const streetTitle = selectedStreetResult.title;
 
-    const title = num ? `${streetNameOnly}, Nº ${num}` : streetNameOnly;
-    const fullAddress = num ? `${streetNameOnly}, ${num}, ${restOfAddress}` : selectedStreetResult.display_name;
+    const title = num ? `${streetTitle}, Nº ${num}` : streetTitle;
+    const fullAddress = num ? `${streetTitle}, ${num} - ${selectedStreetResult.subtitle}` : selectedStreetResult.fullAddress;
 
-    let finalLat = parseFloat(selectedStreetResult.lat);
-    let finalLng = parseFloat(selectedStreetResult.lon);
+    let finalLat = selectedStreetResult.lat;
+    let finalLng = selectedStreetResult.lng;
 
     // Se informou número, tenta buscar a coordenada exata da casa na API de geocodificação
     if (num) {
       setLoadingRoute(true);
       try {
-        const queryWithNum = `${streetNameOnly}, ${num}, Campina Grande - PB, Brasil`;
+        const queryWithNum = `${streetTitle}, ${num}, Campina Grande - PB, Brasil`;
         const res = await fetch(
           `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(queryWithNum)}&limit=1`
         );
@@ -547,7 +658,7 @@ export default function RiderNavigationMap({
           finalLng = parseFloat(data[0].lon);
         }
       } catch (err) {
-        console.warn('Erro geocodificando número exacto:', err);
+        console.warn('Erro geocodificando número exato:', err);
       } finally {
         setLoadingRoute(false);
       }
@@ -692,7 +803,7 @@ export default function RiderNavigationMap({
         <div className="relative flex items-center">
           <input
             type="text"
-            placeholder="Digite a rua para ver sugestões em tempo real..."
+            placeholder="Buscar condomínio, loja, órgão público ou rua..."
             value={searchQuery}
             onChange={(e) => handleSearchInput(e.target.value)}
             className="w-full bg-slate-800 text-white placeholder-slate-400 text-xs pl-8 pr-8 py-2 rounded-lg border border-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500"
@@ -776,9 +887,9 @@ export default function RiderNavigationMap({
                   <Home className="h-4 w-4" />
                 </div>
                 <div>
-                  <p className="text-xs font-black text-white">{selectedStreetResult.display_name.split(',')[0]}</p>
+                  <p className="text-xs font-black text-white">{selectedStreetResult.title}</p>
                   <p className="text-[10px] text-slate-400 truncate max-w-[200px]">
-                    {selectedStreetResult.display_name.split(',').slice(1, 3).join(',')}
+                    {selectedStreetResult.subtitle}
                   </p>
                 </div>
               </div>
@@ -833,26 +944,43 @@ export default function RiderNavigationMap({
 
         {/* LISTA DE SUGESTÕES EM TEMPO REAL AO DIGITAR */}
         {!selectedStreetResult && searchResults.length > 0 && (
-          <div className="absolute left-2 right-2 top-full mt-1 bg-slate-900 rounded-xl border border-slate-700 shadow-2xl z-50 overflow-hidden divide-y divide-slate-800 max-h-56 overflow-y-auto">
+          <div className="absolute left-2 right-2 top-full mt-1 bg-slate-900 rounded-xl border border-slate-700 shadow-2xl z-50 overflow-hidden divide-y divide-slate-800 max-h-64 overflow-y-auto">
             <div className="bg-slate-950 px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between">
-              <span>Sugestões encontradas</span>
+              <span>Locais e Endereços sugeridos</span>
               <span>{searchResults.length} resultado(s)</span>
             </div>
             {searchResults.map((res) => (
               <button
-                key={res.place_id}
+                key={res.id}
                 onClick={() => handleSelectSearchResult(res)}
                 className="w-full p-2.5 text-left hover:bg-indigo-950/60 transition-colors flex items-start space-x-2.5 group"
               >
-                <div className="p-1.5 bg-slate-800 group-hover:bg-indigo-600 rounded-lg text-emerald-400 group-hover:text-white transition-colors mt-0.5 flex-shrink-0">
-                  <MapPin className="h-3.5 w-3.5" />
+                <div className={`p-1.5 rounded-lg text-white transition-colors mt-0.5 flex-shrink-0 ${
+                  res.type === 'condo' ? 'bg-amber-600' :
+                  res.type === 'poi' ? 'bg-indigo-600' : 'bg-slate-800 group-hover:bg-indigo-600 text-emerald-400 group-hover:text-white'
+                }`}>
+                  {res.type === 'condo' ? <Building2 className="h-3.5 w-3.5" /> :
+                   res.type === 'poi' ? <Store className="h-3.5 w-3.5" /> :
+                   <MapPin className="h-3.5 w-3.5" />}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs font-bold text-white truncate group-hover:text-indigo-200">
-                    {res.display_name.split(',')[0]}
-                  </p>
-                  <p className="text-[10px] text-slate-400 truncate">
-                    {res.display_name.split(',').slice(1).join(',').trim()}
+                  <div className="flex items-center gap-1.5">
+                    <p className="text-xs font-bold text-white truncate group-hover:text-indigo-200">
+                      {res.title}
+                    </p>
+                    {res.type === 'condo' && (
+                      <span className="bg-amber-500/20 text-amber-300 text-[9px] font-extrabold px-1.5 py-0.2 rounded uppercase">
+                        Condomínio
+                      </span>
+                    )}
+                    {res.type === 'poi' && (
+                      <span className="bg-indigo-500/20 text-indigo-300 text-[9px] font-extrabold px-1.5 py-0.2 rounded uppercase">
+                        Local / Ponto
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[10px] text-slate-400 truncate mt-0.5">
+                    {res.subtitle}
                   </p>
                 </div>
               </button>
