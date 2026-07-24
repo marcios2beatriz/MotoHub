@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { X } from 'lucide-react';
-import { User, Establishment, Delivery, db } from '../utils/db';
+import { User, Establishment, Delivery } from '../utils/db';
 
 interface DeliveryModalProps {
   isOpen: boolean;
@@ -43,8 +43,6 @@ export default function DeliveryModal({
 }: DeliveryModalProps) {
   if (!isOpen) return null;
 
-  const validEsts = db.getValidEstablishments();
-
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
       <div className="bg-white rounded-xl max-w-md w-full p-6 space-y-4 shadow-xl max-h-[90vh] overflow-y-auto">
@@ -80,7 +78,7 @@ export default function DeliveryModal({
               className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none"
             >
               <option value="">Selecione um Estabelecimento</option>
-              {validEsts.map(e => (
+              {establishments.filter(e => e.active).map(e => (
                 <option key={e.id} value={e.id}>{e.name}</option>
               ))}
             </select>

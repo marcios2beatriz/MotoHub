@@ -250,69 +250,6 @@ export const db = {
     });
   },
 
-  // Retorna APENAS estabelecimentos que possuem conta de gerente associada e ativa
-  getValidEstablishments(): Establishment[] {
-    const allEsts = this.getEstablishments();
-    const allUsers = this.getUsers();
-
-    const managers = allUsers.filter(u => u.role === 'establishment');
-    const validMap = new Map<string, Establishment>();
-
-    allEsts.forEach(e => {
-      if (!e.active) return;
-
-      const hasManager = managers.some(m => 
-        m.establishmentId === e.id || 
-        (e.email && m.email.toLowerCase() === e.email.toLowerCase()) ||
-        m.name.toLowerCase().includes(e.name.toLowerCase().replace(/\s+/g, ''))
-      );
-
-      if (hasManager) {
-        const normName = e.name.toLowerCase().trim().replace(/\s+/g, ' ');
-        if (!validMap.has(normName)) {
-          validMap.set(normName, e);
-        }
-      }
-    });
-
-    return Array.from(validMap.values()).sort((a, b) => a.name.localeCompare(b.name));
-  },
-
-  // Exclui do banco os estabelecimentos sem conta gerente
-  cleanOrphanedEstablishments() {
-    const allEsts = this.getEstablishments();
-    const allUsers = this.getUsers();
-    const managers = allUsers.filter(u => u.role === 'establishment');
-
-    const seenNames = new Set<string>();
-    const keepEsts: Establishment[] = [];
-    const deleteIds: string[] = [];
-
-    allEsts.forEach(e => {
-      const hasManager = managers.some(m => 
-        m.establishmentId === e.id || 
-        (e.email && m.email.toLowerCase() === e.email.toLowerCase()) ||
-        (m.name && e.name && m.name.toLowerCase().replace('gerente ', '').trim() === e.name.toLowerCase().trim())
-      );
-
-      const normName = e.name.toLowerCase().trim();
-
-      if (hasManager && !seenNames.has(normName)) {
-        seenNames.add(normName);
-        keepEsts.push(e);
-      } else {
-        deleteIds.push(e.id);
-      }
-    });
-
-    if (deleteIds.length > 0) {
-      localStorage.setItem(KEYS.ESTABLISHMENTS, JSON.stringify(keepEsts));
-      deleteIds.forEach(id => {
-        supabase.from('establishments').delete().eq('id', id);
-      });
-    }
-  },
-
   getSchedules(): Schedule[] {
     const data = localStorage.getItem(KEYS.SCHEDULES);
     return data ? JSON.parse(data) : [];
@@ -526,7 +463,7 @@ export const db = {
     return Object.values(this.getRiderLocationsRecord());
   },
 
-  // --- SUPABASE SYNCHRONIZATION ---
+  // --- SUPABASE SYNCHRONIZATION (PUXA E MESCLA DADOS EM TEMPO REAL) ---
   async pullFromSupabase() {
     // 1. Usuários
     try {
@@ -605,7 +542,6 @@ export const db = {
           };
         });
         localStorage.setItem(KEYS.ESTABLISHMENTS, JSON.stringify(mappedEsts));
-        this.cleanOrphanedEstablishments();
       }
     } catch (err) {
       console.warn('Erro ao sincronizar tabela "establishments":', err);
@@ -622,6 +558,7 @@ export const db = {
           let chat = s.chat || undefined;
           let createdBy = s.created_by || undefined;
 
+          // Parse do payload redundante gravado no created_by
           if (s.created_by && s.created_by.startsWith('{')) {
             try {
               const parsed = JSON.parse(s.created_by);
@@ -666,6 +603,7 @@ export const db = {
           let customerChat = d.customer_chat || undefined;
           let updatedAt = d.updated_at;
 
+          // Parse do payload redundante em order_number
           if (d.order_number && d.order_number.startsWith('{')) {
             try {
               const parsed = JSON.parse(d.order_number);

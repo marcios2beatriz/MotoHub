@@ -50,6 +50,8 @@ export default function RiderDashboard() {
     lng?: number;
   } | null>(null);
   
+  const hasInitializedDestRef = useRef(false);
+
   const watchIdRef = useRef<number | null>(null);
   const fallbackIntervalRef = useRef<any>(null);
   const wakeLockRef = useRef<any>(null);
@@ -120,18 +122,21 @@ export default function RiderDashboard() {
     setNotifications(sortedNotifications);
     setEstablishments(allEsts);
 
-    // Se tiver escala hoje, pré-definir como destino da navegação
-    const todayStr = db.getLocalDateString();
-    const todaySch = sortedSchedules.find(s => s.date === todayStr);
-    if (todaySch) {
-      const est = db.resolveEstablishment(todaySch.establishmentId);
-      if (est && est.address) {
-        const addrText = `${est.address.street}, ${est.address.number} - ${est.address.neighborhood}, ${est.address.city}/${est.address.state}`;
-        setNavDestination({
-          name: est.name,
-          addressText: addrText
-        });
+    // Sugerir destino inicial APENAS na primeira carregada (sem ficar resetando a cada 3s)
+    if (!hasInitializedDestRef.current) {
+      const todayStr = db.getLocalDateString();
+      const todaySch = sortedSchedules.find(s => s.date === todayStr);
+      if (todaySch) {
+        const est = db.resolveEstablishment(todaySch.establishmentId);
+        if (est && est.address) {
+          const addrText = `${est.address.street}, ${est.address.number} - ${est.address.neighborhood}, ${est.address.city}/${est.address.state}`;
+          setNavDestination({
+            name: est.name,
+            addressText: addrText
+          });
+        }
       }
+      hasInitializedDestRef.current = true;
     }
   };
 
@@ -824,10 +829,10 @@ export default function RiderDashboard() {
                     const est = resolveEst(delivery.establishmentId);
                     return (
                       <div key={delivery.id} className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                        <div className="min-w-0 space-y-1">
+                        <div className="min-w-0 space-y-1.5 flex-1">
                           <div className="flex items-center gap-2 flex-wrap">
                             {delivery.orderNumber && (
-                              <span className="bg-indigo-600 text-white text-xs font-black px-2.5 py-0.5 rounded-lg shadow-sm flex-shrink-0">
+                              <span className="bg-indigo-600 text-white text-xs font-black px-2.5 py-1 rounded-lg shadow-sm flex-shrink-0 tracking-wide">
                                 #{delivery.orderNumber}
                               </span>
                             )}
@@ -848,12 +853,12 @@ export default function RiderDashboard() {
                             </span>
                           </div>
                           <p className="text-xs text-slate-400 flex items-center space-x-1">
-                            <Clock className="h-3 w-3" />
+                            <Clock className="h-3.5 w-3.5 text-slate-400" />
                             <span>Horário: {delivery.time}</span>
                           </p>
                         </div>
 
-                        <div className="flex items-center gap-2 flex-wrap justify-between sm:justify-end">
+                        <div className="flex items-center gap-2 flex-wrap justify-between sm:justify-end flex-shrink-0 pt-1 sm:pt-0 border-t sm:border-t-0 border-slate-100">
                           <button
                             onClick={() => setNotesDeliveryId(delivery.id)}
                             className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg transition-colors flex items-center gap-1 text-xs font-bold"
@@ -1079,10 +1084,10 @@ export default function RiderDashboard() {
                     const est = resolveEst(del.establishmentId);
                     return (
                       <div key={del.id} className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/50 px-2 rounded-lg">
-                        <div className="space-y-1">
+                        <div className="space-y-1.5 flex-1">
                           <div className="flex items-center gap-2 flex-wrap">
                             {del.orderNumber && (
-                              <span className="bg-indigo-600 text-white text-xs font-black px-2.5 py-0.5 rounded-lg shadow-sm flex-shrink-0">
+                              <span className="bg-indigo-600 text-white text-xs font-black px-2.5 py-1 rounded-lg shadow-sm flex-shrink-0 tracking-wide">
                                 #{del.orderNumber}
                               </span>
                             )}
@@ -1097,7 +1102,7 @@ export default function RiderDashboard() {
                             Data: {new Date(del.date + 'T00:00:00').toLocaleDateString('pt-BR')} às {del.time}
                           </p>
                         </div>
-                        <div className="flex items-center gap-2 justify-between sm:justify-end">
+                        <div className="flex items-center gap-2 justify-between sm:justify-end flex-shrink-0 pt-1 sm:pt-0 border-t sm:border-t-0 border-slate-100">
                           <button
                             onClick={() => setNotesDeliveryId(del.id)}
                             className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-bold"

@@ -1434,10 +1434,10 @@ export default function AdminDashboard() {
 
                   return (
                     <div key={del.id} className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                      <div className="min-w-0 space-y-1">
+                      <div className="min-w-0 space-y-1.5 flex-1">
                         <div className="flex items-center gap-2 flex-wrap">
                           {del.orderNumber && (
-                            <span className="bg-indigo-600 text-white text-xs font-black px-2.5 py-0.5 rounded-lg shadow-sm flex-shrink-0">
+                            <span className="bg-indigo-600 text-white text-xs font-black px-2.5 py-1 rounded-lg shadow-sm flex-shrink-0 tracking-wide">
                               #{del.orderNumber}
                             </span>
                           )}
@@ -1455,7 +1455,7 @@ export default function AdminDashboard() {
                         </p>
                       </div>
 
-                      <div className="flex items-center gap-2 justify-between sm:justify-end">
+                      <div className="flex items-center gap-2 justify-between sm:justify-end flex-shrink-0 pt-1 sm:pt-0 border-t sm:border-t-0 border-slate-100">
                         <button
                           onClick={() => setNotesDeliveryId(del.id)}
                           className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg transition-colors flex items-center gap-1 text-xs font-bold"

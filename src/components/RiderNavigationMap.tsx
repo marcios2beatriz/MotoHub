@@ -25,7 +25,9 @@ import {
   Home,
   Check,
   Building2,
-  Store
+  Store,
+  Mic,
+  MicOff
 } from 'lucide-react';
 import L from 'leaflet';
 import { gpsTracker, GpsState, isPointOffRoute } from '../utils/gpsTracker';
@@ -95,6 +97,7 @@ export default function RiderNavigationMap({
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<CustomSearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [isListeningVoice, setIsListeningVoice] = useState(false);
 
   // ESTADO PARA O NÚMERO DA RESIDÊNCIA (QUANDO É UMA RUA)
   const [selectedStreetResult, setSelectedStreetResult] = useState<CustomSearchResult | null>(null);
@@ -286,7 +289,7 @@ export default function RiderNavigationMap({
     setShowTraffic(traffic);
   };
 
-  // Renderização e Centralização Exata do Ponto do Usuário
+  // Renderização do Ponto do Motoboy no Mapa
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !activePos) return;
@@ -352,7 +355,7 @@ export default function RiderNavigationMap({
     }
   }, [activePos?.lat, activePos?.lng, activePos?.heading, autoFollow, isNavigating, routeCoordinates]);
 
-  // Traçar Rota APENAS quando o destino muda ou quando é detectado desvio real de rota
+  // Traçar Rota
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !activePos || !destCoords) return;
@@ -483,7 +486,45 @@ export default function RiderNavigationMap({
     }
   };
 
-  // NOVO MOTOR DE BUSCA AVANÇADO (PHOTON + NOMINATIM + LOCALIZAÇÃO BIAS)
+  // PESQUISA POR COMANDO DE VOZ
+  const handleStartVoiceSearch = () => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert('Seu navegador ou dispositivo não suporta pesquisa por voz.');
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.lang = 'pt-BR';
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+
+      setIsListeningVoice(true);
+
+      recognition.onresult = (event: any) => {
+        const spokenText = event.results[0][0].transcript;
+        if (spokenText) {
+          handleSearchInput(spokenText);
+        }
+        setIsListeningVoice(false);
+      };
+
+      recognition.onerror = () => {
+        setIsListeningVoice(false);
+      };
+
+      recognition.onend = () => {
+        setIsListeningVoice(false);
+      };
+
+      recognition.start();
+    } catch (e) {
+      setIsListeningVoice(false);
+    }
+  };
+
+  // MOTOR DE BUSCA
   const handleSearchInput = (value: string) => {
     setSearchQuery(value);
     
@@ -500,14 +541,14 @@ export default function RiderNavigationMap({
           const lat = activePos ? activePos.lat : -7.2247;
           const lng = activePos ? activePos.lng : -35.8878;
 
-          // 1. Consulta ao Photon API (Proximidade com Elasticsearch POIs)
-          const photonUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(rawText)}&lat=${lat}&lon=${lng}&limit=7`;
+          // 1. Photon API (Mecanismo geográfico por proximidade)
+          const photonUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(rawText)}&lat=${lat}&lon=${lng}&limit=8`;
           
-          // 2. Consulta ao Nominatim com Bias
+          // 2. Nominatim com Bias
           const nominatimQuery = rawText.toLowerCase().includes('campina grande') 
             ? rawText 
             : `${rawText}, Campina Grande - PB`;
-          const nomUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(nominatimQuery)}&limit=5&viewbox=${lng-0.4},${lat+0.4},${lng+0.4},${lat-0.4}`;
+          const nomUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(nominatimQuery)}&limit=6&viewbox=${lng-0.4},${lat+0.4},${lng+0.4},${lat-0.4}`;
 
           const [photonRes, nomRes] = await Promise.all([
             fetch(photonUrl).then(r => r.json()).catch(() => null),
@@ -517,12 +558,10 @@ export default function RiderNavigationMap({
           const combined: CustomSearchResult[] = [];
           const seenKeys = new Set<string>();
 
-          // Processar resultados do Photon (Excelente para condomínios, órgãos, lanchonetes)
           if (photonRes && photonRes.features) {
             photonRes.features.forEach((feat: any) => {
               const props = feat.properties;
               const coords = feat.geometry.coordinates; // [lon, lat]
-              
               if (!coords || coords.length < 2) return;
 
               const title = props.name || props.street || 'Local';
@@ -531,6 +570,7 @@ export default function RiderNavigationMap({
               const state = props.state || 'PB';
 
               let subtitleParts = [];
+              if (props.housenumber) subtitleParts.push(`Nº ${props.housenumber}`);
               if (props.street && props.street !== title) subtitleParts.push(props.street);
               if (district) subtitleParts.push(district);
               if (city) subtitleParts.push(`${city}/${state}`);
@@ -561,7 +601,6 @@ export default function RiderNavigationMap({
             });
           }
 
-          // Processar resultados do Nominatim
           if (nomRes && Array.isArray(nomRes)) {
             nomRes.forEach((item: any) => {
               const itemLat = parseFloat(item.lat);
@@ -608,15 +647,15 @@ export default function RiderNavigationMap({
     }
   };
 
-  // SELEÇÃO DO RESULTADO DA BUSCA
   const handleSelectSearchResult = (result: CustomSearchResult) => {
-    // Se for uma rua simples, pede o número do imóvel para ser preciso
-    if (result.type === 'street') {
+    // Se a busca for uma rua sem número definido, abre a caixinha solicitando o número
+    const hasNumberInTitle = /\d+/.test(result.title) || /\d+/.test(searchQuery);
+
+    if (result.type === 'street' && !hasNumberInTitle) {
       setSelectedStreetResult(result);
       setHouseNumberInput('');
       setSearchResults([]);
     } else {
-      // Se for Condomínio, Órgão Público ou Estabelecimento, traça a rota direto para a portaria/entrada do local
       lastFetchedDestRef.current = '';
       setActiveDestination({
         name: result.title,
@@ -631,7 +670,6 @@ export default function RiderNavigationMap({
     }
   };
 
-  // CONFIRMAR ROTA COM O NÚMERO DA RESIDÊNCIA
   const handleConfirmAddressWithNumber = async (numberOverride?: string) => {
     if (!selectedStreetResult) return;
 
@@ -644,7 +682,6 @@ export default function RiderNavigationMap({
     let finalLat = selectedStreetResult.lat;
     let finalLng = selectedStreetResult.lng;
 
-    // Se informou número, tenta buscar a coordenada exata da casa na API de geocodificação
     if (num) {
       setLoadingRoute(true);
       try {
@@ -703,7 +740,7 @@ export default function RiderNavigationMap({
   };
 
   const activeStep = steps[currentStepIndex] || {
-    instruction: activeDestination ? `Navegando para ${activeDestination.name}` : 'Digite um endereço para traçar rota...',
+    instruction: activeDestination ? `Navegando para ${activeDestination.name}` : 'Digite ou fale um endereço para traçar rota...',
     distance: 0,
     duration: 0
   };
@@ -798,28 +835,51 @@ export default function RiderNavigationMap({
         </div>
       </div>
 
-      {/* BARRA SUPERIOR DE BUSCA E DIAGNÓSTICO DO GPS */}
+      {/* BARRA SUPERIOR DE BUSCA COM MICROFONE E DIAGNÓSTICO DO GPS */}
       <div className="bg-slate-900 border-b border-slate-800 p-2 z-20 relative flex-shrink-0 space-y-1.5">
         <div className="relative flex items-center">
           <input
             type="text"
-            placeholder="Buscar condomínio, loja, órgão público ou rua..."
+            placeholder={isListeningVoice ? "Fale o endereço agora..." : "Buscar condomínio, loja, órgão ou rua com nº..."}
             value={searchQuery}
             onChange={(e) => handleSearchInput(e.target.value)}
-            className="w-full bg-slate-800 text-white placeholder-slate-400 text-xs pl-8 pr-8 py-2 rounded-lg border border-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            className={`w-full text-white placeholder-slate-400 text-xs pl-8 pr-16 py-2 rounded-lg border focus:outline-none focus:ring-1 transition-all ${
+              isListeningVoice 
+                ? 'bg-red-950/80 border-red-500 focus:ring-red-500 animate-pulse' 
+                : 'bg-slate-800 border-slate-700 focus:ring-indigo-500'
+            }`}
           />
           <Search className="h-3.5 w-3.5 text-slate-400 absolute left-2.5 pointer-events-none" />
-          {isSearching && (
-            <Loader2 className="h-3.5 w-3.5 text-indigo-400 animate-spin absolute right-2.5 pointer-events-none" />
-          )}
-          {!isSearching && searchQuery && (
+
+          {/* CONTROLES DA BARRA DE PESQUISA (MICROFONE + LIMPAR) */}
+          <div className="absolute right-2 flex items-center gap-1">
+            {isSearching && (
+              <Loader2 className="h-3.5 w-3.5 text-indigo-400 animate-spin mr-1" />
+            )}
+            
+            {!isSearching && searchQuery && (
+              <button
+                onClick={() => { setSearchQuery(''); setSearchResults([]); }}
+                className="text-slate-400 hover:text-white p-1"
+                title="Limpar texto"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+
             <button
-              onClick={() => { setSearchQuery(''); setSearchResults([]); }}
-              className="absolute right-2.5 text-slate-400 hover:text-white"
+              type="button"
+              onClick={handleStartVoiceSearch}
+              className={`p-1.5 rounded-md text-xs font-bold flex items-center gap-1 transition-colors ${
+                isListeningVoice 
+                  ? 'bg-red-600 text-white animate-bounce' 
+                  : 'bg-slate-700 hover:bg-indigo-600 text-slate-200'
+              }`}
+              title="Pesquisar por voz"
             >
-              <X className="h-3.5 w-3.5" />
+              {isListeningVoice ? <MicOff className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}
             </button>
-          )}
+          </div>
         </div>
 
         {/* METRO DE DIAGNÓSTICO DO SINAL DO GPS */}
@@ -942,7 +1002,7 @@ export default function RiderNavigationMap({
           </div>
         )}
 
-        {/* LISTA DE SUGESTÕES EM TEMPO REAL AO DIGITAR */}
+        {/* LISTA DE SUGESTÕES EM TEMPO REAL AO DIGITAR OU FALAR */}
         {!selectedStreetResult && searchResults.length > 0 && (
           <div className="absolute left-2 right-2 top-full mt-1 bg-slate-900 rounded-xl border border-slate-700 shadow-2xl z-50 overflow-hidden divide-y divide-slate-800 max-h-64 overflow-y-auto">
             <div className="bg-slate-950 px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between">
@@ -1069,7 +1129,7 @@ export default function RiderNavigationMap({
         )}
       </div>
 
-      {/* RODAPÉ COMPACTO */}
+      {/* RODAPÉ COMPACTO DO DESTINO E MÉTRICAS */}
       <div className="bg-slate-900 border-t border-slate-800 p-2.5 z-20 space-y-1.5 flex-shrink-0">
         {activeDestination && (
           <div className="flex items-center justify-between bg-slate-800/80 p-2 rounded-lg border border-slate-700/50">
