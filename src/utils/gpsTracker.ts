@@ -18,20 +18,6 @@ export interface GpsState {
   isNavigating: boolean;
 }
 
-// Coordenadas conhecidas em Campina Grande - PB para busca rápida e fallback exato
-export const KNOWN_CAMPINA_LOCATIONS: Record<string, { lat: number; lng: number; label: string }> = {
-  'serrotao_alberto_agra': {
-    lat: -7.2302,
-    lng: -35.9392,
-    label: 'Rua Vereador Alberto Agra, Serrotão - Campina Grande PB'
-  },
-  'bodocongo_burgrill': {
-    lat: -7.2150,
-    lng: -35.9130,
-    label: 'Rua Aprígio Veloso, Bodocongó - Campina Grande PB'
-  }
-};
-
 // Cálculo da distância Haversine em metros entre duas coordenadas
 export function calculateDistanceMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6371000;
@@ -108,9 +94,7 @@ class HighPrecisionGpsTracker {
   private wakeLock: any = null;
   private audioKeepAlive: HTMLAudioElement | null = null;
 
-  private lastRawLocation: GpsLocation | null = null;
-  private smoothedLocation: GpsLocation | null = null;
-
+  private lastLocation: GpsLocation | null = null;
   private listeners: Set<(state: GpsState) => void> = new Set();
   
   private currentState: GpsState = {
@@ -132,25 +116,6 @@ class HighPrecisionGpsTracker {
     this.listeners.forEach((listener) => listener(this.currentState));
   }
 
-  public setManualLocation(lat: number, lng: number, accuracy: number = 5) {
-    const manualLoc: GpsLocation = {
-      lat,
-      lng,
-      accuracy,
-      speedKmh: 0,
-      heading: 0,
-      timestamp: Date.now()
-    };
-    this.smoothedLocation = manualLoc;
-    this.currentState = {
-      ...this.currentState,
-      currentLocation: manualLoc,
-      quality: 'excellent',
-      errorMessage: null
-    };
-    this.notify();
-  }
-
   public setNavigating(navigating: boolean) {
     this.currentState.isNavigating = navigating;
     this.notify();
@@ -164,7 +129,7 @@ class HighPrecisionGpsTracker {
       this.currentState = {
         ...this.currentState,
         quality: 'off',
-        errorMessage: 'O navegador não suporta geolocalização por GPS.'
+        errorMessage: 'O seu dispositivo/navegador não suporta geolocalização.'
       };
       this.notify();
       return;
@@ -179,71 +144,37 @@ class HighPrecisionGpsTracker {
     };
 
     const handleSuccess = (pos: GeolocationPosition) => {
-      const rawLat = pos.coords.latitude;
-      const rawLng = pos.coords.longitude;
+      const lat = pos.coords.latitude;
+      const lng = pos.coords.longitude;
       const accuracy = pos.coords.accuracy || 10;
       const now = Date.now();
 
-      let speedKmh = pos.coords.speed !== null && pos.coords.speed >= 0 ? pos.coords.speed * 3.6 : 0;
-      let heading = pos.coords.heading !== null && !isNaN(pos.coords.heading) ? pos.coords.heading : 0;
+      let speedKmh = pos.coords.speed !== null && pos.coords.speed >= 0 ? Math.round(pos.coords.speed * 3.6) : 0;
+      let heading = pos.coords.heading !== null && !isNaN(pos.coords.heading) ? Math.round(pos.coords.heading) : 0;
 
-      if (this.lastRawLocation) {
-        const timeDiffSec = (now - this.lastRawLocation.timestamp) / 1000;
-        const distanceM = calculateDistanceMeters(
-          this.lastRawLocation.lat,
-          this.lastRawLocation.lng,
-          rawLat,
-          rawLng
-        );
-
-        if (timeDiffSec > 0.2) {
-          const calcSpeedKmh = (distanceM / timeDiffSec) * 3.6;
-          if (calcSpeedKmh > 180) {
-            return;
-          }
-          if (pos.coords.speed === null || pos.coords.speed < 0) {
-            speedKmh = Math.round(calcSpeedKmh);
-          }
+      if (this.lastLocation) {
+        const distanceM = calculateDistanceMeters(this.lastLocation.lat, this.lastLocation.lng, lat, lng);
+        if (distanceM > 2.0 && (!pos.coords.heading || isNaN(pos.coords.heading))) {
+          heading = Math.round(calculateBearingDegrees(this.lastLocation.lat, this.lastLocation.lng, lat, lng));
+        } else if (distanceM <= 2.0) {
+          heading = this.lastLocation.heading;
         }
-
-        if (distanceM > 2.0) {
-          heading = Math.round(calculateBearingDegrees(
-            this.lastRawLocation.lat,
-            this.lastRawLocation.lng,
-            rawLat,
-            rawLng
-          ));
-        } else if (this.smoothedLocation) {
-          heading = this.smoothedLocation.heading;
-        }
-      }
-
-      let finalLat = rawLat;
-      let finalLng = rawLng;
-
-      if (this.smoothedLocation && speedKmh < 3) {
-        finalLat = this.smoothedLocation.lat * 0.5 + rawLat * 0.5;
-        finalLng = this.smoothedLocation.lng * 0.5 + rawLng * 0.5;
-      } else if (this.smoothedLocation) {
-        finalLat = this.smoothedLocation.lat * 0.2 + rawLat * 0.8;
-        finalLng = this.smoothedLocation.lng * 0.2 + rawLng * 0.8;
       }
 
       const newLocation: GpsLocation = {
-        lat: finalLat,
-        lng: finalLng,
+        lat,
+        lng,
         accuracy: Math.round(accuracy),
-        speedKmh: Math.round(speedKmh),
+        speedKmh,
         heading,
         timestamp: now
       };
 
-      this.lastRawLocation = { lat: rawLat, lng: rawLng, accuracy, speedKmh, heading, timestamp: now };
-      this.smoothedLocation = newLocation;
+      this.lastLocation = newLocation;
 
       let quality: GpsSignalQuality = 'excellent';
-      if (accuracy > 35) quality = 'weak';
-      else if (accuracy > 15) quality = 'good';
+      if (accuracy > 30) quality = 'weak';
+      else if (accuracy > 12) quality = 'good';
 
       this.currentState = {
         ...this.currentState,
@@ -257,17 +188,17 @@ class HighPrecisionGpsTracker {
 
     const handleError = (err: GeolocationPositionError) => {
       let quality: GpsSignalQuality = 'off';
-      let msg = 'Erro ao obter sinal GPS.';
+      let msg = 'Obtendo sinal do GPS...';
 
       if (err.code === GeolocationPositionError.PERMISSION_DENIED) {
         quality = 'denied';
-        msg = 'Permissão de localização negada pelo navegador.';
+        msg = 'Permissão de localização negada no seu navegador.';
       } else if (err.code === GeolocationPositionError.POSITION_UNAVAILABLE) {
         quality = 'lost';
-        msg = 'Buscando sinal GPS...';
+        msg = 'Buscando satélites de GPS...';
       } else if (err.code === GeolocationPositionError.TIMEOUT) {
         quality = 'weak';
-        msg = 'Aguardando sinal GPS...';
+        msg = 'Aguardando atualização do sinal GPS...';
       }
 
       this.currentState = {
@@ -283,7 +214,7 @@ class HighPrecisionGpsTracker {
 
     this.fallbackTimer = setInterval(() => {
       navigator.geolocation.getCurrentPosition(handleSuccess, () => {}, options);
-    }, 2500);
+    }, 2000);
   }
 
   public stopTracking() {

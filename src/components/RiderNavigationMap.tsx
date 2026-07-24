@@ -20,10 +20,10 @@ import {
   Play,
   Square,
   LocateFixed,
-  Crosshair
+  AlertTriangle
 } from 'lucide-react';
 import L from 'leaflet';
-import { gpsTracker, GpsState, isPointOffRoute, KNOWN_CAMPINA_LOCATIONS } from '../utils/gpsTracker';
+import { gpsTracker, GpsState, isPointOffRoute } from '../utils/gpsTracker';
 
 interface RiderNavigationMapProps {
   currentLocation: { lat: number; lng: number } | null;
@@ -66,6 +66,7 @@ export default function RiderNavigationMap({
   const riderMarkerRef = useRef<L.Marker | null>(null);
   const destMarkerRef = useRef<L.Marker | null>(null);
   const routePolylineRef = useRef<L.Polyline | null>(null);
+  const initialCenterDoneRef = useRef(false);
 
   const [gpsState, setGpsState] = useState<GpsState>({
     currentLocation: null,
@@ -109,10 +110,6 @@ export default function RiderNavigationMap({
   const lastSpokenInstructionRef = useRef<string>('');
   const NAV_ZOOM_LEVEL = 18;
 
-  // Ponto Padrão: Rua Vereador Alberto Agra, Serrotão - Campina Grande PB
-  const defaultSerrotao = KNOWN_CAMPINA_LOCATIONS['serrotao_alberto_agra'];
-
-  // Assinar ao Tracker de GPS
   useEffect(() => {
     gpsTracker.startTracking();
     const unsubscribe = gpsTracker.subscribe((state) => {
@@ -131,14 +128,7 @@ export default function RiderNavigationMap({
     speedKmh: 0,
     heading: 0,
     timestamp: Date.now()
-  } : {
-    lat: defaultSerrotao.lat,
-    lng: defaultSerrotao.lng,
-    accuracy: 10,
-    speedKmh: 0,
-    heading: 0,
-    timestamp: Date.now()
-  });
+  } : null);
 
   useEffect(() => {
     if (initialDestination) {
@@ -160,7 +150,7 @@ export default function RiderNavigationMap({
     lastSpokenInstructionRef.current = text;
   };
 
-  // Geocodificação do destino
+  // Geocodificação do destino digitado pelo motoboy
   useEffect(() => {
     if (!activeDestination) return;
 
@@ -174,32 +164,24 @@ export default function RiderNavigationMap({
       let foundLat: number | null = null;
       let foundLng: number | null = null;
 
-      if (activeDestination.name.toLowerCase().includes('burgrill') || activeDestination.addressText.includes('Aprígio Veloso')) {
-        foundLat = -7.2150;
-        foundLng = -35.9130;
-      } else {
-        try {
-          const fullQuery = activeDestination.addressText.toLowerCase().includes('campina grande') 
-            ? activeDestination.addressText 
-            : `${activeDestination.addressText}, Campina Grande - PB, Brasil`;
+      try {
+        const fullQuery = activeDestination.addressText.toLowerCase().includes('campina grande') 
+          ? activeDestination.addressText 
+          : `${activeDestination.addressText}, Campina Grande - PB, Brasil`;
 
-          const res = await fetch(
-            `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(fullQuery)}&limit=1&viewbox=-36.00,-7.15,-35.75,-7.32`
-          );
-          const data = await res.json();
-          if (data && data.length > 0) {
-            foundLat = parseFloat(data[0].lat);
-            foundLng = parseFloat(data[0].lon);
-          }
-        } catch (e) {}
+        const res = await fetch(
+          `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(fullQuery)}&limit=1`
+        );
+        const data = await res.json();
+        if (data && data.length > 0) {
+          foundLat = parseFloat(data[0].lat);
+          foundLng = parseFloat(data[0].lon);
+        }
+      } catch (e) {}
+
+      if (foundLat && foundLng) {
+        setDestCoords({ lat: foundLat, lng: foundLng });
       }
-
-      if (!foundLat || !foundLng) {
-        foundLat = defaultSerrotao.lat;
-        foundLng = defaultSerrotao.lng;
-      }
-
-      setDestCoords({ lat: foundLat, lng: foundLng });
       setLoadingRoute(false);
     };
 
@@ -218,13 +200,14 @@ export default function RiderNavigationMap({
       document.head.appendChild(link);
     }
 
-    const startLat = activePos?.lat || defaultSerrotao.lat;
-    const startLng = activePos?.lng || defaultSerrotao.lng;
+    // Inicializa o mapa com centro neutro (ex: Campina Grande central) até receber a primeira leitura do GPS do motoboy
+    const initialLat = activePos ? activePos.lat : -7.2247;
+    const initialLng = activePos ? activePos.lng : -35.8878;
 
     const mapInstance = L.map(mapContainerRef.current, {
       zoomControl: false,
       attributionControl: false
-    }).setView([startLat, startLng], NAV_ZOOM_LEVEL);
+    }).setView([initialLat, initialLng], activePos ? NAV_ZOOM_LEVEL : 14);
 
     mapInstance.on('dragstart', () => {
       setAutoFollow(false);
@@ -284,43 +267,43 @@ export default function RiderNavigationMap({
     setShowTraffic(traffic);
   };
 
-  // Renderização e Atualização do Marcador do Motoboy no Mapa
+  // Renderização e Atualização Exata da Posição do GPS do Motoboy
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !activePos) return;
 
     const heading = activePos.heading || 0;
     
-    // Ícone de Alta Visibilidade (Halo Azul Pulsante + Seta Magnética Branca)
+    // Marcador com Seta de Direção e Halo de Destaque
     const riderIcon = L.divIcon({
       html: `
-        <div style="position: relative; width: 60px; height: 60px; display: flex; items-center: center; justify-content: center;">
-          <div style="position: absolute; width: 56px; height: 60px; border-radius: 50%; background: rgba(37,99,235,0.4); border: 2.5px solid #2563eb; transform: scale(1.15); animation: pulse 2s infinite;"></div>
+        <div style="position: relative; width: 54px; height: 54px; display: flex; align-items: center; justify-content: center;">
+          <div style="position: absolute; width: 50px; height: 50px; border-radius: 50%; background: rgba(37,99,235,0.3); border: 2px solid #2563eb; transform: scale(1.1); animation: pulse 2s infinite;"></div>
           <div style="
             transform: rotate(${heading}deg);
             transition: transform 0.2s ease-out;
             background: #1d4ed8;
             color: white;
-            width: 44px;
-            height: 44px;
+            width: 40px;
+            height: 40px;
             border-radius: 50%;
-            border: 3.5px solid #ffffff;
-            box-shadow: 0 6px 16px rgba(0,0,0,0.6);
+            border: 3px solid #ffffff;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.5);
             display: flex;
             align-items: center;
             justify-content: center;
             position: relative;
             z-index: 10;
           ">
-            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
               <polygon points="12 2 19 21 12 17 5 21 12 2"></polygon>
             </svg>
           </div>
         </div>
       `,
       className: 'custom-rider-nav-icon',
-      iconSize: [60, 60],
-      iconAnchor: [30, 30]
+      iconSize: [54, 54],
+      iconAnchor: [27, 27]
     });
 
     if (riderMarkerRef.current) {
@@ -333,11 +316,13 @@ export default function RiderNavigationMap({
       }).addTo(map);
     }
 
-    if (autoFollow) {
+    // Centralizar câmera na primeira coordenada real recebida do dispositivo
+    if (!initialCenterDoneRef.current || autoFollow) {
       map.setView([activePos.lat, activePos.lng], NAV_ZOOM_LEVEL, {
         animate: true,
         duration: 0.5
       });
+      initialCenterDoneRef.current = true;
     }
 
     if (isNavigating && routeCoordinates.length > 0) {
@@ -359,24 +344,24 @@ export default function RiderNavigationMap({
         <div style="
           background: #ef4444;
           color: white;
-          width: 44px;
-          height: 44px;
+          width: 42px;
+          height: 42px;
           border-radius: 50%;
-          border: 3.5px solid white;
-          box-shadow: 0 0 20px rgba(239,68,68,0.9);
+          border: 3px solid white;
+          box-shadow: 0 0 18px rgba(239,68,68,0.85);
           display: flex;
           align-items: center;
           justify-content: center;
         ">
-          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"></path>
             <circle cx="12" cy="10" r="3"></circle>
           </svg>
         </div>
       `,
       className: 'custom-dest-nav-icon',
-      iconSize: [44, 44],
-      iconAnchor: [22, 22]
+      iconSize: [42, 42],
+      iconAnchor: [21, 21]
     });
 
     if (destMarkerRef.current) {
@@ -485,7 +470,7 @@ export default function RiderNavigationMap({
         : `${rawText}, Campina Grande - PB, Brasil`;
 
       const res = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(formattedQuery)}&limit=6&viewbox=-36.00,-7.15,-35.75,-7.32`
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(formattedQuery)}&limit=6`
       );
       const data = await res.json();
       setSearchResults(data || []);
@@ -513,14 +498,6 @@ export default function RiderNavigationMap({
     setSearchQuery('');
   };
 
-  const handleSetSerrotaoAsLocation = () => {
-    gpsTracker.setManualLocation(defaultSerrotao.lat, defaultSerrotao.lng);
-    if (mapRef.current) {
-      mapRef.current.setView([defaultSerrotao.lat, defaultSerrotao.lng], NAV_ZOOM_LEVEL, { animate: true });
-      setAutoFollow(true);
-    }
-  };
-
   const toggleNavigationMode = () => {
     const nextState = !isNavigating;
     setIsNavigating(nextState);
@@ -537,7 +514,7 @@ export default function RiderNavigationMap({
   };
 
   const activeStep = steps[currentStepIndex] || {
-    instruction: activeDestination ? `Navegando para ${activeDestination.name}` : 'Digite um endereço em Campina Grande...',
+    instruction: activeDestination ? `Navegando para ${activeDestination.name}` : 'Digite um endereço para traçar rota...',
     distance: 0,
     duration: 0
   };
@@ -545,12 +522,13 @@ export default function RiderNavigationMap({
   const gpsQualityLabel = 
     gpsState.quality === 'excellent' ? 'Sinal Excelente' :
     gpsState.quality === 'good' ? 'Sinal Bom' :
-    gpsState.quality === 'weak' ? 'Sinal Fraco' : 'Ponto Fixado';
+    gpsState.quality === 'weak' ? 'Sinal Fraco' :
+    gpsState.quality === 'denied' ? 'Permissão Negada' : 'Obtendo GPS...';
 
   const gpsQualityColor = 
     gpsState.quality === 'excellent' ? 'bg-emerald-500' :
     gpsState.quality === 'good' ? 'bg-blue-500' :
-    gpsState.quality === 'weak' ? 'bg-amber-500' : 'bg-indigo-500';
+    gpsState.quality === 'weak' ? 'bg-amber-500' : 'bg-red-500';
 
   return (
     <div className={`flex flex-col bg-slate-950 text-white overflow-hidden shadow-2xl transition-all font-sans ${
@@ -568,7 +546,7 @@ export default function RiderNavigationMap({
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5 flex-wrap">
               <span className="bg-emerald-800/80 text-emerald-100 text-[9px] font-black uppercase px-2 py-0.5 rounded-full tracking-wider">
-                {isNavigating ? 'Navegação Ativa' : 'Google Maps GPS'}
+                {isNavigating ? 'Navegação Ativa' : 'GPS em Tempo Real'}
               </span>
               {activeStep.distance > 0 && (
                 <span className="text-[11px] font-extrabold text-emerald-200">
@@ -636,7 +614,7 @@ export default function RiderNavigationMap({
         <form onSubmit={handleSearchAddresses} className="relative flex items-center">
           <input
             type="text"
-            placeholder="Buscar rua/bairro em Campina Grande - PB..."
+            placeholder="Buscar endereço de entrega..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full bg-slate-800 text-white placeholder-slate-400 text-xs pl-8 pr-20 py-2 rounded-lg border border-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500"
@@ -651,36 +629,25 @@ export default function RiderNavigationMap({
           </button>
         </form>
 
-        {/* METRO DE DIAGNÓSTICO E BOTÃO DE FIXAÇÃO NO SERROTÃO */}
+        {/* METRO DE DIAGNÓSTICO DO SINAL DO GPS */}
         <div className="flex items-center justify-between px-1 text-[10px] text-slate-400 flex-wrap gap-1">
           <div className="flex items-center gap-1.5">
             <span className={`h-2 w-2 rounded-full ${gpsQualityColor} animate-pulse`} />
             <span className="font-bold text-slate-300">{gpsQualityLabel}</span>
             {activePos && (
               <span className="text-slate-500">
-                (Precisão: ±{activePos.accuracy}m)
+                (Precisão do chip: ±{activePos.accuracy}m)
               </span>
             )}
           </div>
 
-          <div className="flex items-center gap-1.5">
-            <button
-              onClick={handleSetSerrotaoAsLocation}
-              className="flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white px-2 py-0.5 rounded font-extrabold transition-colors shadow-sm"
-              title="Fixar na R. Vereador Alberto Agra, Serrotão"
-            >
-              <Crosshair className="h-3 w-3" />
-              <span>Fixar Serrotão</span>
-            </button>
-
-            <button
-              onClick={() => setShowLayerMenu(!showLayerMenu)}
-              className="flex items-center gap-1 bg-slate-800 hover:bg-slate-700 text-slate-200 px-2 py-0.5 rounded font-bold transition-colors"
-            >
-              <Layers className="h-3 w-3 text-indigo-400" />
-              <span>Camadas</span>
-            </button>
-          </div>
+          <button
+            onClick={() => setShowLayerMenu(!showLayerMenu)}
+            className="flex items-center gap-1 bg-slate-800 hover:bg-slate-700 text-slate-200 px-2 py-0.5 rounded font-bold transition-colors"
+          >
+            <Layers className="h-3 w-3 text-indigo-400" />
+            <span>Camadas</span>
+          </button>
         </div>
 
         {/* MENU DE SELEÇÃO DE CAMADAS */}
@@ -741,17 +708,32 @@ export default function RiderNavigationMap({
       <div className="relative flex-1 min-h-[220px]">
         <div ref={mapContainerRef} className="absolute inset-0 z-10 bg-slate-950" />
 
-        {/* VELOCÍMETRO FLUTUANTE EM TEMPO REAL */}
-        <div className="absolute bottom-4 left-3 z-20 bg-slate-900/90 border border-slate-700 p-2 rounded-xl shadow-xl backdrop-blur-md flex flex-col items-center justify-center min-w-[60px]">
-          <span className={`text-xl font-black leading-none ${
-            (activePos?.speedKmh || 0) > 60 ? 'text-red-400' : 'text-emerald-400'
-          }`}>
-            {activePos?.speedKmh || 0}
-          </span>
-          <span className="text-[8px] font-extrabold uppercase text-slate-400 tracking-wider mt-0.5">km/h</span>
-        </div>
+        {/* ALERTA VISUAL SE O GPS NÃO ESTIVER DISPONÍVEL OU NEGADO */}
+        {!activePos && (
+          <div className="absolute inset-0 z-30 bg-slate-950/80 backdrop-blur-sm flex flex-col items-center justify-center p-4 text-center">
+            <div className="p-3 bg-amber-500/20 text-amber-400 rounded-full mb-3">
+              <LocateFixed className="h-8 w-8 animate-spin" />
+            </div>
+            <h3 className="text-sm font-bold text-white">Aguardando Sinal de GPS</h3>
+            <p className="text-xs text-slate-400 max-w-xs mt-1">
+              Certifique-se de permitir o acesso à localização no navegador e estar com o GPS ativado.
+            </p>
+          </div>
+        )}
 
-        {/* CONTROLES DE ZOOM E RECENTRALIZAR CÂMERA */}
+        {/* VELOCÍMETRO FLUTUANTE EM TEMPO REAL */}
+        {activePos && (
+          <div className="absolute bottom-4 left-3 z-20 bg-slate-900/90 border border-slate-700 p-2 rounded-xl shadow-xl backdrop-blur-md flex flex-col items-center justify-center min-w-[60px]">
+            <span className={`text-xl font-black leading-none ${
+              (activePos.speedKmh || 0) > 60 ? 'text-red-400' : 'text-emerald-400'
+            }`}>
+              {activePos.speedKmh || 0}
+            </span>
+            <span className="text-[8px] font-extrabold uppercase text-slate-400 tracking-wider mt-0.5">km/h</span>
+          </div>
+        )}
+
+        {/* CONTROLES DE ZOOM E RECENTRALIZAR CÂMERA NO GPS REAL */}
         <div className="absolute bottom-4 right-3 z-20 flex flex-col space-y-1.5">
           <button
             onClick={() => {
@@ -785,7 +767,7 @@ export default function RiderNavigationMap({
                 ? 'bg-indigo-600 text-white border-indigo-500' 
                 : 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-500 animate-pulse'
             }`}
-            title="Minha Localização Exata / Centralizar"
+            title="Recentralizar na minha localização exata"
           >
             <RotateCcw className="h-4 w-4" />
           </button>
@@ -795,7 +777,7 @@ export default function RiderNavigationMap({
           <div className="absolute inset-0 z-30 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center">
             <div className="bg-slate-900 border border-slate-700 p-3.5 rounded-xl flex items-center space-x-2 text-indigo-400 font-bold text-xs shadow-xl">
               <Navigation className="h-4 w-4 animate-spin text-emerald-400" />
-              <span>Traçando melhor rota em Campina Grande...</span>
+              <span>Calculando rota em tempo real...</span>
             </div>
           </div>
         )}
@@ -849,7 +831,7 @@ export default function RiderNavigationMap({
           </div>
 
           <div className="bg-purple-500/10 border border-purple-500/20 p-1.5 rounded-lg">
-            <p className="text-[9px] uppercase font-extrabold text-purple-400">GPS Status</p>
+            <p className="text-[9px] uppercase font-extrabold text-purple-400">Precisão GPS</p>
             <p className="text-xs font-bold text-purple-300 mt-0.5 truncate">
               {activePos ? `±${activePos.accuracy}m` : 'Buscando...'}
             </p>
