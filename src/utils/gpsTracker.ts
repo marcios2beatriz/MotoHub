@@ -1,5 +1,7 @@
 "use client";
 
+import { db } from './db';
+
 export interface GpsLocation {
   lat: number;
   lng: number;
@@ -137,16 +139,10 @@ class HighPrecisionGpsTracker {
 
     this.stopTracking();
 
-    const options: PositionOptions = {
-      enableHighAccuracy: true,
-      maximumAge: 0,
-      timeout: 10000
-    };
-
     const handleSuccess = (pos: GeolocationPosition) => {
       const lat = pos.coords.latitude;
       const lng = pos.coords.longitude;
-      const accuracy = pos.coords.accuracy || 10;
+      const accuracy = pos.coords.accuracy || 15;
       const now = Date.now();
 
       let speedKmh = pos.coords.speed !== null && pos.coords.speed >= 0 ? Math.round(pos.coords.speed * 3.6) : 0;
@@ -173,8 +169,8 @@ class HighPrecisionGpsTracker {
       this.lastLocation = newLocation;
 
       let quality: GpsSignalQuality = 'excellent';
-      if (accuracy > 30) quality = 'weak';
-      else if (accuracy > 12) quality = 'good';
+      if (accuracy > 100) quality = 'weak';
+      else if (accuracy > 30) quality = 'good';
 
       this.currentState = {
         ...this.currentState,
@@ -183,22 +179,40 @@ class HighPrecisionGpsTracker {
         errorMessage: null
       };
 
+      // Transmitir imediatamente para a tabela de acompanhamento do Estabelecimento se for motoboy
+      const currentUser = db.getCurrentUser();
+      if (currentUser && currentUser.role === 'rider') {
+        db.updateRiderLocation(currentUser.id, currentUser.name, lat, lng);
+      }
+
       this.notify();
     };
 
     const handleError = (err: GeolocationPositionError) => {
+      if (err.code === GeolocationPositionError.TIMEOUT || err.code === GeolocationPositionError.POSITION_UNAVAILABLE) {
+        navigator.geolocation.getCurrentPosition(
+          handleSuccess,
+          (lowErr) => {
+            let quality: GpsSignalQuality = 'off';
+            let msg = 'Não foi possível obter a posição do seu navegador.';
+            if (lowErr.code === GeolocationPositionError.PERMISSION_DENIED) {
+              quality = 'denied';
+              msg = 'Permissão de localização negada no navegador.';
+            }
+            this.currentState = { ...this.currentState, quality, errorMessage: msg };
+            this.notify();
+          },
+          { enableHighAccuracy: false, timeout: 15000, maximumAge: 0 }
+        );
+        return;
+      }
+
       let quality: GpsSignalQuality = 'off';
-      let msg = 'Obtendo sinal do GPS...';
+      let msg = 'Erro ao obter localização.';
 
       if (err.code === GeolocationPositionError.PERMISSION_DENIED) {
         quality = 'denied';
-        msg = 'Permissão de localização negada no seu navegador.';
-      } else if (err.code === GeolocationPositionError.POSITION_UNAVAILABLE) {
-        quality = 'lost';
-        msg = 'Buscando satélites de GPS...';
-      } else if (err.code === GeolocationPositionError.TIMEOUT) {
-        quality = 'weak';
-        msg = 'Aguardando atualização do sinal GPS...';
+        msg = 'Permissão de localização negada.';
       }
 
       this.currentState = {
@@ -209,12 +223,30 @@ class HighPrecisionGpsTracker {
       this.notify();
     };
 
-    navigator.geolocation.getCurrentPosition(handleSuccess, handleError, options);
-    this.watchId = navigator.geolocation.watchPosition(handleSuccess, handleError, options);
+    const highAccOptions: PositionOptions = { enableHighAccuracy: true, timeout: 4000, maximumAge: 0 };
+    navigator.geolocation.getCurrentPosition(handleSuccess, handleError, highAccOptions);
+
+    this.watchId = navigator.geolocation.watchPosition(
+      handleSuccess, 
+      () => {
+        navigator.geolocation.getCurrentPosition(handleSuccess, () => {}, { enableHighAccuracy: false, timeout: 10000 });
+      }, 
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
+    );
 
     this.fallbackTimer = setInterval(() => {
-      navigator.geolocation.getCurrentPosition(handleSuccess, () => {}, options);
+      navigator.geolocation.getCurrentPosition(
+        handleSuccess, 
+        () => {
+          navigator.geolocation.getCurrentPosition(handleSuccess, () => {}, { enableHighAccuracy: false });
+        }, 
+        { enableHighAccuracy: false, timeout: 5000 }
+      );
     }, 2000);
+  }
+
+  public requestManualPermission() {
+    this.startTracking();
   }
 
   public stopTracking() {

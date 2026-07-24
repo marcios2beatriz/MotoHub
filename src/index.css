@@ -16,3 +16,8 @@ body {
   background: transparent !important;
   border: none !important;
 }
+
+/* Transição de deslize suave para o motoboy se mover fluido no mapa do estabelecimento (estilo iFood/Uber) */
+.leaflet-marker-icon {
+  transition: transform 0.8s cubic-bezier(0.25, 1, 0.5, 1);
+}

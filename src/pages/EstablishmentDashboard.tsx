@@ -203,9 +203,10 @@ export default function EstablishmentDashboard() {
 
     db.pullFromSupabase().then(() => loadData());
 
+    // Atualização em alta frequência (a cada 1.5s) para monitoramento em tempo real do motoboy
     const interval = setInterval(() => {
       db.pullFromSupabase().then(() => loadData());
-    }, 3000);
+    }, 1500);
 
     const handleSyncComplete = () => {
       loadData();
@@ -303,18 +304,21 @@ export default function EstablishmentDashboard() {
 
     const initMap = (lat: number, lng: number) => {
       if (mapRef.current) return;
-      const mapInstance = L.map(mapContainerRef.current!).setView([lat, lng], 16);
+      const mapInstance = L.map(mapContainerRef.current!, {
+        zoomControl: true,
+        attributionControl: false
+      }).setView([lat, lng], 16);
       mapRef.current = mapInstance;
 
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; OpenStreetMap contributors'
+      L.tileLayer('https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
+        maxZoom: 20
       }).addTo(mapInstance);
 
       const estIcon = L.divIcon({
-        html: `<div style="background-color: #4f46e5; color: white; width: 36px; height: 36px; border-radius: 50%; border: 2px solid white; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); display: flex; align-items: center; justify-content: center;"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></div>`,
+        html: `<div style="background-color: #4f46e5; color: white; width: 38px; height: 38px; border-radius: 50%; border: 3px solid white; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.2); display: flex; align-items: center; justify-content: center;"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></div>`,
         className: 'custom-est-icon',
-        iconSize: [36, 36],
-        iconAnchor: [18, 18]
+        iconSize: [38, 38],
+        iconAnchor: [19, 19]
       });
 
       L.marker([lat, lng], { icon: estIcon })
@@ -394,13 +398,14 @@ export default function EstablishmentDashboard() {
     };
   }, [establishment?.id]);
 
+  // Atualização em Tempo Real dos Motoboys no Mapa
   useEffect(() => {
     const currentMap = mapRef.current;
     if (!currentMap) return;
 
     const allUsers = db.getUsers();
     const now = Date.now();
-    const ONLINE_THRESHOLD_MS = 60000;
+    const ONLINE_THRESHOLD_MS = 120000; // Considera ativo se enviou posição nos últimos 2 minutos
 
     const activeRiderIdsOnMap = new Set<string>();
 
@@ -416,14 +421,14 @@ export default function EstablishmentDashboard() {
         return;
       }
 
-      const isRiderInSchedule = scheduledRiders.some(r => {
+      const isRiderInScheduleOrDelivery = scheduledRiders.some(r => {
         if (r.id === loc.riderId) return true;
         if (r.name.toLowerCase().trim() === loc.riderName.toLowerCase().trim()) return true;
         const locUser = allUsers.find(u => u.id === loc.riderId);
         return locUser && locUser.email.toLowerCase() === r.email.toLowerCase();
-      });
+      }) || todayDeliveries.some(d => d.riderId === loc.riderId);
 
-      if (!isRiderInSchedule && scheduledRiders.length > 0) {
+      if (!isRiderInScheduleOrDelivery && scheduledRiders.length > 0) {
         if (markersRef.current[loc.riderId]) {
           currentMap.removeLayer(markersRef.current[loc.riderId]);
           delete markersRef.current[loc.riderId];
@@ -437,16 +442,55 @@ export default function EstablishmentDashboard() {
       const existingMarker = markersRef.current[loc.riderId];
 
       if (existingMarker) {
+        // O Leaflet moverá o marcador com animação deslizante do CSS (.leaflet-marker-icon)
         existingMarker.setLatLng([loc.lat, loc.lng]);
       } else {
         const riderIcon = L.divIcon({
-          html: `<div style="background-color: #10b981; color: white; width: 36px; height: 36px; border-radius: 50%; border: 2px solid white; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); display: flex; align-items: center; justify-content: center;"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="18" r="3" /><circle cx="18" cy="18" r="3" /><path d="M18 18v-3l-3-4H9l-3 4v3" /><rect x="8" y="6" width="5" height="5" rx="1" /><path d="M15 11l1.5-4.5H19" /></svg></div>`,
+          html: `
+            <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative;">
+              <div style="
+                background: #0f172a;
+                color: #ffffff;
+                font-size: 10px;
+                font-weight: 800;
+                padding: 2px 8px;
+                border-radius: 6px;
+                box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+                white-space: nowrap;
+                margin-bottom: 3px;
+                border: 1px solid #334155;
+                display: flex;
+                align-items: center;
+                gap: 4px;
+              ">
+                <span style="width: 6px; height: 6px; border-radius: 50%; background: #10b981;"></span>
+                ${riderName}
+              </div>
+              <div style="
+                background-color: #10b981;
+                color: white;
+                width: 40px;
+                height: 40px;
+                border-radius: 50%;
+                border: 3px solid white;
+                box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+              ">
+                <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="18" r="3" /><circle cx="18" cy="18" r="3" /><path d="M18 18v-3l-3-4H9l-3 4v3" /><rect x="8" y="6" width="5" height="5" rx="1" /><path d="M15 11l1.5-4.5H19" /></svg>
+              </div>
+            </div>
+          `,
           className: 'custom-rider-icon',
-          iconSize: [36, 36],
-          iconAnchor: [18, 18]
+          iconSize: [80, 60],
+          iconAnchor: [40, 50]
         });
 
-        const marker = L.marker([loc.lat, loc.lng], { icon: riderIcon })
+        const marker = L.marker([loc.lat, loc.lng], { 
+          icon: riderIcon,
+          zIndexOffset: 1000
+        })
           .addTo(currentMap)
           .bindPopup(`<b>${riderName}</b><br/>Entregador em Rota`);
 
@@ -481,14 +525,14 @@ export default function EstablishmentDashboard() {
         hasCenteredEstRef.current = true;
       }
     }
-  }, [scheduledRiders, riderLocations, estCoords]);
+  }, [scheduledRiders, riderLocations, estCoords, todayDeliveries]);
 
   const handleRecenterMap = () => {
     const currentMap = mapRef.current;
     if (!currentMap) return;
 
     const now = Date.now();
-    const ONLINE_THRESHOLD_MS = 60000;
+    const ONLINE_THRESHOLD_MS = 120000;
 
     const points: L.LatLngExpression[] = [];
     if (estCoords) points.push([estCoords.lat, estCoords.lng]);
@@ -705,7 +749,7 @@ export default function EstablishmentDashboard() {
 
             {scheduledRiders.length === 0 ? (
               <div className="text-center py-8 text-slate-400 text-sm">
-                Nenhum motoboy escalado para hoje. Fale com o administrador para criar escalas.
+                Nenum motoboy escalado para hoje. Fale com o administrador para criar escalas.
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -714,7 +758,7 @@ export default function EstablishmentDashboard() {
                   const total = riderDeliveries.reduce((sum, d) => sum + Number(d.value || 0), 0);
                   const isOnline = riderLocations.some(l => {
                     const isSameRider = l.riderId === rider.id || l.riderName.toLowerCase().trim() === rider.name.toLowerCase().trim();
-                    const isRecent = Date.now() - new Date(l.updatedAt).getTime() < 60000;
+                    const isRecent = Date.now() - new Date(l.updatedAt).getTime() < 120000;
                     return isSameRider && isRecent;
                   });
                   const riderSchedule = todaySchedules.find(s => s.riderId === rider.id);
@@ -856,10 +900,10 @@ export default function EstablishmentDashboard() {
                 <span>Rastreamento em Tempo Real</span>
               </h2>
               <div className="flex items-center space-x-2">
-                <button onClick={handleRecenterMap} className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded">
+                <button onClick={handleRecenterMap} className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded" title="Centralizar Mapa">
                   <Navigation className="h-4 w-4 text-indigo-600" />
                 </button>
-                <button onClick={() => setIsMapExpanded(!isMapExpanded)} className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded">
+                <button onClick={() => setIsMapExpanded(!isMapExpanded)} className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded" title="Expandir/Restaurar">
                   {isMapExpanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
                 </button>
               </div>
