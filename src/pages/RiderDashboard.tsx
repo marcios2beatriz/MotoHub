@@ -50,6 +50,8 @@ export default function RiderDashboard() {
     lng?: number;
   } | null>(null);
   
+  const hasInitializedDestRef = useRef(false);
+
   const watchIdRef = useRef<number | null>(null);
   const fallbackIntervalRef = useRef<any>(null);
   const wakeLockRef = useRef<any>(null);
@@ -120,18 +122,21 @@ export default function RiderDashboard() {
     setNotifications(sortedNotifications);
     setEstablishments(allEsts);
 
-    // Se tiver escala hoje, pré-definir como destino da navegação
-    const todayStr = db.getLocalDateString();
-    const todaySch = sortedSchedules.find(s => s.date === todayStr);
-    if (todaySch) {
-      const est = db.resolveEstablishment(todaySch.establishmentId);
-      if (est && est.address) {
-        const addrText = `${est.address.street}, ${est.address.number} - ${est.address.neighborhood}, ${est.address.city}/${est.address.state}`;
-        setNavDestination({
-          name: est.name,
-          addressText: addrText
-        });
+    // Sugerir destino inicial APENAS na primeira carregada (sem ficar resetando a cada 3s)
+    if (!hasInitializedDestRef.current) {
+      const todayStr = db.getLocalDateString();
+      const todaySch = sortedSchedules.find(s => s.date === todayStr);
+      if (todaySch) {
+        const est = db.resolveEstablishment(todaySch.establishmentId);
+        if (est && est.address) {
+          const addrText = `${est.address.street}, ${est.address.number} - ${est.address.neighborhood}, ${est.address.city}/${est.address.state}`;
+          setNavDestination({
+            name: est.name,
+            addressText: addrText
+          });
+        }
       }
+      hasInitializedDestRef.current = true;
     }
   };
 
