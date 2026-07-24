@@ -14,9 +14,8 @@ import {
   Search,
   Volume2, 
   VolumeX,
-  Zap,
-  CheckCircle2,
-  Bike
+  Plus,
+  Minus
 } from 'lucide-react';
 import L from 'leaflet';
 
@@ -35,7 +34,6 @@ interface RouteStep {
   instruction: string;
   distance: number; // metros
   duration: number; // segundos
-  spoken?: boolean;
 }
 
 interface SearchResult {
@@ -67,6 +65,7 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
   const [autoFollow, setAutoFollow] = useState(true);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [currentSpeed, setCurrentSpeed] = useState<number>(0);
+  const [heading, setHeading] = useState<number>(0); // Ângulo de rotação da moto
   
   const [steps, setSteps] = useState<RouteStep[]>([]);
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
@@ -81,6 +80,7 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
   const prevLocationRef = useRef<{ lat: number; lng: number; time: number } | null>(null);
   const lastSpokenInstructionRef = useRef<string>('');
 
+  const NAV_ZOOM_LEVEL = 18; // Zoom próximo estilo Google Maps / Waze para navegação
   const defaultLat = -7.2247;
   const defaultLng = -35.8878;
 
@@ -90,12 +90,12 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
     }
   }, [initialDestination]);
 
-  // Função para sintetizar voz (Text-To-Speech) no navegador sem sair do app
+  // Função para síntese de voz (Text-To-Speech)
   const speakInstruction = (text: string) => {
     if (!voiceEnabled || !('speechSynthesis' in window)) return;
     if (lastSpokenInstructionRef.current === text) return;
 
-    window.speechSynthesis.cancel(); // Cancela falas anteriores
+    window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = 'pt-BR';
     utterance.rate = 1.0;
@@ -105,7 +105,7 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
     lastSpokenInstructionRef.current = text;
   };
 
-  // Cálculo de velocidade atual baseada na mudança de coordenadas GPS
+  // Cálculo da velocidade (km/h) e rumo/direção (heading em graus) com base na movimentação GPS
   useEffect(() => {
     if (!currentLocation) return;
 
@@ -114,8 +114,7 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
       const prev = prevLocationRef.current;
       const timeDiffSec = (now - prev.time) / 1000;
 
-      if (timeDiffSec > 0.5) {
-        // Fórmula de Haversine para metros
+      if (timeDiffSec > 0.4) {
         const R = 6371000;
         const dLat = (currentLocation.lat - prev.lat) * (Math.PI / 180);
         const dLng = (currentLocation.lng - prev.lng) * (Math.PI / 180);
@@ -125,7 +124,16 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
         const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
         const distanceMeters = R * c;
 
-        // Converter m/s para km/h
+        // Calcular rumo / azimute em graus (0 a 360°)
+        if (distanceMeters > 2) {
+          const y = Math.sin(dLng) * Math.cos(currentLocation.lat * (Math.PI / 180));
+          const x = Math.cos(prev.lat * (Math.PI / 180)) * Math.sin(currentLocation.lat * (Math.PI / 180)) -
+                    Math.sin(prev.lat * (Math.PI / 180)) * Math.cos(currentLocation.lat * (Math.PI / 180)) * Math.cos(dLng);
+          let bearingRad = Math.atan2(y, x);
+          let bearingDeg = (bearingRad * 180 / Math.PI + 360) % 360;
+          setHeading(Math.round(bearingDeg));
+        }
+
         const speedKmh = Math.round((distanceMeters / timeDiffSec) * 3.6);
         if (speedKmh >= 0 && speedKmh < 160) {
           setCurrentSpeed(speedKmh);
@@ -136,7 +144,7 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
     prevLocationRef.current = { lat: currentLocation.lat, lng: currentLocation.lng, time: now };
   }, [currentLocation]);
 
-  // Geocodificação do destino
+  // Geocodificação do destino ativo
   useEffect(() => {
     if (!activeDestination) return;
 
@@ -178,7 +186,7 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
     geocode();
   }, [activeDestination?.addressText, activeDestination?.name]);
 
-  // Inicializa o Mapa
+  // Inicialização do Mapa Leaflet
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return;
 
@@ -196,11 +204,16 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
     const mapInstance = L.map(mapContainerRef.current, {
       zoomControl: false,
       attributionControl: false
-    }).setView([startLat, startLng], 17);
+    }).setView([startLat, startLng], NAV_ZOOM_LEVEL);
 
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19
     }).addTo(mapInstance);
+
+    // Pausar autoFollow se o motoboy arrastar o mapa manualmente
+    mapInstance.on('dragstart', () => {
+      setAutoFollow(false);
+    });
 
     mapRef.current = mapInstance;
 
@@ -212,7 +225,7 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
     };
   }, []);
 
-  // Atualização em Tempo Real da Moto do Entregador
+  // Atualização em Tempo Real do Marcador da Moto e Câmera Interativa
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !currentLocation) return;
@@ -220,40 +233,47 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
     const riderIcon = L.divIcon({
       html: `
         <div style="
+          transform: rotate(${heading}deg);
+          transition: transform 0.3s ease-out;
           background: #2563eb;
           color: white;
-          width: 48px;
-          height: 48px;
+          width: 50px;
+          height: 50px;
           border-radius: 50%;
           border: 4px solid white;
-          box-shadow: 0 0 20px rgba(37,99,235,0.8);
+          box-shadow: 0 0 25px rgba(37,99,235,0.9);
           display: flex;
           align-items: center;
           justify-content: center;
         ">
-          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
             <polygon points="12 2 19 21 12 17 5 21 12 2"></polygon>
           </svg>
         </div>
       `,
       className: 'custom-rider-nav-icon',
-      iconSize: [48, 48],
-      iconAnchor: [24, 24]
+      iconSize: [50, 50],
+      iconAnchor: [25, 25]
     });
 
     if (riderMarkerRef.current) {
       riderMarkerRef.current.setLatLng([currentLocation.lat, currentLocation.lng]);
+      riderMarkerRef.current.setIcon(riderIcon);
     } else {
       riderMarkerRef.current = L.marker([currentLocation.lat, currentLocation.lng], { icon: riderIcon })
         .addTo(map);
     }
 
+    // Se o modo de acompanhamento estiver ativo, manter a câmera centralizada no motoboy com o zoom de navegação
     if (autoFollow) {
-      map.panTo([currentLocation.lat, currentLocation.lng], { animate: true, duration: 0.5 });
+      map.setView([currentLocation.lat, currentLocation.lng], NAV_ZOOM_LEVEL, {
+        animate: true,
+        duration: 0.6
+      });
     }
-  }, [currentLocation, autoFollow]);
+  }, [currentLocation, heading, autoFollow]);
 
-  // Busca a Rota no Servidor de Roteamento OSRM
+  // Busca e Roteamento em Tempo Real via OSRM
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !currentLocation || !destCoords) return;
@@ -263,24 +283,24 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
         <div style="
           background: #ef4444;
           color: white;
-          width: 42px;
-          height: 42px;
+          width: 44px;
+          height: 44px;
           border-radius: 50%;
-          border: 3px solid white;
-          box-shadow: 0 0 15px rgba(239,68,68,0.7);
+          border: 3.5px solid white;
+          box-shadow: 0 0 18px rgba(239,68,68,0.8);
           display: flex;
           align-items: center;
           justify-content: center;
         ">
-          <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"></path>
             <circle cx="12" cy="10" r="3"></circle>
           </svg>
         </div>
       `,
       className: 'custom-dest-nav-icon',
-      iconSize: [42, 42],
-      iconAnchor: [21, 21]
+      iconSize: [44, 44],
+      iconAnchor: [22, 22]
     });
 
     if (destMarkerRef.current) {
@@ -306,7 +326,7 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
           } else {
             routePolylineRef.current = L.polyline(coordinates, {
               color: '#3b82f6',
-              weight: 8,
+              weight: 9,
               opacity: 0.9,
               lineCap: 'round',
               lineJoin: 'round'
@@ -326,13 +346,17 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
             durationMin: Math.ceil(route.duration / 60)
           });
 
-          // Fala a primeira instrução por voz
+          // Ao iniciar a rota, dar o zoom veicular focado na posição da moto
+          if (autoFollow) {
+            map.setView([currentLocation.lat, currentLocation.lng], NAV_ZOOM_LEVEL, { animate: true });
+          }
+
           if (routeSteps.length > 0) {
-            speakInstruction(`Iniciando navegação. ${routeSteps[0].instruction}`);
+            speakInstruction(`Iniciando rota. ${routeSteps[0].instruction}`);
           }
         }
       } catch (err) {
-        console.warn('Erro ao calcular rota OSRM:', err);
+        console.warn('Erro ao calcular rota:', err);
       } finally {
         setLoadingRoute(false);
       }
@@ -341,7 +365,7 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
     fetchRoute();
   }, [currentLocation?.lat, currentLocation?.lng, destCoords]);
 
-  // Monitora aproximação de passos para falar por voz
+  // Monitorar narração das próximas instruções de curva
   useEffect(() => {
     if (steps.length > 0 && currentStepIndex < steps.length) {
       const currentStep = steps[currentStepIndex];
@@ -390,7 +414,7 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
       const data = await res.json();
       setSearchResults(data || []);
     } catch (err) {
-      console.warn('Erro ao buscar endereço:', err);
+      console.warn('Erro na busca:', err);
     } finally {
       setIsSearching(false);
     }
@@ -408,6 +432,7 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
       lng
     });
 
+    setAutoFollow(true);
     setSearchResults([]);
     setSearchQuery('');
   };
@@ -423,7 +448,7 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
       isFullscreen ? 'fixed inset-0 z-50 rounded-none' : 'relative h-[700px] w-full rounded-2xl border border-slate-800'
     }`}>
       
-      {/* BANNER SUPERIOR DE NAVEGAÇÃO EM TEMPO REAL (ESTILO GPS VEICULAR WAZE/MAPS) */}
+      {/* BANNER NAVEGAÇÃO TURNO A TURNO ESTILO WAZE / MAPS */}
       <div className="bg-emerald-600 text-white px-4 py-3 z-30 shadow-2xl flex items-center justify-between relative border-b border-emerald-500">
         <div className="flex items-center space-x-3 min-w-0 flex-1">
           <div className="p-3 bg-white/20 rounded-2xl text-white flex-shrink-0 animate-pulse">
@@ -446,14 +471,14 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
           </div>
         </div>
 
-        {/* BOTÕES DE CONTROLE DA NAVEGAÇÃO */}
+        {/* CONTROLES DE ÁUDIO E TELA */}
         <div className="flex items-center space-x-1 flex-shrink-0 pl-2">
           <button
             onClick={() => setVoiceEnabled(!voiceEnabled)}
             className={`p-2.5 rounded-xl transition-colors ${
               voiceEnabled ? 'bg-emerald-500 hover:bg-emerald-400 text-white' : 'bg-emerald-800 text-emerald-300'
             }`}
-            title={voiceEnabled ? 'Voz Ativada' : 'Voz Mutada'}
+            title={voiceEnabled ? 'Instruções por Voz Ativas' : 'Voz Mutada'}
           >
             {voiceEnabled ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}
           </button>
@@ -478,7 +503,7 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
         </div>
       </div>
 
-      {/* BARRA DE PESQUISA INTERNA DE ENDEREÇO */}
+      {/* CAIXA DE PESQUISA DE ENDEREÇOS INTEGRADA */}
       <div className="bg-slate-900 border-b border-slate-800 p-2.5 z-20 relative">
         <form onSubmit={handleSearchAddresses} className="relative flex items-center">
           <input
@@ -517,29 +542,54 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
         )}
       </div>
 
-      {/* MAPA PRINCIPAL */}
+      {/* MAPA INTERATIVO E NAVEGACIONAL */}
       <div className="relative flex-1">
         <div ref={mapContainerRef} className="absolute inset-0 z-10 bg-slate-950" />
 
-        {/* VELOCÍMETRO FLUTUANTE EM TEMPO REAL NO CANTO INFERIOR ESQUERDO */}
+        {/* VELOCÍMETRO FLUTUANTE EM TEMPO REAL */}
         <div className="absolute bottom-6 left-4 z-20 bg-slate-900/90 border border-slate-700 p-3 rounded-2xl shadow-2xl backdrop-blur-md flex flex-col items-center justify-center min-w-[70px]">
           <span className="text-2xl font-black text-emerald-400 leading-none">{currentSpeed}</span>
           <span className="text-[9px] font-extrabold uppercase text-slate-400 tracking-wider mt-0.5">km/h</span>
         </div>
 
-        {/* BOTÃO RECENTRALIZAR CÂMERA */}
-        <div className="absolute bottom-6 right-4 z-20">
+        {/* CONTROLES DE ZOOM E RECENTRALIZAR CÂMERA */}
+        <div className="absolute bottom-6 right-4 z-20 flex flex-col space-y-2">
+          <button
+            onClick={() => {
+              if (mapRef.current) mapRef.current.zoomIn();
+            }}
+            className="p-3 bg-slate-900/90 hover:bg-slate-800 text-white rounded-xl shadow-xl border border-slate-700 transition-all flex items-center justify-center"
+            title="Aumentar Zoom"
+          >
+            <Plus className="h-5 w-5" />
+          </button>
+          
+          <button
+            onClick={() => {
+              if (mapRef.current) mapRef.current.zoomOut();
+            }}
+            className="p-3 bg-slate-900/90 hover:bg-slate-800 text-white rounded-xl shadow-xl border border-slate-700 transition-all flex items-center justify-center"
+            title="Diminuir Zoom"
+          >
+            <Minus className="h-5 w-5" />
+          </button>
+
           <button
             onClick={() => {
               if (mapRef.current && currentLocation) {
-                mapRef.current.setView([currentLocation.lat, currentLocation.lng], 17, { animate: true });
+                mapRef.current.setView([currentLocation.lat, currentLocation.lng], NAV_ZOOM_LEVEL, { animate: true });
                 setAutoFollow(true);
               }
             }}
-            className="p-3.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl shadow-2xl border border-indigo-500 transition-all flex items-center justify-center"
-            title="Centralizar Minha Posição"
+            className={`p-3.5 rounded-2xl shadow-2xl border transition-all flex items-center justify-center gap-1.5 font-bold text-xs ${
+              autoFollow 
+                ? 'bg-indigo-600 text-white border-indigo-500' 
+                : 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-500 animate-pulse'
+            }`}
+            title="Retomar Acompanhamento da Câmera"
           >
-            <RotateCcw className="h-6 w-6" />
+            <RotateCcw className="h-5 w-5" />
+            {!autoFollow && <span>Retomar Câmera</span>}
           </button>
         </div>
 
@@ -547,13 +597,13 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
           <div className="absolute inset-0 z-30 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center">
             <div className="bg-slate-900 border border-slate-700 p-4 rounded-2xl flex items-center space-x-3 text-indigo-400 font-bold text-sm shadow-2xl">
               <Navigation className="h-5 w-5 animate-spin" />
-              <span>Calculando rota no MotoHub...</span>
+              <span>Desenhando rota veicular no MotoHub...</span>
             </div>
           </div>
         )}
       </div>
 
-      {/* RODAPÉ INFORMATIVO (TEMPO RESTANTE E DISTÂNCIA TOTAL) */}
+      {/* RODAPÉ COM RESUMO DE TEMPO E DISTÂNCIA */}
       <div className="bg-slate-900 border-t border-slate-800 p-4 z-20 space-y-2">
         {activeDestination && (
           <div className="flex items-center justify-between bg-slate-800/80 p-3 rounded-xl border border-slate-700/50">
@@ -601,7 +651,7 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
           </div>
 
           <div className="bg-purple-500/10 border border-purple-500/20 p-2.5 rounded-xl">
-            <p className="text-[10px] uppercase font-extrabold text-purple-400">GPS Conexão</p>
+            <p className="text-[10px] uppercase font-extrabold text-purple-400">Sinal GPS</p>
             <p className="text-xs font-bold text-purple-300 mt-1 truncate">
               {currentLocation ? 'Conectado' : 'Buscando...'}
             </p>
