@@ -899,14 +899,13 @@ export default function RiderDashboard() {
           </div>
         )}
 
-        {/* TAB GPS NAVEGAÇÃO EXPANDIDA (RENDERIZAÇÃO EXCLUSIVA DO MAPA) */}
+        {/* TAB GPS NAVEGAÇÃO RENDERIZADA INTEGRADA NA ABA */}
         {activeTab === 'navigation' && (
           <div className="space-y-4">
             <RiderNavigationMap
               currentLocation={gpsCoords}
               destination={navDestination}
-              onClose={() => setActiveTab('dashboard')}
-              defaultFullscreen={true}
+              defaultFullscreen={false}
             />
           </div>
         )}

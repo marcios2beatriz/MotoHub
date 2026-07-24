@@ -221,6 +221,13 @@ export default function RiderNavigationMap({
 
     mapRef.current = mapInstance;
 
+    // Recalcular dimensões do mapa para renderização imediata na aba
+    setTimeout(() => {
+      if (mapRef.current) {
+        mapRef.current.invalidateSize();
+      }
+    }, 200);
+
     return () => {
       if (mapRef.current) {
         mapRef.current.remove();
@@ -240,8 +247,8 @@ export default function RiderNavigationMap({
           transition: transform 0.3s ease-out;
           background: #2563eb;
           color: white;
-          width: 46px;
-          height: 46px;
+          width: 44px;
+          height: 44px;
           border-radius: 50%;
           border: 3.5px solid white;
           box-shadow: 0 0 20px rgba(37,99,235,0.8);
@@ -249,14 +256,14 @@ export default function RiderNavigationMap({
           align-items: center;
           justify-content: center;
         ">
-          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+          <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
             <polygon points="12 2 19 21 12 17 5 21 12 2"></polygon>
           </svg>
         </div>
       `,
       className: 'custom-rider-nav-icon',
-      iconSize: [46, 46],
-      iconAnchor: [23, 23]
+      iconSize: [44, 44],
+      iconAnchor: [22, 22]
     });
 
     if (riderMarkerRef.current) {
@@ -293,7 +300,7 @@ export default function RiderNavigationMap({
           align-items: center;
           justify-content: center;
         ">
-          <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"></path>
             <circle cx="12" cy="10" r="3"></circle>
           </svg>
@@ -448,12 +455,14 @@ export default function RiderNavigationMap({
   };
 
   return (
-    <div className={`flex flex-col bg-slate-950 text-white overflow-hidden shadow-xl transition-all font-sans ${
-      isFullscreen ? 'fixed inset-0 z-50 rounded-none' : 'relative h-[380px] sm:h-[450px] w-full rounded-2xl border border-slate-800'
+    <div className={`flex flex-col bg-slate-950 text-white overflow-hidden shadow-2xl transition-all font-sans ${
+      isFullscreen 
+        ? 'fixed inset-0 z-50 rounded-none' 
+        : 'relative h-[520px] sm:h-[600px] w-full rounded-2xl border border-slate-800'
     }`}>
       
       {/* BANNER NAVEGAÇÃO TURNO A TURNO */}
-      <div className="bg-emerald-600 text-white px-3.5 py-2.5 z-30 shadow-md flex items-center justify-between relative border-b border-emerald-500">
+      <div className="bg-emerald-600 text-white px-3.5 py-2.5 z-30 shadow-md flex items-center justify-between relative border-b border-emerald-500 flex-shrink-0">
         <div className="flex items-center space-x-2.5 min-w-0 flex-1">
           <div className="p-2 bg-white/20 rounded-xl text-white flex-shrink-0">
             <Compass className="h-5 w-5" />
@@ -488,7 +497,12 @@ export default function RiderNavigationMap({
           </button>
 
           <button
-            onClick={() => setIsFullscreen(!isFullscreen)}
+            onClick={() => {
+              setIsFullscreen(!isFullscreen);
+              setTimeout(() => {
+                if (mapRef.current) mapRef.current.invalidateSize();
+              }, 200);
+            }}
             className="p-2 hover:bg-white/10 rounded-lg transition-colors text-emerald-100"
             title={isFullscreen ? 'Sair da Tela Cheia' : 'Tela Cheia'}
           >
@@ -508,7 +522,7 @@ export default function RiderNavigationMap({
       </div>
 
       {/* CAIXA DE PESQUISA DE ENDEREÇOS ALINHADA COM CAMPINA GRANDE - PB */}
-      <div className="bg-slate-900 border-b border-slate-800 p-2 z-20 relative">
+      <div className="bg-slate-900 border-b border-slate-800 p-2 z-20 relative flex-shrink-0">
         <form onSubmit={handleSearchAddresses} className="relative flex items-center">
           <input
             type="text"
@@ -547,7 +561,7 @@ export default function RiderNavigationMap({
       </div>
 
       {/* MAPA INTERATIVO E NAVEGACIONAL */}
-      <div className="relative flex-1 min-h-[200px]">
+      <div className="relative flex-1 min-h-[220px]">
         <div ref={mapContainerRef} className="absolute inset-0 z-10 bg-slate-950" />
 
         {/* VELOCÍMETRO FLUTUANTE EM TEMPO REAL */}
@@ -607,7 +621,7 @@ export default function RiderNavigationMap({
       </div>
 
       {/* RODAPÉ COMPACTO COM RESUMO DE TEMPO E DISTÂNCIA */}
-      <div className="bg-slate-900 border-t border-slate-800 p-2.5 z-20 space-y-1.5">
+      <div className="bg-slate-900 border-t border-slate-800 p-2.5 z-20 space-y-1.5 flex-shrink-0">
         {activeDestination && (
           <div className="flex items-center justify-between bg-slate-800/80 p-2 rounded-lg border border-slate-700/50">
             <div className="flex items-center space-x-2 min-w-0">
