@@ -10,3 +10,9 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+
+/* Forçar ícones do Leaflet a serem totalmente transparentes e sem borda retangular */
+.leaflet-div-icon {
+  background: transparent !important;
+  border: none !important;
+}

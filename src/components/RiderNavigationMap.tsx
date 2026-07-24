@@ -20,7 +20,7 @@ import {
   Play,
   Square,
   LocateFixed,
-  AlertTriangle
+  CompassIcon
 } from 'lucide-react';
 import L from 'leaflet';
 import { gpsTracker, GpsState, isPointOffRoute } from '../utils/gpsTracker';
@@ -108,7 +108,7 @@ export default function RiderNavigationMap({
   const [loadingRoute, setLoadingRoute] = useState(false);
 
   const lastSpokenInstructionRef = useRef<string>('');
-  const NAV_ZOOM_LEVEL = 18;
+  const NAV_ZOOM_LEVEL = 17;
 
   useEffect(() => {
     gpsTracker.startTracking();
@@ -150,7 +150,7 @@ export default function RiderNavigationMap({
     lastSpokenInstructionRef.current = text;
   };
 
-  // Geocodificação do destino digitado pelo motoboy
+  // Geocodificação do destino
   useEffect(() => {
     if (!activeDestination) return;
 
@@ -200,7 +200,6 @@ export default function RiderNavigationMap({
       document.head.appendChild(link);
     }
 
-    // Inicializa o mapa com centro neutro (ex: Campina Grande central) até receber a primeira leitura do GPS do motoboy
     const initialLat = activePos ? activePos.lat : -7.2247;
     const initialLng = activePos ? activePos.lng : -35.8878;
 
@@ -217,8 +216,13 @@ export default function RiderNavigationMap({
     updateMapTileLayer('google_roadmap', false);
 
     setTimeout(() => {
-      if (mapRef.current) mapRef.current.invalidateSize();
-    }, 250);
+      if (mapRef.current) {
+        mapRef.current.invalidateSize();
+        if (activePos) {
+          mapRef.current.setView([activePos.lat, activePos.lng], NAV_ZOOM_LEVEL);
+        }
+      }
+    }, 300);
 
     return () => {
       if (mapRef.current) {
@@ -267,33 +271,33 @@ export default function RiderNavigationMap({
     setShowTraffic(traffic);
   };
 
-  // Renderização e Atualização Exata da Posição do GPS do Motoboy
+  // Renderização e Centralização Exata do Ponto do Usuário
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !activePos) return;
 
     const heading = activePos.heading || 0;
     
-    // Marcador com Seta de Direção e Halo de Destaque
+    // Ícone de Marcador Destaque Alta Visibilidade
     const riderIcon = L.divIcon({
       html: `
-        <div style="position: relative; width: 54px; height: 54px; display: flex; align-items: center; justify-content: center;">
-          <div style="position: absolute; width: 50px; height: 50px; border-radius: 50%; background: rgba(37,99,235,0.3); border: 2px solid #2563eb; transform: scale(1.1); animation: pulse 2s infinite;"></div>
+        <div style="position: relative; width: 60px; height: 60px; display: flex; align-items: center; justify-content: center;">
+          <div style="position: absolute; width: 52px; height: 52px; border-radius: 50%; background: rgba(37,99,235,0.35); border: 2.5px solid #2563eb;"></div>
           <div style="
             transform: rotate(${heading}deg);
             transition: transform 0.2s ease-out;
             background: #1d4ed8;
             color: white;
-            width: 40px;
-            height: 40px;
+            width: 42px;
+            height: 42px;
             border-radius: 50%;
-            border: 3px solid #ffffff;
-            box-shadow: 0 4px 14px rgba(0,0,0,0.5);
+            border: 3.5px solid #ffffff;
+            box-shadow: 0 6px 16px rgba(0,0,0,0.6);
             display: flex;
             align-items: center;
             justify-content: center;
             position: relative;
-            z-index: 10;
+            z-index: 100;
           ">
             <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
               <polygon points="12 2 19 21 12 17 5 21 12 2"></polygon>
@@ -302,8 +306,8 @@ export default function RiderNavigationMap({
         </div>
       `,
       className: 'custom-rider-nav-icon',
-      iconSize: [54, 54],
-      iconAnchor: [27, 27]
+      iconSize: [60, 60],
+      iconAnchor: [30, 30]
     });
 
     if (riderMarkerRef.current) {
@@ -316,8 +320,8 @@ export default function RiderNavigationMap({
       }).addTo(map);
     }
 
-    // Centralizar câmera na primeira coordenada real recebida do dispositivo
     if (!initialCenterDoneRef.current || autoFollow) {
+      map.invalidateSize();
       map.setView([activePos.lat, activePos.lng], NAV_ZOOM_LEVEL, {
         animate: true,
         duration: 0.5
@@ -347,7 +351,7 @@ export default function RiderNavigationMap({
           width: 42px;
           height: 42px;
           border-radius: 50%;
-          border: 3px solid white;
+          border: 3.5px solid white;
           box-shadow: 0 0 18px rgba(239,68,68,0.85);
           display: flex;
           align-items: center;
@@ -513,6 +517,16 @@ export default function RiderNavigationMap({
     }
   };
 
+  const handleRecenter = () => {
+    if (mapRef.current && activePos) {
+      mapRef.current.invalidateSize();
+      mapRef.current.setView([activePos.lat, activePos.lng], NAV_ZOOM_LEVEL, { animate: true });
+      setAutoFollow(true);
+    } else {
+      gpsTracker.requestManualPermission();
+    }
+  };
+
   const activeStep = steps[currentStepIndex] || {
     instruction: activeDestination ? `Navegando para ${activeDestination.name}` : 'Digite um endereço para traçar rota...',
     distance: 0,
@@ -522,8 +536,8 @@ export default function RiderNavigationMap({
   const gpsQualityLabel = 
     gpsState.quality === 'excellent' ? 'Sinal Excelente' :
     gpsState.quality === 'good' ? 'Sinal Bom' :
-    gpsState.quality === 'weak' ? 'Sinal Fraco' :
-    gpsState.quality === 'denied' ? 'Permissão Negada' : 'Obtendo GPS...';
+    gpsState.quality === 'weak' ? 'Sinal Capturado' :
+    gpsState.quality === 'denied' ? 'Permissão Negada' : 'Aguardando GPS...';
 
   const gpsQualityColor = 
     gpsState.quality === 'excellent' ? 'bg-emerald-500' :
@@ -636,7 +650,7 @@ export default function RiderNavigationMap({
             <span className="font-bold text-slate-300">{gpsQualityLabel}</span>
             {activePos && (
               <span className="text-slate-500">
-                (Precisão do chip: ±{activePos.accuracy}m)
+                (Precisão: ±{activePos.accuracy}m)
               </span>
             )}
           </div>
@@ -708,16 +722,23 @@ export default function RiderNavigationMap({
       <div className="relative flex-1 min-h-[220px]">
         <div ref={mapContainerRef} className="absolute inset-0 z-10 bg-slate-950" />
 
-        {/* ALERTA VISUAL SE O GPS NÃO ESTIVER DISPONÍVEL OU NEGADO */}
+        {/* BOTAO PARA ATIVAR / FORÇAR GEOLOCALIZACAO DO NAVEGADOR SE AINDA NÃO DETECTOU */}
         {!activePos && (
-          <div className="absolute inset-0 z-30 bg-slate-950/80 backdrop-blur-sm flex flex-col items-center justify-center p-4 text-center">
-            <div className="p-3 bg-amber-500/20 text-amber-400 rounded-full mb-3">
-              <LocateFixed className="h-8 w-8 animate-spin" />
+          <div className="absolute inset-0 z-30 bg-slate-950/85 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center space-y-3">
+            <div className="p-4 bg-indigo-600/20 text-indigo-400 rounded-full animate-bounce">
+              <CompassIcon className="h-10 w-10" />
             </div>
-            <h3 className="text-sm font-bold text-white">Aguardando Sinal de GPS</h3>
-            <p className="text-xs text-slate-400 max-w-xs mt-1">
-              Certifique-se de permitir o acesso à localização no navegador e estar com o GPS ativado.
+            <h3 className="text-base font-bold text-white">Localizando seu dispositivo...</h3>
+            <p className="text-xs text-slate-400 max-w-xs leading-relaxed">
+              No computador, confirme a permissão de localização no popup do seu navegador (no canto da barra de endereço).
             </p>
+            <button
+              onClick={() => gpsTracker.requestManualPermission()}
+              className="mt-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-5 py-2.5 rounded-xl text-xs flex items-center space-x-2 shadow-lg transition-all"
+            >
+              <LocateFixed className="h-4 w-4" />
+              <span>Ativar / Detectar Posição Agora</span>
+            </button>
           </div>
         )}
 
@@ -756,12 +777,7 @@ export default function RiderNavigationMap({
           </button>
 
           <button
-            onClick={() => {
-              if (mapRef.current && activePos) {
-                mapRef.current.setView([activePos.lat, activePos.lng], NAV_ZOOM_LEVEL, { animate: true });
-                setAutoFollow(true);
-              }
-            }}
+            onClick={handleRecenter}
             className={`p-2.5 rounded-xl shadow-xl border transition-all flex items-center justify-center gap-1 font-bold text-xs ${
               autoFollow 
                 ? 'bg-indigo-600 text-white border-indigo-500' 
