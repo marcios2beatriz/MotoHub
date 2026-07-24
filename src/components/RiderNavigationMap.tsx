@@ -17,13 +17,12 @@ import {
   Plus,
   Minus,
   Layers,
-  Wifi,
-  AlertTriangle,
   Play,
-  Square
+  Square,
+  LocateFixed
 } from 'lucide-react';
 import L from 'leaflet';
-import { gpsTracker, GpsState, calculateDistanceMeters, isPointOffRoute } from '../utils/gpsTracker';
+import { gpsTracker, GpsState, isPointOffRoute } from '../utils/gpsTracker';
 
 interface RiderNavigationMapProps {
   currentLocation: { lat: number; lng: number } | null;
@@ -66,8 +65,8 @@ export default function RiderNavigationMap({
   const riderMarkerRef = useRef<L.Marker | null>(null);
   const destMarkerRef = useRef<L.Marker | null>(null);
   const routePolylineRef = useRef<L.Polyline | null>(null);
+  const hasCenteredOnInitialGpsRef = useRef(false);
 
-  // GPS State local via Tracker
   const [gpsState, setGpsState] = useState<GpsState>({
     currentLocation: null,
     quality: 'off',
@@ -112,7 +111,6 @@ export default function RiderNavigationMap({
   const defaultLat = -7.2247;
   const defaultLng = -35.8878;
 
-  // Assinar ao Tracker de GPS de alta precisão
   useEffect(() => {
     gpsTracker.startTracking();
     const unsubscribe = gpsTracker.subscribe((state) => {
@@ -153,7 +151,6 @@ export default function RiderNavigationMap({
     lastSpokenInstructionRef.current = text;
   };
 
-  // Geocodificação do destino
   useEffect(() => {
     if (!activeDestination) return;
 
@@ -199,7 +196,7 @@ export default function RiderNavigationMap({
     geocode();
   }, [activeDestination?.addressText, activeDestination?.name]);
 
-  // Inicialização do Mapa Leaflet com Google Tiles
+  // Inicialização do Mapa Leaflet
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return;
 
@@ -224,8 +221,6 @@ export default function RiderNavigationMap({
     });
 
     mapRef.current = mapInstance;
-
-    // Adicionar camada inicial de mapa
     updateMapTileLayer('google_roadmap', false);
 
     setTimeout(() => {
@@ -240,7 +235,7 @@ export default function RiderNavigationMap({
     };
   }, []);
 
-  // Alternar Provedor do Mapa (Google Road, Satellite, Terrain) e Trânsito
+  // Alternar Camada de Mapa
   const updateMapTileLayer = (provider: MapProviderType, traffic: boolean) => {
     const map = mapRef.current;
     if (!map) return;
@@ -253,11 +248,11 @@ export default function RiderNavigationMap({
       trafficLayerRef.current = null;
     }
 
-    let tileUrl = 'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}'; // Google Roadmap
+    let tileUrl = 'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}';
     if (provider === 'google_satellite') {
-      tileUrl = 'https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}'; // Google Satellite
+      tileUrl = 'https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}';
     } else if (provider === 'google_terrain') {
-      tileUrl = 'https://mt1.google.com/vt/lyrs=p&x={x}&y={y}&z={z}'; // Google Terrain
+      tileUrl = 'https://mt1.google.com/vt/lyrs=p&x={x}&y={y}&z={z}';
     } else if (provider === 'osm') {
       tileUrl = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
     }
@@ -266,7 +261,6 @@ export default function RiderNavigationMap({
     newLayer.addTo(map);
     tileLayerRef.current = newLayer;
 
-    // Camada de trânsito sobreposta do Google
     if (traffic && provider.startsWith('google')) {
       const trafficLayer = L.tileLayer('https://mt1.google.com/vt/lyrs=m@121,traffic&x={x}&y={y}&z={z}', {
         maxZoom: 20,
@@ -280,51 +274,61 @@ export default function RiderNavigationMap({
     setShowTraffic(traffic);
   };
 
-  // Atualizar Posição do Motoboy e Bússola no Mapa
+  // Atualização em Tempo Real do Marcador do Motoboy
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !activePos) return;
 
     const heading = activePos.heading || 0;
+    
+    // Ícone com Halo Pulsante para Alta Visibilidade no Mapa
     const riderIcon = L.divIcon({
       html: `
-        <div style="
-          transform: rotate(${heading}deg);
-          transition: transform 0.25s ease-out;
-          background: #2563eb;
-          color: white;
-          width: 46px;
-          height: 46px;
-          border-radius: 50%;
-          border: 3.5px solid white;
-          box-shadow: 0 0 22px rgba(37,99,235,0.85);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        ">
-          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-            <polygon points="12 2 19 21 12 17 5 21 12 2"></polygon>
-          </svg>
+        <div style="position: relative; width: 50px; height: 50px; display: flex; align-items: center; justify-content: center;">
+          <div style="position: absolute; width: 48px; height: 48px; border-radius: 50%; background: rgba(37,99,235,0.35); border: 2px solid rgba(37,99,235,0.8); transform: scale(1.2);"></div>
+          <div style="
+            transform: rotate(${heading}deg);
+            transition: transform 0.2s ease-out;
+            background: #2563eb;
+            color: white;
+            width: 42px;
+            height: 42px;
+            border-radius: 50%;
+            border: 3.5px solid #ffffff;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10;
+          ">
+            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="12 2 19 21 12 17 5 21 12 2"></polygon>
+            </svg>
+          </div>
         </div>
       `,
       className: 'custom-rider-nav-icon',
-      iconSize: [46, 46],
-      iconAnchor: [23, 23]
+      iconSize: [50, 50],
+      iconAnchor: [25, 25]
     });
 
     if (riderMarkerRef.current) {
       riderMarkerRef.current.setLatLng([activePos.lat, activePos.lng]);
       riderMarkerRef.current.setIcon(riderIcon);
     } else {
-      riderMarkerRef.current = L.marker([activePos.lat, activePos.lng], { icon: riderIcon })
-        .addTo(map);
+      riderMarkerRef.current = L.marker([activePos.lat, activePos.lng], { 
+        icon: riderIcon,
+        zIndexOffset: 2000
+      }).addTo(map);
     }
 
-    if (autoFollow) {
+    // Recentralizar câmera automaticamente na primeira leitura do GPS
+    if (!hasCenteredOnInitialGpsRef.current || autoFollow) {
       map.setView([activePos.lat, activePos.lng], NAV_ZOOM_LEVEL, {
         animate: true,
         duration: 0.5
       });
+      hasCenteredOnInitialGpsRef.current = true;
     }
 
     // Verificar se o motoboy saiu da rota estabelecida
@@ -370,8 +374,10 @@ export default function RiderNavigationMap({
     if (destMarkerRef.current) {
       destMarkerRef.current.setLatLng([destCoords.lat, destCoords.lng]);
     } else {
-      destMarkerRef.current = L.marker([destCoords.lat, destCoords.lng], { icon: destIcon })
-        .addTo(map);
+      destMarkerRef.current = L.marker([destCoords.lat, destCoords.lng], { 
+        icon: destIcon,
+        zIndexOffset: 1500
+      }).addTo(map);
     }
 
     const fetchRoute = async () => {
@@ -523,7 +529,7 @@ export default function RiderNavigationMap({
   const gpsQualityLabel = 
     gpsState.quality === 'excellent' ? 'Sinal Excelente' :
     gpsState.quality === 'good' ? 'Sinal Bom' :
-    gpsState.quality === 'weak' ? 'Sinal Fraco' : 'Sem GPS';
+    gpsState.quality === 'weak' ? 'Sinal Fraco' : 'Buscando GPS...';
 
   const gpsQualityColor = 
     gpsState.quality === 'excellent' ? 'bg-emerald-500' :
@@ -652,7 +658,7 @@ export default function RiderNavigationMap({
           </div>
         </div>
 
-        {/* MENU DE SELEÇÃO DE CAMADAS (GOOGLE MAPS ROAD, SATELLITE, TERRAIN, TRAFFIC) */}
+        {/* MENU DE SELEÇÃO DE CAMADAS */}
         {showLayerMenu && (
           <div className="absolute right-2 top-full mt-1 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-2 z-50 space-y-1.5 min-w-[180px]">
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-2">Tipo de Mapa</p>
@@ -710,6 +716,14 @@ export default function RiderNavigationMap({
       <div className="relative flex-1 min-h-[220px]">
         <div ref={mapContainerRef} className="absolute inset-0 z-10 bg-slate-950" />
 
+        {/* ALERTA VISUAL CASO GPS ESTEJA BUSCANDO LOCALIZAÇÃO */}
+        {!activePos && (
+          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 bg-slate-900/90 text-amber-300 border border-amber-500/40 px-3 py-1.5 rounded-full text-xs font-bold shadow-xl flex items-center gap-2 backdrop-blur-md">
+            <LocateFixed className="h-4 w-4 animate-spin text-amber-400" />
+            <span>Obtendo sua localização GPS...</span>
+          </div>
+        )}
+
         {/* VELOCÍMETRO FLUTUANTE EM TEMPO REAL */}
         <div className="absolute bottom-4 left-3 z-20 bg-slate-900/90 border border-slate-700 p-2 rounded-xl shadow-xl backdrop-blur-md flex flex-col items-center justify-center min-w-[60px]">
           <span className={`text-xl font-black leading-none ${
@@ -754,7 +768,7 @@ export default function RiderNavigationMap({
                 ? 'bg-indigo-600 text-white border-indigo-500' 
                 : 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-500 animate-pulse'
             }`}
-            title="Minha Localização / Recentralizar"
+            title="Minha Localização Exata"
           >
             <RotateCcw className="h-4 w-4" />
           </button>
@@ -820,7 +834,7 @@ export default function RiderNavigationMap({
           <div className="bg-purple-500/10 border border-purple-500/20 p-1.5 rounded-lg">
             <p className="text-[9px] uppercase font-extrabold text-purple-400">GPS Status</p>
             <p className="text-xs font-bold text-purple-300 mt-0.5 truncate">
-              {activePos ? `${activePos.accuracy}m` : 'Buscando...'}
+              {activePos ? `±${activePos.accuracy}m` : 'Buscando...'}
             </p>
           </div>
         </div>

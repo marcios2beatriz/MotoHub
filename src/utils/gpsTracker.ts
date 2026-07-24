@@ -48,7 +48,7 @@ export function calculateBearingDegrees(lat1: number, lon1: number, lat2: number
 // Verifica se um ponto está muito distante da rota estipulada (em metros)
 export function isPointOffRoute(
   point: { lat: number; lng: number },
-  routePolyline: [number, number][], // Array de [lat, lng]
+  routePolyline: [number, number][],
   thresholdMeters: number = 35
 ): boolean {
   if (routePolyline.length < 2) return false;
@@ -58,7 +58,6 @@ export function isPointOffRoute(
     const p1 = routePolyline[i];
     const p2 = routePolyline[i + 1];
     
-    // Distância mínima até o segmento de reta
     const dist = distanceToSegmentMeters(
       point.lat, point.lng,
       p1[0], p1[1],
@@ -143,7 +142,7 @@ class HighPrecisionGpsTracker {
     const options: PositionOptions = {
       enableHighAccuracy: true,
       maximumAge: 0,
-      timeout: 10000
+      timeout: 15000
     };
 
     const handleSuccess = (pos: GeolocationPosition) => {
@@ -151,13 +150,6 @@ class HighPrecisionGpsTracker {
       const rawLng = pos.coords.longitude;
       const accuracy = pos.coords.accuracy || 15;
       const now = Date.now();
-
-      // Rejeitar leituras extremamente imprecisas (> 50 metros)
-      if (accuracy > 50 && this.lastRawLocation) {
-        this.currentState.quality = 'weak';
-        this.notify();
-        return;
-      }
 
       let speedKmh = pos.coords.speed !== null && pos.coords.speed >= 0 ? pos.coords.speed * 3.6 : 0;
       let heading = pos.coords.heading !== null && !isNaN(pos.coords.heading) ? pos.coords.heading : 0;
@@ -171,19 +163,17 @@ class HighPrecisionGpsTracker {
           rawLng
         );
 
-        // Descartar saltos impossíveis (> 160 km/h)
         if (timeDiffSec > 0.2) {
           const calcSpeedKmh = (distanceM / timeDiffSec) * 3.6;
-          if (calcSpeedKmh > 160) {
-            return;
+          if (calcSpeedKmh > 180) {
+            return; // Descartar saltos impossíveis (> 180 km/h)
           }
           if (pos.coords.speed === null || pos.coords.speed < 0) {
             speedKmh = Math.round(calcSpeedKmh);
           }
         }
 
-        // Calcular heading magnético se houver deslocamento significativo
-        if (distanceM > 2.5) {
+        if (distanceM > 2.0) {
           heading = Math.round(calculateBearingDegrees(
             this.lastRawLocation.lat,
             this.lastRawLocation.lng,
@@ -191,22 +181,20 @@ class HighPrecisionGpsTracker {
             rawLng
           ));
         } else if (this.smoothedLocation) {
-          heading = this.smoothedLocation.heading; // Manter direção se parado
+          heading = this.smoothedLocation.heading;
         }
       }
 
-      // Suavização da coordenada (Filtro Exponencial)
+      // Suavização do ponto com resposta imediata
       let finalLat = rawLat;
       let finalLng = rawLng;
 
       if (this.smoothedLocation && speedKmh < 3) {
-        // Se estiver quase parado, aplica forte filtro para o marcador não chacoalhar
-        finalLat = this.smoothedLocation.lat * 0.8 + rawLat * 0.2;
-        finalLng = this.smoothedLocation.lng * 0.8 + rawLng * 0.2;
+        finalLat = this.smoothedLocation.lat * 0.6 + rawLat * 0.4;
+        finalLng = this.smoothedLocation.lng * 0.6 + rawLng * 0.4;
       } else if (this.smoothedLocation) {
-        // Se estiver em movimento, usa filtro leve para resposta rápida
-        finalLat = this.smoothedLocation.lat * 0.25 + rawLat * 0.75;
-        finalLng = this.smoothedLocation.lng * 0.25 + rawLng * 0.75;
+        finalLat = this.smoothedLocation.lat * 0.2 + rawLat * 0.8;
+        finalLng = this.smoothedLocation.lng * 0.2 + rawLng * 0.8;
       }
 
       const newLocation: GpsLocation = {
@@ -222,8 +210,8 @@ class HighPrecisionGpsTracker {
       this.smoothedLocation = newLocation;
 
       let quality: GpsSignalQuality = 'excellent';
-      if (accuracy > 25) quality = 'weak';
-      else if (accuracy > 12) quality = 'good';
+      if (accuracy > 35) quality = 'weak';
+      else if (accuracy > 15) quality = 'good';
 
       this.currentState = {
         ...this.currentState,
@@ -241,13 +229,13 @@ class HighPrecisionGpsTracker {
 
       if (err.code === GeolocationPositionError.PERMISSION_DENIED) {
         quality = 'denied';
-        msg = 'Permissão de localização negada pelo usuário.';
+        msg = 'Permissão de localização negada. Ative a localização no navegador.';
       } else if (err.code === GeolocationPositionError.POSITION_UNAVAILABLE) {
         quality = 'lost';
-        msg = 'Sinal GPS indisponível no momento. Buscando conexão...';
+        msg = 'Buscando sinal GPS...';
       } else if (err.code === GeolocationPositionError.TIMEOUT) {
         quality = 'weak';
-        msg = 'Aguardando atualização do sinal GPS...';
+        msg = 'Aguardando atualização de localização...';
       }
 
       this.currentState = {
@@ -258,16 +246,12 @@ class HighPrecisionGpsTracker {
       this.notify();
     };
 
-    // Tentar leitura imediata
     navigator.geolocation.getCurrentPosition(handleSuccess, handleError, options);
-
-    // Watch position em tempo real
     this.watchId = navigator.geolocation.watchPosition(handleSuccess, handleError, options);
 
-    // Polling de fallback a cada 3.5 segundos para garantir atualização continua
     this.fallbackTimer = setInterval(() => {
       navigator.geolocation.getCurrentPosition(handleSuccess, () => {}, options);
-    }, 3500);
+    }, 2500);
   }
 
   public stopTracking() {
