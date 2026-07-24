@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { X, AlertTriangle } from 'lucide-react';
-import { User, Establishment } from '../utils/db';
+import { User, Establishment, db } from '../utils/db';
 
 interface ScheduleModalProps {
   isOpen: boolean;
@@ -42,6 +42,9 @@ export default function ScheduleModal({
   onSave
 }: ScheduleModalProps) {
   if (!isOpen) return null;
+
+  // Filtrar apenas estabelecimentos válidos com gerente cadastrado
+  const validEsts = db.getValidEstablishments();
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
@@ -94,7 +97,7 @@ export default function ScheduleModal({
               className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none"
             >
               <option value="">Selecione um Estabelecimento</option>
-              {establishments.filter(e => e.active).map(e => (
+              {validEsts.map(e => (
                 <option key={e.id} value={e.id}>{e.name}</option>
               ))}
             </select>
