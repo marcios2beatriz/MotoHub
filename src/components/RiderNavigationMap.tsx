@@ -21,7 +21,9 @@ import {
   Square,
   LocateFixed,
   CompassIcon,
-  Loader2
+  Loader2,
+  Home,
+  Check
 } from 'lucide-react';
 import L from 'leaflet';
 import { gpsTracker, GpsState, isPointOffRoute, calculateDistanceMeters } from '../utils/gpsTracker';
@@ -88,6 +90,10 @@ export default function RiderNavigationMap({
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+
+  // ESTADO PARA O NÚMERO DA RESIDÊNCIA
+  const [selectedStreetResult, setSelectedStreetResult] = useState<SearchResult | null>(null);
+  const [houseNumberInput, setHouseNumberInput] = useState('');
 
   const [isFullscreen, setIsFullscreen] = useState(defaultFullscreen);
   const [autoFollow, setAutoFollow] = useState(true);
@@ -506,21 +512,57 @@ export default function RiderNavigationMap({
     }
   };
 
+  // AO SELECCIONAR A RUA, ABRIR PAINEL DE NÚMERO
   const handleSelectSearchResult = (result: SearchResult) => {
-    const lat = parseFloat(result.lat);
-    const lng = parseFloat(result.lon);
-    const title = result.display_name.split(',')[0] || 'Destino';
+    setSelectedStreetResult(result);
+    setHouseNumberInput('');
+    setSearchResults([]);
+  };
+
+  // CONFIRMAR ROTA COM O NÚMERO DA RESIDÊNCIA
+  const handleConfirmAddressWithNumber = async (numberOverride?: string) => {
+    if (!selectedStreetResult) return;
+
+    const num = numberOverride !== undefined ? numberOverride : houseNumberInput.trim();
+    const streetNameOnly = selectedStreetResult.display_name.split(',')[0] || 'Rua';
+    const restOfAddress = selectedStreetResult.display_name.split(',').slice(1).join(',').trim();
+
+    const title = num ? `${streetNameOnly}, Nº ${num}` : streetNameOnly;
+    const fullAddress = num ? `${streetNameOnly}, ${num}, ${restOfAddress}` : selectedStreetResult.display_name;
+
+    let finalLat = parseFloat(selectedStreetResult.lat);
+    let finalLng = parseFloat(selectedStreetResult.lon);
+
+    // Se informou número, tenta buscar a coordenada exata da casa na API de geocodificação
+    if (num) {
+      setLoadingRoute(true);
+      try {
+        const queryWithNum = `${streetNameOnly}, ${num}, Campina Grande - PB, Brasil`;
+        const res = await fetch(
+          `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(queryWithNum)}&limit=1`
+        );
+        const data = await res.json();
+        if (data && data.length > 0) {
+          finalLat = parseFloat(data[0].lat);
+          finalLng = parseFloat(data[0].lon);
+        }
+      } catch (err) {
+        console.warn('Erro geocodificando número exacto:', err);
+      } finally {
+        setLoadingRoute(false);
+      }
+    }
 
     lastFetchedDestRef.current = '';
     setActiveDestination({
       name: title,
-      addressText: result.display_name,
-      lat,
-      lng
+      addressText: fullAddress,
+      lat: finalLat,
+      lng: finalLng
     });
 
     setAutoFollow(true);
-    setSearchResults([]);
+    setSelectedStreetResult(null);
     setSearchQuery('');
   };
 
@@ -725,8 +767,72 @@ export default function RiderNavigationMap({
           </div>
         )}
 
+        {/* OVERLAY PARA SELEÇÃO DO NÚMERO DA RESIDÊNCIA */}
+        {selectedStreetResult && (
+          <div className="absolute left-2 right-2 top-full mt-1 bg-slate-900 border-2 border-indigo-500 rounded-xl p-3 shadow-2xl z-50 animate-in fade-in slide-in-from-top-2">
+            <div className="flex justify-between items-start mb-2">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 bg-indigo-600 text-white rounded-lg">
+                  <Home className="h-4 w-4" />
+                </div>
+                <div>
+                  <p className="text-xs font-black text-white">{selectedStreetResult.display_name.split(',')[0]}</p>
+                  <p className="text-[10px] text-slate-400 truncate max-w-[200px]">
+                    {selectedStreetResult.display_name.split(',').slice(1, 3).join(',')}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setSelectedStreetResult(null)}
+                className="text-slate-400 hover:text-white p-1"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleConfirmAddressWithNumber();
+              }}
+              className="space-y-2"
+            >
+              <div>
+                <label className="block text-[10px] font-bold text-indigo-300 uppercase tracking-wider mb-1">
+                  Qual o número da residência?
+                </label>
+                <input
+                  type="text"
+                  autoFocus
+                  placeholder="Ex: 882, 10B, S/N..."
+                  value={houseNumberInput}
+                  onChange={(e) => setHouseNumberInput(e.target.value)}
+                  className="w-full bg-slate-800 text-white placeholder-slate-500 text-xs px-3 py-2 rounded-lg border border-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+
+              <div className="flex items-center gap-2 pt-1">
+                <button
+                  type="submit"
+                  className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold py-2 rounded-lg transition-colors flex items-center justify-center gap-1 shadow-md"
+                >
+                  <Check className="h-3.5 w-3.5" />
+                  <span>Traçar Rota com Nº</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleConfirmAddressWithNumber('')}
+                  className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-semibold rounded-lg transition-colors"
+                >
+                  Sem número
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
+
         {/* LISTA DE SUGESTÕES EM TEMPO REAL AO DIGITAR */}
-        {searchResults.length > 0 && (
+        {!selectedStreetResult && searchResults.length > 0 && (
           <div className="absolute left-2 right-2 top-full mt-1 bg-slate-900 rounded-xl border border-slate-700 shadow-2xl z-50 overflow-hidden divide-y divide-slate-800 max-h-56 overflow-y-auto">
             <div className="bg-slate-950 px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between">
               <span>Sugestões encontradas</span>
