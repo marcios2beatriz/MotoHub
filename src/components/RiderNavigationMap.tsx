@@ -28,6 +28,7 @@ interface RiderNavigationMapProps {
     lng?: number;
   } | null;
   onClose?: () => void;
+  defaultFullscreen?: boolean;
 }
 
 interface RouteStep {
@@ -43,7 +44,12 @@ interface SearchResult {
   lon: string;
 }
 
-export default function RiderNavigationMap({ currentLocation, destination: initialDestination, onClose }: RiderNavigationMapProps) {
+export default function RiderNavigationMap({ 
+  currentLocation, 
+  destination: initialDestination, 
+  onClose,
+  defaultFullscreen = false 
+}: RiderNavigationMapProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const riderMarkerRef = useRef<L.Marker | null>(null);
@@ -61,11 +67,11 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
 
-  const [isFullscreen, setIsFullscreen] = useState(true);
+  const [isFullscreen, setIsFullscreen] = useState(defaultFullscreen);
   const [autoFollow, setAutoFollow] = useState(true);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [currentSpeed, setCurrentSpeed] = useState<number>(0);
-  const [heading, setHeading] = useState<number>(0); // Ângulo de rotação da moto
+  const [heading, setHeading] = useState<number>(0);
   
   const [steps, setSteps] = useState<RouteStep[]>([]);
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
@@ -80,8 +86,7 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
   const prevLocationRef = useRef<{ lat: number; lng: number; time: number } | null>(null);
   const lastSpokenInstructionRef = useRef<string>('');
 
-  const NAV_ZOOM_LEVEL = 18; // Zoom veicular estilo Google Maps
-  // Coordenadas Centrais de Campina Grande - PB
+  const NAV_ZOOM_LEVEL = 18;
   const defaultLat = -7.2247;
   const defaultLng = -35.8878;
 
@@ -91,7 +96,6 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
     }
   }, [initialDestination]);
 
-  // Função para síntese de voz (Text-To-Speech)
   const speakInstruction = (text: string) => {
     if (!voiceEnabled || !('speechSynthesis' in window)) return;
     if (lastSpokenInstructionRef.current === text) return;
@@ -106,7 +110,6 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
     lastSpokenInstructionRef.current = text;
   };
 
-  // Cálculo da velocidade (km/h) e rumo/direção com base na movimentação GPS
   useEffect(() => {
     if (!currentLocation) return;
 
@@ -144,7 +147,6 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
     prevLocationRef.current = { lat: currentLocation.lat, lng: currentLocation.lng, time: now };
   }, [currentLocation]);
 
-  // Geocodificação do destino ativo com preferência para Campina Grande - PB
   useEffect(() => {
     if (!activeDestination) return;
 
@@ -190,7 +192,6 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
     geocode();
   }, [activeDestination?.addressText, activeDestination?.name]);
 
-  // Inicialização do Mapa Leaflet
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return;
 
@@ -228,7 +229,6 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
     };
   }, []);
 
-  // Atualização em Tempo Real do Marcador da Moto e Câmera Interativa
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !currentLocation) return;
@@ -240,23 +240,23 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
           transition: transform 0.3s ease-out;
           background: #2563eb;
           color: white;
-          width: 50px;
-          height: 50px;
+          width: 46px;
+          height: 46px;
           border-radius: 50%;
-          border: 4px solid white;
-          box-shadow: 0 0 25px rgba(37,99,235,0.9);
+          border: 3.5px solid white;
+          box-shadow: 0 0 20px rgba(37,99,235,0.8);
           display: flex;
           align-items: center;
           justify-content: center;
         ">
-          <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
             <polygon points="12 2 19 21 12 17 5 21 12 2"></polygon>
           </svg>
         </div>
       `,
       className: 'custom-rider-nav-icon',
-      iconSize: [50, 50],
-      iconAnchor: [25, 25]
+      iconSize: [46, 46],
+      iconAnchor: [23, 23]
     });
 
     if (riderMarkerRef.current) {
@@ -275,7 +275,6 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
     }
   }, [currentLocation, heading, autoFollow]);
 
-  // Busca e Roteamento em Tempo Real via OSRM
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !currentLocation || !destCoords) return;
@@ -285,24 +284,24 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
         <div style="
           background: #ef4444;
           color: white;
-          width: 44px;
-          height: 44px;
+          width: 40px;
+          height: 40px;
           border-radius: 50%;
-          border: 3.5px solid white;
-          box-shadow: 0 0 18px rgba(239,68,68,0.8);
+          border: 3px solid white;
+          box-shadow: 0 0 16px rgba(239,68,68,0.8);
           display: flex;
           align-items: center;
           justify-content: center;
         ">
-          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"></path>
             <circle cx="12" cy="10" r="3"></circle>
           </svg>
         </div>
       `,
       className: 'custom-dest-nav-icon',
-      iconSize: [44, 44],
-      iconAnchor: [22, 22]
+      iconSize: [40, 40],
+      iconAnchor: [20, 20]
     });
 
     if (destMarkerRef.current) {
@@ -328,7 +327,7 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
           } else {
             routePolylineRef.current = L.polyline(coordinates, {
               color: '#3b82f6',
-              weight: 9,
+              weight: 8,
               opacity: 0.9,
               lineCap: 'round',
               lineJoin: 'round'
@@ -366,7 +365,6 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
     fetchRoute();
   }, [currentLocation?.lat, currentLocation?.lng, destCoords]);
 
-  // Monitorar narração das próximas instruções de curva
   useEffect(() => {
     if (steps.length > 0 && currentStepIndex < steps.length) {
       const currentStep = steps[currentStepIndex];
@@ -403,7 +401,6 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
     }
   };
 
-  // Pesquisa alinhada com Campina Grande - PB
   const handleSearchAddresses = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!searchQuery.trim()) return;
@@ -415,7 +412,6 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
         ? rawText 
         : `${rawText}, Campina Grande - PB, Brasil`;
 
-      // Bounding box delimitada para a grande Campina Grande - PB (-36.00 a -35.75, -7.15 a -7.32)
       const res = await fetch(
         `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(formattedQuery)}&limit=6&viewbox=-36.00,-7.15,-35.75,-7.32`
       );
@@ -452,94 +448,94 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
   };
 
   return (
-    <div className={`flex flex-col bg-slate-950 text-white overflow-hidden shadow-2xl transition-all font-sans ${
-      isFullscreen ? 'fixed inset-0 z-50 rounded-none' : 'relative h-[700px] w-full rounded-2xl border border-slate-800'
+    <div className={`flex flex-col bg-slate-950 text-white overflow-hidden shadow-xl transition-all font-sans ${
+      isFullscreen ? 'fixed inset-0 z-50 rounded-none' : 'relative h-[380px] sm:h-[450px] w-full rounded-2xl border border-slate-800'
     }`}>
       
       {/* BANNER NAVEGAÇÃO TURNO A TURNO */}
-      <div className="bg-emerald-600 text-white px-4 py-3 z-30 shadow-2xl flex items-center justify-between relative border-b border-emerald-500">
-        <div className="flex items-center space-x-3 min-w-0 flex-1">
-          <div className="p-3 bg-white/20 rounded-2xl text-white flex-shrink-0 animate-pulse">
-            <Compass className="h-7 w-7" />
+      <div className="bg-emerald-600 text-white px-3.5 py-2.5 z-30 shadow-md flex items-center justify-between relative border-b border-emerald-500">
+        <div className="flex items-center space-x-2.5 min-w-0 flex-1">
+          <div className="p-2 bg-white/20 rounded-xl text-white flex-shrink-0">
+            <Compass className="h-5 w-5" />
           </div>
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <span className="bg-emerald-800/80 text-emerald-100 text-[10px] font-black uppercase px-2 py-0.5 rounded-full tracking-wider">
-                Navegação • Campina Grande - PB
+            <div className="flex items-center gap-1.5">
+              <span className="bg-emerald-800/80 text-emerald-100 text-[9px] font-black uppercase px-2 py-0.5 rounded-full tracking-wider">
+                Navegação • Campina Grande
               </span>
               {activeStep.distance > 0 && (
-                <span className="text-xs font-extrabold text-emerald-200">
+                <span className="text-[11px] font-extrabold text-emerald-200">
                   em {activeStep.distance}m
                 </span>
               )}
             </div>
-            <h2 className="text-base sm:text-lg font-black truncate leading-tight mt-0.5">
+            <h2 className="text-xs sm:text-sm font-black truncate leading-tight mt-0.5">
               {activeStep.instruction}
             </h2>
           </div>
         </div>
 
         {/* CONTROLES DE ÁUDIO E TELA */}
-        <div className="flex items-center space-x-1 flex-shrink-0 pl-2">
+        <div className="flex items-center space-x-1 flex-shrink-0 pl-1">
           <button
             onClick={() => setVoiceEnabled(!voiceEnabled)}
-            className={`p-2.5 rounded-xl transition-colors ${
-              voiceEnabled ? 'bg-emerald-500 hover:bg-emerald-400 text-white' : 'bg-emerald-800 text-emerald-300'
+            className={`p-2 rounded-lg transition-colors ${
+              voiceEnabled ? 'bg-emerald-500 text-white' : 'bg-emerald-800 text-emerald-300'
             }`}
             title={voiceEnabled ? 'Instruções por Voz Ativas' : 'Voz Mutada'}
           >
-            {voiceEnabled ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}
+            {voiceEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
           </button>
 
           <button
             onClick={() => setIsFullscreen(!isFullscreen)}
-            className="p-2.5 hover:bg-white/10 rounded-xl transition-colors text-emerald-100"
+            className="p-2 hover:bg-white/10 rounded-lg transition-colors text-emerald-100"
             title={isFullscreen ? 'Sair da Tela Cheia' : 'Tela Cheia'}
           >
-            {isFullscreen ? <Minimize2 className="h-5 w-5" /> : <Maximize2 className="h-5 w-5" />}
+            {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
           </button>
 
           {onClose && (
             <button
               onClick={onClose}
-              className="p-2.5 hover:bg-red-500/20 text-red-200 hover:text-white rounded-xl transition-colors"
+              className="p-2 hover:bg-red-500/20 text-red-200 hover:text-white rounded-lg transition-colors"
               title="Encerrar Navegação"
             >
-              <X className="h-5 w-5" />
+              <X className="h-4 w-4" />
             </button>
           )}
         </div>
       </div>
 
       {/* CAIXA DE PESQUISA DE ENDEREÇOS ALINHADA COM CAMPINA GRANDE - PB */}
-      <div className="bg-slate-900 border-b border-slate-800 p-2.5 z-20 relative">
+      <div className="bg-slate-900 border-b border-slate-800 p-2 z-20 relative">
         <form onSubmit={handleSearchAddresses} className="relative flex items-center">
           <input
             type="text"
             placeholder="Buscar rua/bairro em Campina Grande - PB..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-slate-800 text-white placeholder-slate-400 text-xs sm:text-sm pl-9 pr-24 py-2.5 rounded-xl border border-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="w-full bg-slate-800 text-white placeholder-slate-400 text-xs pl-8 pr-20 py-2 rounded-lg border border-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500"
           />
-          <Search className="h-4 w-4 text-slate-400 absolute left-3 pointer-events-none" />
+          <Search className="h-3.5 w-3.5 text-slate-400 absolute left-2.5 pointer-events-none" />
           <button
             type="submit"
             disabled={isSearching}
-            className="absolute right-1.5 bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1 rounded-lg text-xs font-bold transition-colors shadow-sm"
+            className="absolute right-1 bg-indigo-600 hover:bg-indigo-700 text-white px-2.5 py-1 rounded text-xs font-bold transition-colors"
           >
-            {isSearching ? <Navigation className="h-3.5 w-3.5 animate-spin" /> : <span>Buscar</span>}
+            {isSearching ? <Navigation className="h-3 w-3 animate-spin" /> : <span>Buscar</span>}
           </button>
         </form>
 
         {searchResults.length > 0 && (
-          <div className="absolute left-2.5 right-2.5 top-full mt-1 bg-slate-900 rounded-xl border border-slate-700 shadow-2xl z-50 overflow-hidden divide-y divide-slate-800 max-h-56 overflow-y-auto">
+          <div className="absolute left-2 right-2 top-full mt-1 bg-slate-900 rounded-xl border border-slate-700 shadow-2xl z-50 overflow-hidden divide-y divide-slate-800 max-h-48 overflow-y-auto">
             {searchResults.map((res) => (
               <button
                 key={res.place_id}
                 onClick={() => handleSelectSearchResult(res)}
-                className="w-full p-3 text-left hover:bg-slate-800 transition-colors flex items-start space-x-2.5"
+                className="w-full p-2.5 text-left hover:bg-slate-800 transition-colors flex items-start space-x-2"
               >
-                <MapPin className="h-4 w-4 text-emerald-400 flex-shrink-0 mt-0.5" />
+                <MapPin className="h-3.5 w-3.5 text-emerald-400 flex-shrink-0 mt-0.5" />
                 <div className="min-w-0">
                   <p className="text-xs font-bold text-white truncate">{res.display_name.split(',')[0]}</p>
                   <p className="text-[10px] text-slate-400 truncate">{res.display_name}</p>
@@ -551,35 +547,35 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
       </div>
 
       {/* MAPA INTERATIVO E NAVEGACIONAL */}
-      <div className="relative flex-1">
+      <div className="relative flex-1 min-h-[200px]">
         <div ref={mapContainerRef} className="absolute inset-0 z-10 bg-slate-950" />
 
         {/* VELOCÍMETRO FLUTUANTE EM TEMPO REAL */}
-        <div className="absolute bottom-6 left-4 z-20 bg-slate-900/90 border border-slate-700 p-3 rounded-2xl shadow-2xl backdrop-blur-md flex flex-col items-center justify-center min-w-[70px]">
-          <span className="text-2xl font-black text-emerald-400 leading-none">{currentSpeed}</span>
-          <span className="text-[9px] font-extrabold uppercase text-slate-400 tracking-wider mt-0.5">km/h</span>
+        <div className="absolute bottom-4 left-3 z-20 bg-slate-900/90 border border-slate-700 p-2 rounded-xl shadow-xl backdrop-blur-md flex flex-col items-center justify-center min-w-[55px]">
+          <span className="text-xl font-black text-emerald-400 leading-none">{currentSpeed}</span>
+          <span className="text-[8px] font-extrabold uppercase text-slate-400 tracking-wider mt-0.5">km/h</span>
         </div>
 
         {/* CONTROLES DE ZOOM E RECENTRALIZAR CÂMERA */}
-        <div className="absolute bottom-6 right-4 z-20 flex flex-col space-y-2">
+        <div className="absolute bottom-4 right-3 z-20 flex flex-col space-y-1.5">
           <button
             onClick={() => {
               if (mapRef.current) mapRef.current.zoomIn();
             }}
-            className="p-3 bg-slate-900/90 hover:bg-slate-800 text-white rounded-xl shadow-xl border border-slate-700 transition-all flex items-center justify-center"
+            className="p-2 bg-slate-900/90 hover:bg-slate-800 text-white rounded-lg shadow-lg border border-slate-700 transition-all flex items-center justify-center"
             title="Aumentar Zoom"
           >
-            <Plus className="h-5 w-5" />
+            <Plus className="h-4 w-4" />
           </button>
           
           <button
             onClick={() => {
               if (mapRef.current) mapRef.current.zoomOut();
             }}
-            className="p-3 bg-slate-900/90 hover:bg-slate-800 text-white rounded-xl shadow-xl border border-slate-700 transition-all flex items-center justify-center"
+            className="p-2 bg-slate-900/90 hover:bg-slate-800 text-white rounded-lg shadow-lg border border-slate-700 transition-all flex items-center justify-center"
             title="Diminuir Zoom"
           >
-            <Minus className="h-5 w-5" />
+            <Minus className="h-4 w-4" />
           </button>
 
           <button
@@ -589,39 +585,38 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
                 setAutoFollow(true);
               }
             }}
-            className={`p-3.5 rounded-2xl shadow-2xl border transition-all flex items-center justify-center gap-1.5 font-bold text-xs ${
+            className={`p-2 rounded-lg shadow-lg border transition-all flex items-center justify-center gap-1 font-bold text-xs ${
               autoFollow 
                 ? 'bg-indigo-600 text-white border-indigo-500' 
                 : 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-500 animate-pulse'
             }`}
-            title="Retomar Acompanhamento da Câmera"
+            title="Retomar Câmera"
           >
-            <RotateCcw className="h-5 w-5" />
-            {!autoFollow && <span>Retomar Câmera</span>}
+            <RotateCcw className="h-4 w-4" />
           </button>
         </div>
 
         {loadingRoute && (
           <div className="absolute inset-0 z-30 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center">
-            <div className="bg-slate-900 border border-slate-700 p-4 rounded-2xl flex items-center space-x-3 text-indigo-400 font-bold text-sm shadow-2xl">
-              <Navigation className="h-5 w-5 animate-spin" />
+            <div className="bg-slate-900 border border-slate-700 p-3 rounded-xl flex items-center space-x-2 text-indigo-400 font-bold text-xs shadow-xl">
+              <Navigation className="h-4 w-4 animate-spin" />
               <span>Desenhando rota em Campina Grande...</span>
             </div>
           </div>
         )}
       </div>
 
-      {/* RODAPÉ COM RESUMO DE TEMPO E DISTÂNCIA */}
-      <div className="bg-slate-900 border-t border-slate-800 p-4 z-20 space-y-2">
+      {/* RODAPÉ COMPACTO COM RESUMO DE TEMPO E DISTÂNCIA */}
+      <div className="bg-slate-900 border-t border-slate-800 p-2.5 z-20 space-y-1.5">
         {activeDestination && (
-          <div className="flex items-center justify-between bg-slate-800/80 p-3 rounded-xl border border-slate-700/50">
-            <div className="flex items-center space-x-2.5 min-w-0">
-              <div className="p-2 bg-red-500/20 text-red-400 rounded-lg">
-                <MapPin className="h-5 w-5" />
+          <div className="flex items-center justify-between bg-slate-800/80 p-2 rounded-lg border border-slate-700/50">
+            <div className="flex items-center space-x-2 min-w-0">
+              <div className="p-1 bg-red-500/20 text-red-400 rounded">
+                <MapPin className="h-4 w-4" />
               </div>
               <div className="min-w-0">
                 <p className="text-xs font-bold text-white truncate">{activeDestination.name}</p>
-                <p className="text-[11px] text-slate-400 truncate">{activeDestination.addressText}</p>
+                <p className="text-[10px] text-slate-400 truncate">{activeDestination.addressText}</p>
               </div>
             </div>
             <button
@@ -634,34 +629,34 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
                   routePolylineRef.current = null;
                 }
               }}
-              className="text-xs text-slate-400 hover:text-red-400 font-bold px-2 py-1 rounded hover:bg-slate-700"
+              className="text-[10px] text-slate-400 hover:text-red-400 font-bold px-2 py-0.5 rounded hover:bg-slate-700"
             >
               Cancelar
             </button>
           </div>
         )}
 
-        <div className="grid grid-cols-3 gap-3 text-center">
-          <div className="bg-emerald-500/10 border border-emerald-500/20 p-2.5 rounded-xl">
-            <p className="text-[10px] uppercase font-extrabold text-emerald-400">Tempo Estimado</p>
-            <p className="text-lg font-black text-emerald-400 flex items-center justify-center gap-1 mt-0.5">
-              <Clock className="h-4 w-4" />
+        <div className="grid grid-cols-3 gap-2 text-center">
+          <div className="bg-emerald-500/10 border border-emerald-500/20 p-1.5 rounded-lg">
+            <p className="text-[9px] uppercase font-extrabold text-emerald-400">Tempo Est.</p>
+            <p className="text-sm font-black text-emerald-400 flex items-center justify-center gap-1 mt-0.5">
+              <Clock className="h-3 w-3" />
               <span>{routeInfo ? `${routeInfo.durationMin} min` : '--'}</span>
             </p>
           </div>
 
-          <div className="bg-blue-500/10 border border-blue-500/20 p-2.5 rounded-xl">
-            <p className="text-[10px] uppercase font-extrabold text-blue-400">Distância Total</p>
-            <p className="text-lg font-black text-blue-400 flex items-center justify-center gap-1 mt-0.5">
-              <Route className="h-4 w-4" />
+          <div className="bg-blue-500/10 border border-blue-500/20 p-1.5 rounded-lg">
+            <p className="text-[9px] uppercase font-extrabold text-blue-400">Distância</p>
+            <p className="text-sm font-black text-blue-400 flex items-center justify-center gap-1 mt-0.5">
+              <Route className="h-3 w-3" />
               <span>{routeInfo ? `${routeInfo.distanceKm} km` : '--'}</span>
             </p>
           </div>
 
-          <div className="bg-purple-500/10 border border-purple-500/20 p-2.5 rounded-xl">
-            <p className="text-[10px] uppercase font-extrabold text-purple-400">Sinal GPS</p>
-            <p className="text-xs font-bold text-purple-300 mt-1 truncate">
-              {currentLocation ? 'Conectado' : 'Buscando...'}
+          <div className="bg-purple-500/10 border border-purple-500/20 p-1.5 rounded-lg">
+            <p className="text-[9px] uppercase font-extrabold text-purple-400">GPS</p>
+            <p className="text-xs font-bold text-purple-300 mt-0.5 truncate">
+              {currentLocation ? 'Ativo' : 'Buscando...'}
             </p>
           </div>
         </div>

@@ -618,7 +618,7 @@ export default function RiderDashboard() {
     <div className="min-h-screen bg-slate-50 pb-16 relative">
       <ChatToastBanner toast={activeToast} onClose={() => setActiveToast(null)} />
 
-      <header className="bg-indigo-600 text-white shadow-md sticky top-0 z-10">
+      <header className="bg-indigo-600 text-white shadow-md sticky top-0 z-20">
         <div className="max-w-4xl mx-auto px-4 py-4 flex justify-between items-center">
           <div>
             <p className="text-xs text-indigo-200">Olá, bem-vindo!</p>
@@ -662,7 +662,8 @@ export default function RiderDashboard() {
           </div>
         </div>
 
-        <div className="grid grid-cols-5 bg-white rounded-lg p-1 shadow-sm mb-6 border border-slate-200 gap-1 text-xs sm:text-sm">
+        {/* NAVEGAÇÃO ENTRE ABAS */}
+        <div className="grid grid-cols-5 bg-white rounded-lg p-1 shadow-sm mb-6 border border-slate-200 gap-1 text-xs sm:text-sm sticky top-[68px] z-20">
           <button
             onClick={() => setActiveTab('dashboard')}
             className={`py-2.5 font-medium rounded-md flex items-center justify-center space-x-1 transition-colors ${
@@ -678,7 +679,7 @@ export default function RiderDashboard() {
               activeTab === 'navigation' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-100'
             }`}
           >
-            <Compass className="h-4 w-4 text-emerald-400 animate-spin-slow" />
+            <Compass className="h-4 w-4 text-emerald-400" />
             <span>GPS App</span>
           </button>
           <button
@@ -715,11 +716,11 @@ export default function RiderDashboard() {
           </button>
         </div>
 
-        {/* TAB 1: INÍCIO E NAVEGADOR EM TEMPO REAL NO LOGIN */}
+        {/* TAB 1: INÍCIO E NAVEGADOR COMPACTO EM TEMPO REAL */}
         {activeTab === 'dashboard' && (
           <div className="space-y-6">
             
-            {/* MAPA EM TEMPO REAL EXIBIDO IMEDIATAMENTE NO INÍCIO DO LOGIN */}
+            {/* MAPA EM TEMPO REAL EMBUTIDO EM CONTAINER COMPACTO */}
             <div className="space-y-2">
               <div className="flex justify-between items-center px-1">
                 <h3 className="text-sm font-black uppercase tracking-wider text-slate-700 flex items-center gap-2">
@@ -731,10 +732,10 @@ export default function RiderDashboard() {
                 </span>
               </div>
 
-              {/* MAPA EMBUTIDO DIRETO NO LOGIN */}
               <RiderNavigationMap
                 currentLocation={gpsCoords}
                 destination={navDestination}
+                defaultFullscreen={false}
               />
             </div>
 
@@ -928,6 +929,7 @@ export default function RiderDashboard() {
               currentLocation={gpsCoords}
               destination={navDestination}
               onClose={() => setActiveTab('dashboard')}
+              defaultFullscreen={true}
             />
           </div>
         )}
