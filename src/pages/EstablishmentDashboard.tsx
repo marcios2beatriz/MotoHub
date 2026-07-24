@@ -735,7 +735,7 @@ export default function EstablishmentDashboard() {
 
             {scheduledRiders.length === 0 ? (
               <div className="text-center py-8 text-slate-400 text-sm">
-                Nenum motoboy escalado para hoje. Fale com o administrador para criar escalas.
+                Nenhum motoboy escalado para hoje. Fale com o administrador para criar escalas.
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -814,10 +814,10 @@ export default function EstablishmentDashboard() {
 
                   return (
                     <div key={del.id} className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                      <div className="min-w-0 space-y-1">
+                      <div className="min-w-0 space-y-1.5 flex-1">
                         <div className="flex items-center gap-2 flex-wrap">
                           {del.orderNumber && (
-                            <span className="bg-indigo-600 text-white text-xs font-black px-2.5 py-0.5 rounded-lg shadow-sm flex-shrink-0">
+                            <span className="bg-indigo-600 text-white text-xs font-black px-2.5 py-1 rounded-lg shadow-sm flex-shrink-0 tracking-wide">
                               #{del.orderNumber}
                             </span>
                           )}
@@ -830,12 +830,12 @@ export default function EstablishmentDashboard() {
                           </span>
                         </div>
                         <p className="text-xs text-slate-400 flex items-center gap-1">
-                          <Clock className="h-3 w-3" />
+                          <Clock className="h-3.5 w-3.5 text-slate-400" />
                           <span>Lançada às {del.time} — Valor: <strong className="text-emerald-600 font-extrabold">R$ {Number(del.value || 0).toFixed(2)}</strong></span>
                         </p>
                       </div>
 
-                      <div className="flex items-center space-x-2 flex-wrap justify-between sm:justify-end">
+                      <div className="flex items-center gap-2 flex-wrap justify-between sm:justify-end flex-shrink-0 pt-1 sm:pt-0 border-t sm:border-t-0 border-slate-100">
                         {isPending && (
                           <>
                             <button

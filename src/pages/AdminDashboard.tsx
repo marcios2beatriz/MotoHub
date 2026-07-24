@@ -144,7 +144,26 @@ export default function AdminDashboard() {
       
       return {
         id: 'req_virtual_' + e.id,
-<dyad-write path="src/pages/AdminDashboard.tsx" description="Atualizado layout de corridas no painel administrativo destacando o número do pedido">
+        establishmentName: e.name,
+        ownerName: manager ? manager.name.replace('Gerente ', '') : 'Proprietário',
+        phone: e.phone || manager?.phone || 'Sem telefone',
+        address: `${street}, ${num} - ${neighborhood} ${city}`.trim(),
+        status: 'pending' as const,
+        createdAt: e.createdAt || new Date().toISOString()
+      };
+    });
+
+    const mergedRequests = [...rawRequests];
+    virtualRequests.forEach(vr => {
+      const exists = mergedRequests.some(r => r.establishmentName.toLowerCase().trim() === vr.establishmentName.toLowerCase().trim());
+      if (!exists) {
+        mergedRequests.push(vr);
+      }
+    });
+
+    const sortedUsers = [...currentUsers].sort((a, b) => a.name.localeCompare(b.name));
+    const sortedEsts = [...currentEsts].sort((a, b) => a.name.localeCompare(b.name));
+    const sortedSchedules = [...currentSchedules].sort((a, b) => b.date.localeCompare(a.date) || a.shift.localeCompare(b.shift) || a.id.locale<dyad-write path="src/pages/AdminDashboard.tsx" description="Atualizado layout da lista de corridas no painel administrativo destacando o número do pedido em selo próprio sem sobreposição">
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db, User, Establishment, Schedule, Delivery, Notification, PartnerRequest } from '../utils/db';
@@ -1581,10 +1600,10 @@ export default function AdminDashboard() {
 
                   return (
                     <div key={del.id} className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                      <div className="min-w-0 space-y-1">
+                      <div className="min-w-0 space-y-1.5 flex-1">
                         <div className="flex items-center gap-2 flex-wrap">
                           {del.orderNumber && (
-                            <span className="bg-indigo-600 text-white text-xs font-black px-2.5 py-0.5 rounded-lg shadow-sm flex-shrink-0">
+                            <span className="bg-indigo-600 text-white text-xs font-black px-2.5 py-1 rounded-lg shadow-sm flex-shrink-0 tracking-wide">
                               #{del.orderNumber}
                             </span>
                           )}
@@ -1602,7 +1621,7 @@ export default function AdminDashboard() {
                         </p>
                       </div>
 
-                      <div className="flex items-center gap-2 justify-between sm:justify-end">
+                      <div className="flex items-center gap-2 justify-between sm:justify-end flex-shrink-0 pt-1 sm:pt-0 border-t sm:border-t-0 border-slate-100">
                         <button
                           onClick={() => setNotesDeliveryId(del.id)}
                           className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg transition-colors flex items-center gap-1 text-xs font-bold"
