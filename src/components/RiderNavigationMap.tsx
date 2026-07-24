@@ -496,7 +496,7 @@ export default function RiderNavigationMap({
           setSearchResults(data || []);
         } catch (err) {
           console.warn('Erro no autocomplete:', err);
-        } fontally {
+        } finally {
           setIsSearching(false);
         }
       }, 350);
