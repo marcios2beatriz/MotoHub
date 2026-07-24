@@ -80,7 +80,8 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
   const prevLocationRef = useRef<{ lat: number; lng: number; time: number } | null>(null);
   const lastSpokenInstructionRef = useRef<string>('');
 
-  const NAV_ZOOM_LEVEL = 18; // Zoom próximo estilo Google Maps / Waze para navegação
+  const NAV_ZOOM_LEVEL = 18; // Zoom veicular estilo Google Maps
+  // Coordenadas Centrais de Campina Grande - PB
   const defaultLat = -7.2247;
   const defaultLng = -35.8878;
 
@@ -105,7 +106,7 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
     lastSpokenInstructionRef.current = text;
   };
 
-  // Cálculo da velocidade (km/h) e rumo/direção (heading em graus) com base na movimentação GPS
+  // Cálculo da velocidade (km/h) e rumo/direção com base na movimentação GPS
   useEffect(() => {
     if (!currentLocation) return;
 
@@ -124,7 +125,6 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
         const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
         const distanceMeters = R * c;
 
-        // Calcular rumo / azimute em graus (0 a 360°)
         if (distanceMeters > 2) {
           const y = Math.sin(dLng) * Math.cos(currentLocation.lat * (Math.PI / 180));
           const x = Math.cos(prev.lat * (Math.PI / 180)) * Math.sin(currentLocation.lat * (Math.PI / 180)) -
@@ -144,7 +144,7 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
     prevLocationRef.current = { lat: currentLocation.lat, lng: currentLocation.lng, time: now };
   }, [currentLocation]);
 
-  // Geocodificação do destino ativo
+  // Geocodificação do destino ativo com preferência para Campina Grande - PB
   useEffect(() => {
     if (!activeDestination) return;
 
@@ -163,8 +163,12 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
         foundLng = -35.9130;
       } else {
         try {
+          const fullQuery = activeDestination.addressText.toLowerCase().includes('campina grande') 
+            ? activeDestination.addressText 
+            : `${activeDestination.addressText}, Campina Grande - PB, Brasil`;
+
           const res = await fetch(
-            `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(activeDestination.addressText + ', Brasil')}&limit=1`
+            `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(fullQuery)}&limit=1&viewbox=-36.00,-7.15,-35.75,-7.32`
           );
           const data = await res.json();
           if (data && data.length > 0) {
@@ -210,7 +214,6 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
       maxZoom: 19
     }).addTo(mapInstance);
 
-    // Pausar autoFollow se o motoboy arrastar o mapa manualmente
     mapInstance.on('dragstart', () => {
       setAutoFollow(false);
     });
@@ -264,7 +267,6 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
         .addTo(map);
     }
 
-    // Se o modo de acompanhamento estiver ativo, manter a câmera centralizada no motoboy com o zoom de navegação
     if (autoFollow) {
       map.setView([currentLocation.lat, currentLocation.lng], NAV_ZOOM_LEVEL, {
         animate: true,
@@ -346,7 +348,6 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
             durationMin: Math.ceil(route.duration / 60)
           });
 
-          // Ao iniciar a rota, dar o zoom veicular focado na posição da moto
           if (autoFollow) {
             map.setView([currentLocation.lat, currentLocation.lng], NAV_ZOOM_LEVEL, { animate: true });
           }
@@ -402,14 +403,21 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
     }
   };
 
+  // Pesquisa alinhada com Campina Grande - PB
   const handleSearchAddresses = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!searchQuery.trim()) return;
 
     setIsSearching(true);
     try {
+      const rawText = searchQuery.trim();
+      const formattedQuery = rawText.toLowerCase().includes('campina grande') 
+        ? rawText 
+        : `${rawText}, Campina Grande - PB, Brasil`;
+
+      // Bounding box delimitada para a grande Campina Grande - PB (-36.00 a -35.75, -7.15 a -7.32)
       const res = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery.trim() + ', Brasil')}&limit=5`
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(formattedQuery)}&limit=6&viewbox=-36.00,-7.15,-35.75,-7.32`
       );
       const data = await res.json();
       setSearchResults(data || []);
@@ -438,7 +446,7 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
   };
 
   const activeStep = steps[currentStepIndex] || {
-    instruction: activeDestination ? `Navegando para ${activeDestination.name}` : 'Digite um endereço para navegar',
+    instruction: activeDestination ? `Navegando para ${activeDestination.name}` : 'Digite um endereço em Campina Grande...',
     distance: 0,
     duration: 0
   };
@@ -448,7 +456,7 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
       isFullscreen ? 'fixed inset-0 z-50 rounded-none' : 'relative h-[700px] w-full rounded-2xl border border-slate-800'
     }`}>
       
-      {/* BANNER NAVEGAÇÃO TURNO A TURNO ESTILO WAZE / MAPS */}
+      {/* BANNER NAVEGAÇÃO TURNO A TURNO */}
       <div className="bg-emerald-600 text-white px-4 py-3 z-30 shadow-2xl flex items-center justify-between relative border-b border-emerald-500">
         <div className="flex items-center space-x-3 min-w-0 flex-1">
           <div className="p-3 bg-white/20 rounded-2xl text-white flex-shrink-0 animate-pulse">
@@ -457,7 +465,7 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <span className="bg-emerald-800/80 text-emerald-100 text-[10px] font-black uppercase px-2 py-0.5 rounded-full tracking-wider">
-                Navegação MotoHub Ativa
+                Navegação • Campina Grande - PB
               </span>
               {activeStep.distance > 0 && (
                 <span className="text-xs font-extrabold text-emerald-200">
@@ -503,12 +511,12 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
         </div>
       </div>
 
-      {/* CAIXA DE PESQUISA DE ENDEREÇOS INTEGRADA */}
+      {/* CAIXA DE PESQUISA DE ENDEREÇOS ALINHADA COM CAMPINA GRANDE - PB */}
       <div className="bg-slate-900 border-b border-slate-800 p-2.5 z-20 relative">
         <form onSubmit={handleSearchAddresses} className="relative flex items-center">
           <input
             type="text"
-            placeholder="Buscar novo endereço de entrega..."
+            placeholder="Buscar rua/bairro em Campina Grande - PB..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full bg-slate-800 text-white placeholder-slate-400 text-xs sm:text-sm pl-9 pr-24 py-2.5 rounded-xl border border-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -597,7 +605,7 @@ export default function RiderNavigationMap({ currentLocation, destination: initi
           <div className="absolute inset-0 z-30 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center">
             <div className="bg-slate-900 border border-slate-700 p-4 rounded-2xl flex items-center space-x-3 text-indigo-400 font-bold text-sm shadow-2xl">
               <Navigation className="h-5 w-5 animate-spin" />
-              <span>Desenhando rota veicular no MotoHub...</span>
+              <span>Desenhando rota em Campina Grande...</span>
             </div>
           </div>
         )}
