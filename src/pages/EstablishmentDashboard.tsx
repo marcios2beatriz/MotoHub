@@ -27,11 +27,7 @@ import DeliveryNotesModal from '../components/DeliveryNotesModal';
 import ScheduleChatModal from '../components/ScheduleChatModal';
 import ChatToastBanner, { ChatToast } from '../components/ChatToastBanner';
 import { sendDeviceNotification, playNotificationSound, requestNotificationPermission } from '../utils/notifications';
-
-const KNOWN_CEPS: { [key: string]: { lat: number; lng: number } } = {
-  '58433488': { lat: -7.2311, lng: -35.9245 },
-  '58429900': { lat: -7.2150, lng: -35.9130 },
-};
+import { geocodeAddress } from '../utils/geocoding';
 
 export default function EstablishmentDashboard() {
   const navigate = useNavigate();
@@ -308,7 +304,7 @@ export default function EstablishmentDashboard() {
       const mapInstance = L.map(mapContainerRef.current!, {
         zoomControl: true,
         attributionControl: false
-      }).setView([lat, lng], 15);
+      }).setView([lat, lng], 16);
       mapRef.current = mapInstance;
 
       L.tileLayer('https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
@@ -331,44 +327,12 @@ export default function EstablishmentDashboard() {
 
     const geocodeEstablishment = async () => {
       if (mapRef.current) return;
-      const addr = establishment.address;
-
-      let finalLat: number | null = null;
-      let finalLng: number | null = null;
-
-      if (establishment.name.toLowerCase().includes('burgrill') && addr?.street === 'Rua Aprígio Veloso') {
-        finalLat = -7.2150;
-        finalLng = -35.9130;
+      const result = await geocodeAddress(establishment.address);
+      if (result) {
+        initMap(result.lat, result.lng);
+      } else {
+        initMap(defaultLat, defaultLng);
       }
-
-      if (!finalLat && addr && addr.street && addr.city) {
-        try {
-          const fullQuery = `${addr.street} ${addr.number || ''}, ${addr.neighborhood || ''}, ${addr.city} ${addr.state || ''}, Brasil`;
-          const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(fullQuery)}&limit=1`);
-          const data = await res.json();
-          if (data && data.length > 0) {
-            finalLat = parseFloat(data[0].lat);
-            finalLng = parseFloat(data[0].lon);
-          }
-        } catch (err) {
-          console.warn('Geocoding address error:', err);
-        }
-      }
-
-      if (!finalLat && addr?.zipCode) {
-        const cepClean = addr.zipCode.replace(/\D/g, '');
-        if (KNOWN_CEPS[cepClean]) {
-          finalLat = KNOWN_CEPS[cepClean].lat;
-          finalLng = KNOWN_CEPS[cepClean].lng;
-        }
-      }
-
-      if (!finalLat || !finalLng) {
-        finalLat = defaultLat;
-        finalLng = defaultLng;
-      }
-
-      initMap(finalLat, finalLng);
     };
 
     geocodeEstablishment();
@@ -381,7 +345,7 @@ export default function EstablishmentDashboard() {
         hasSetInitialBoundsRef.current = false;
       }
     };
-  }, [establishment?.id]);
+  }, [establishment?.id, establishment?.address]);
 
   // Atualização em Tempo Real com FILTRO ESTRITO
   useEffect(() => {
@@ -735,7 +699,7 @@ export default function EstablishmentDashboard() {
 
             {scheduledRiders.length === 0 ? (
               <div className="text-center py-8 text-slate-400 text-sm">
-                Nenhum motoboy escalado para hoje. Fale com o administrador para criar escalas.
+                Nenum motoboy escalado para hoje. Fale com o administrador para criar escalas.
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

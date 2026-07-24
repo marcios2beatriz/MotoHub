@@ -7,11 +7,7 @@ import { Bike, MapPin, Clock, ShieldCheck, RefreshCw, MessageSquare, Navigation 
 import L from 'leaflet';
 import CustomerChatModal from '../components/CustomerChatModal';
 import { sendDeviceNotification } from '../utils/notifications';
-
-const KNOWN_CEPS: Record<string, { lat: number; lng: number }> = {
-  '58433488': { lat: -7.2311, lng: -35.9245 },
-  '58429900': { lat: -7.2150, lng: -35.9130 },
-};
+import { geocodeAddress } from '../utils/geocoding';
 
 export default function CustomerTracking() {
   const { deliveryId } = useParams<{ deliveryId: string }>();
@@ -143,31 +139,16 @@ export default function CustomerTracking() {
     };
 
     const geocode = async () => {
-      const addr = establishment.address;
-      let finalLat = defaultLat;
-      let finalLng = defaultLng;
-      let geocoded = false;
-
-      if (establishment.name.toLowerCase().includes('burgrill') && establishment.address.street === 'Rua Aprígio Veloso') {
-        finalLat = -7.2150;
-        finalLng = -35.9130;
-        geocoded = true;
+      const result = await geocodeAddress(establishment.address);
+      if (result) {
+        initMap(result.lat, result.lng);
+      } else {
+        initMap(defaultLat, defaultLng);
       }
-
-      if (!geocoded && addr) {
-        const cepClean = addr.zipCode ? addr.zipCode.replace(/\D/g, '') : '';
-        if (cepClean && KNOWN_CEPS[cepClean]) {
-          finalLat = KNOWN_CEPS[cepClean].lat;
-          finalLng = KNOWN_CEPS[cepClean].lng;
-          geocoded = true;
-        }
-      }
-
-      initMap(finalLat, finalLng);
     };
 
     geocode();
-  }, [establishment?.id]);
+  }, [establishment?.id, establishment?.address]);
 
   useEffect(() => {
     const currentMap = mapRef.current;
