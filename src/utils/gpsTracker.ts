@@ -18,9 +18,23 @@ export interface GpsState {
   isNavigating: boolean;
 }
 
+// Coordenadas conhecidas em Campina Grande - PB para busca rápida e fallback exato
+export const KNOWN_CAMPINA_LOCATIONS: Record<string, { lat: number; lng: number; label: string }> = {
+  'serrotao_alberto_agra': {
+    lat: -7.2302,
+    lng: -35.9392,
+    label: 'Rua Vereador Alberto Agra, Serrotão - Campina Grande PB'
+  },
+  'bodocongo_burgrill': {
+    lat: -7.2150,
+    lng: -35.9130,
+    label: 'Rua Aprígio Veloso, Bodocongó - Campina Grande PB'
+  }
+};
+
 // Cálculo da distância Haversine em metros entre duas coordenadas
 export function calculateDistanceMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371000; // Raio da Terra em metros
+  const R = 6371000;
   const dLat = (lat2 - lat1) * (Math.PI / 180);
   const dLon = (lon2 - lon1) * (Math.PI / 180);
   const a =
@@ -118,6 +132,25 @@ class HighPrecisionGpsTracker {
     this.listeners.forEach((listener) => listener(this.currentState));
   }
 
+  public setManualLocation(lat: number, lng: number, accuracy: number = 5) {
+    const manualLoc: GpsLocation = {
+      lat,
+      lng,
+      accuracy,
+      speedKmh: 0,
+      heading: 0,
+      timestamp: Date.now()
+    };
+    this.smoothedLocation = manualLoc;
+    this.currentState = {
+      ...this.currentState,
+      currentLocation: manualLoc,
+      quality: 'excellent',
+      errorMessage: null
+    };
+    this.notify();
+  }
+
   public setNavigating(navigating: boolean) {
     this.currentState.isNavigating = navigating;
     this.notify();
@@ -142,13 +175,13 @@ class HighPrecisionGpsTracker {
     const options: PositionOptions = {
       enableHighAccuracy: true,
       maximumAge: 0,
-      timeout: 15000
+      timeout: 10000
     };
 
     const handleSuccess = (pos: GeolocationPosition) => {
       const rawLat = pos.coords.latitude;
       const rawLng = pos.coords.longitude;
-      const accuracy = pos.coords.accuracy || 15;
+      const accuracy = pos.coords.accuracy || 10;
       const now = Date.now();
 
       let speedKmh = pos.coords.speed !== null && pos.coords.speed >= 0 ? pos.coords.speed * 3.6 : 0;
@@ -166,7 +199,7 @@ class HighPrecisionGpsTracker {
         if (timeDiffSec > 0.2) {
           const calcSpeedKmh = (distanceM / timeDiffSec) * 3.6;
           if (calcSpeedKmh > 180) {
-            return; // Descartar saltos impossíveis (> 180 km/h)
+            return;
           }
           if (pos.coords.speed === null || pos.coords.speed < 0) {
             speedKmh = Math.round(calcSpeedKmh);
@@ -185,13 +218,12 @@ class HighPrecisionGpsTracker {
         }
       }
 
-      // Suavização do ponto com resposta imediata
       let finalLat = rawLat;
       let finalLng = rawLng;
 
       if (this.smoothedLocation && speedKmh < 3) {
-        finalLat = this.smoothedLocation.lat * 0.6 + rawLat * 0.4;
-        finalLng = this.smoothedLocation.lng * 0.6 + rawLng * 0.4;
+        finalLat = this.smoothedLocation.lat * 0.5 + rawLat * 0.5;
+        finalLng = this.smoothedLocation.lng * 0.5 + rawLng * 0.5;
       } else if (this.smoothedLocation) {
         finalLat = this.smoothedLocation.lat * 0.2 + rawLat * 0.8;
         finalLng = this.smoothedLocation.lng * 0.2 + rawLng * 0.8;
@@ -229,13 +261,13 @@ class HighPrecisionGpsTracker {
 
       if (err.code === GeolocationPositionError.PERMISSION_DENIED) {
         quality = 'denied';
-        msg = 'Permissão de localização negada. Ative a localização no navegador.';
+        msg = 'Permissão de localização negada pelo navegador.';
       } else if (err.code === GeolocationPositionError.POSITION_UNAVAILABLE) {
         quality = 'lost';
         msg = 'Buscando sinal GPS...';
       } else if (err.code === GeolocationPositionError.TIMEOUT) {
         quality = 'weak';
-        msg = 'Aguardando atualização de localização...';
+        msg = 'Aguardando sinal GPS...';
       }
 
       this.currentState = {

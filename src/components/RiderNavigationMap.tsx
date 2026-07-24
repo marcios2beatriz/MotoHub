@@ -19,10 +19,11 @@ import {
   Layers,
   Play,
   Square,
-  LocateFixed
+  LocateFixed,
+  Crosshair
 } from 'lucide-react';
 import L from 'leaflet';
-import { gpsTracker, GpsState, isPointOffRoute } from '../utils/gpsTracker';
+import { gpsTracker, GpsState, isPointOffRoute, KNOWN_CAMPINA_LOCATIONS } from '../utils/gpsTracker';
 
 interface RiderNavigationMapProps {
   currentLocation: { lat: number; lng: number } | null;
@@ -65,7 +66,6 @@ export default function RiderNavigationMap({
   const riderMarkerRef = useRef<L.Marker | null>(null);
   const destMarkerRef = useRef<L.Marker | null>(null);
   const routePolylineRef = useRef<L.Polyline | null>(null);
-  const hasCenteredOnInitialGpsRef = useRef(false);
 
   const [gpsState, setGpsState] = useState<GpsState>({
     currentLocation: null,
@@ -108,9 +108,11 @@ export default function RiderNavigationMap({
 
   const lastSpokenInstructionRef = useRef<string>('');
   const NAV_ZOOM_LEVEL = 18;
-  const defaultLat = -7.2247;
-  const defaultLng = -35.8878;
 
+  // Ponto Padrão: Rua Vereador Alberto Agra, Serrotão - Campina Grande PB
+  const defaultSerrotao = KNOWN_CAMPINA_LOCATIONS['serrotao_alberto_agra'];
+
+  // Assinar ao Tracker de GPS
   useEffect(() => {
     gpsTracker.startTracking();
     const unsubscribe = gpsTracker.subscribe((state) => {
@@ -129,7 +131,14 @@ export default function RiderNavigationMap({
     speedKmh: 0,
     heading: 0,
     timestamp: Date.now()
-  } : null);
+  } : {
+    lat: defaultSerrotao.lat,
+    lng: defaultSerrotao.lng,
+    accuracy: 10,
+    speedKmh: 0,
+    heading: 0,
+    timestamp: Date.now()
+  });
 
   useEffect(() => {
     if (initialDestination) {
@@ -151,6 +160,7 @@ export default function RiderNavigationMap({
     lastSpokenInstructionRef.current = text;
   };
 
+  // Geocodificação do destino
   useEffect(() => {
     if (!activeDestination) return;
 
@@ -185,8 +195,8 @@ export default function RiderNavigationMap({
       }
 
       if (!foundLat || !foundLng) {
-        foundLat = defaultLat;
-        foundLng = defaultLng;
+        foundLat = defaultSerrotao.lat;
+        foundLng = defaultSerrotao.lng;
       }
 
       setDestCoords({ lat: foundLat, lng: foundLng });
@@ -208,8 +218,8 @@ export default function RiderNavigationMap({
       document.head.appendChild(link);
     }
 
-    const startLat = activePos?.lat || defaultLat;
-    const startLng = activePos?.lng || defaultLng;
+    const startLat = activePos?.lat || defaultSerrotao.lat;
+    const startLng = activePos?.lng || defaultSerrotao.lng;
 
     const mapInstance = L.map(mapContainerRef.current, {
       zoomControl: false,
@@ -235,7 +245,7 @@ export default function RiderNavigationMap({
     };
   }, []);
 
-  // Alternar Camada de Mapa
+  // Alternar Camada do Mapa
   const updateMapTileLayer = (provider: MapProviderType, traffic: boolean) => {
     const map = mapRef.current;
     if (!map) return;
@@ -274,42 +284,43 @@ export default function RiderNavigationMap({
     setShowTraffic(traffic);
   };
 
-  // Atualização em Tempo Real do Marcador do Motoboy
+  // Renderização e Atualização do Marcador do Motoboy no Mapa
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !activePos) return;
 
     const heading = activePos.heading || 0;
     
-    // Ícone com Halo Pulsante para Alta Visibilidade no Mapa
+    // Ícone de Alta Visibilidade (Halo Azul Pulsante + Seta Magnética Branca)
     const riderIcon = L.divIcon({
       html: `
-        <div style="position: relative; width: 50px; height: 50px; display: flex; align-items: center; justify-content: center;">
-          <div style="position: absolute; width: 48px; height: 48px; border-radius: 50%; background: rgba(37,99,235,0.35); border: 2px solid rgba(37,99,235,0.8); transform: scale(1.2);"></div>
+        <div style="position: relative; width: 60px; height: 60px; display: flex; items-center: center; justify-content: center;">
+          <div style="position: absolute; width: 56px; height: 60px; border-radius: 50%; background: rgba(37,99,235,0.4); border: 2.5px solid #2563eb; transform: scale(1.15); animation: pulse 2s infinite;"></div>
           <div style="
             transform: rotate(${heading}deg);
             transition: transform 0.2s ease-out;
-            background: #2563eb;
+            background: #1d4ed8;
             color: white;
-            width: 42px;
-            height: 42px;
+            width: 44px;
+            height: 44px;
             border-radius: 50%;
             border: 3.5px solid #ffffff;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+            box-shadow: 0 6px 16px rgba(0,0,0,0.6);
             display: flex;
             align-items: center;
             justify-content: center;
+            position: relative;
             z-index: 10;
           ">
-            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
               <polygon points="12 2 19 21 12 17 5 21 12 2"></polygon>
             </svg>
           </div>
         </div>
       `,
       className: 'custom-rider-nav-icon',
-      iconSize: [50, 50],
-      iconAnchor: [25, 25]
+      iconSize: [60, 60],
+      iconAnchor: [30, 30]
     });
 
     if (riderMarkerRef.current) {
@@ -318,20 +329,17 @@ export default function RiderNavigationMap({
     } else {
       riderMarkerRef.current = L.marker([activePos.lat, activePos.lng], { 
         icon: riderIcon,
-        zIndexOffset: 2000
+        zIndexOffset: 3000
       }).addTo(map);
     }
 
-    // Recentralizar câmera automaticamente na primeira leitura do GPS
-    if (!hasCenteredOnInitialGpsRef.current || autoFollow) {
+    if (autoFollow) {
       map.setView([activePos.lat, activePos.lng], NAV_ZOOM_LEVEL, {
         animate: true,
         duration: 0.5
       });
-      hasCenteredOnInitialGpsRef.current = true;
     }
 
-    // Verificar se o motoboy saiu da rota estabelecida
     if (isNavigating && routeCoordinates.length > 0) {
       const offRoute = isPointOffRoute({ lat: activePos.lat, lng: activePos.lng }, routeCoordinates, 35);
       if (offRoute && !isOffRouteDetected) {
@@ -339,9 +347,9 @@ export default function RiderNavigationMap({
         speakInstruction('Você saiu da rota. Recalculando percurso...');
       }
     }
-  }, [activePos, autoFollow, isNavigating, routeCoordinates]);
+  }, [activePos?.lat, activePos?.lng, activePos?.heading, autoFollow, isNavigating, routeCoordinates]);
 
-  // Traçar e Recalcular Rota
+  // Traçar Rota
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !activePos || !destCoords) return;
@@ -351,24 +359,24 @@ export default function RiderNavigationMap({
         <div style="
           background: #ef4444;
           color: white;
-          width: 42px;
-          height: 42px;
+          width: 44px;
+          height: 44px;
           border-radius: 50%;
-          border: 3px solid white;
-          box-shadow: 0 0 18px rgba(239,68,68,0.85);
+          border: 3.5px solid white;
+          box-shadow: 0 0 20px rgba(239,68,68,0.9);
           display: flex;
           align-items: center;
           justify-content: center;
         ">
-          <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"></path>
             <circle cx="12" cy="10" r="3"></circle>
           </svg>
         </div>
       `,
       className: 'custom-dest-nav-icon',
-      iconSize: [42, 42],
-      iconAnchor: [21, 21]
+      iconSize: [44, 44],
+      iconAnchor: [22, 22]
     });
 
     if (destMarkerRef.current) {
@@ -376,7 +384,7 @@ export default function RiderNavigationMap({
     } else {
       destMarkerRef.current = L.marker([destCoords.lat, destCoords.lng], { 
         icon: destIcon,
-        zIndexOffset: 1500
+        zIndexOffset: 2000
       }).addTo(map);
     }
 
@@ -399,7 +407,7 @@ export default function RiderNavigationMap({
             routePolylineRef.current = L.polyline(coords, {
               color: '#3b82f6',
               weight: 8,
-              opacity: 0.9,
+              opacity: 0.95,
               lineCap: 'round',
               lineJoin: 'round'
             }).addTo(map);
@@ -505,6 +513,14 @@ export default function RiderNavigationMap({
     setSearchQuery('');
   };
 
+  const handleSetSerrotaoAsLocation = () => {
+    gpsTracker.setManualLocation(defaultSerrotao.lat, defaultSerrotao.lng);
+    if (mapRef.current) {
+      mapRef.current.setView([defaultSerrotao.lat, defaultSerrotao.lng], NAV_ZOOM_LEVEL, { animate: true });
+      setAutoFollow(true);
+    }
+  };
+
   const toggleNavigationMode = () => {
     const nextState = !isNavigating;
     setIsNavigating(nextState);
@@ -529,18 +545,18 @@ export default function RiderNavigationMap({
   const gpsQualityLabel = 
     gpsState.quality === 'excellent' ? 'Sinal Excelente' :
     gpsState.quality === 'good' ? 'Sinal Bom' :
-    gpsState.quality === 'weak' ? 'Sinal Fraco' : 'Buscando GPS...';
+    gpsState.quality === 'weak' ? 'Sinal Fraco' : 'Ponto Fixado';
 
   const gpsQualityColor = 
     gpsState.quality === 'excellent' ? 'bg-emerald-500' :
     gpsState.quality === 'good' ? 'bg-blue-500' :
-    gpsState.quality === 'weak' ? 'bg-amber-500' : 'bg-red-500';
+    gpsState.quality === 'weak' ? 'bg-amber-500' : 'bg-indigo-500';
 
   return (
     <div className={`flex flex-col bg-slate-950 text-white overflow-hidden shadow-2xl transition-all font-sans ${
       isFullscreen 
         ? 'fixed inset-0 z-50 rounded-none' 
-        : 'relative h-[520px] sm:h-[600px] w-full rounded-2xl border border-slate-800'
+        : 'relative h-[540px] sm:h-[620px] w-full rounded-2xl border border-slate-800'
     }`}>
       
       {/* BANNER NAVEGAÇÃO TURNO A TURNO */}
@@ -615,7 +631,7 @@ export default function RiderNavigationMap({
         </div>
       </div>
 
-      {/* BARRA SUPERIOR DE BUSCA E BARRA DE DIAGNÓSTICO DO SINAL GPS */}
+      {/* BARRA SUPERIOR DE BUSCA E DIAGNÓSTICO DO GPS */}
       <div className="bg-slate-900 border-b border-slate-800 p-2 z-20 relative flex-shrink-0 space-y-1.5">
         <form onSubmit={handleSearchAddresses} className="relative flex items-center">
           <input
@@ -635,8 +651,8 @@ export default function RiderNavigationMap({
           </button>
         </form>
 
-        {/* METRO DE DIAGNÓSTICO GPS */}
-        <div className="flex items-center justify-between px-1 text-[10px] text-slate-400">
+        {/* METRO DE DIAGNÓSTICO E BOTÃO DE FIXAÇÃO NO SERROTÃO */}
+        <div className="flex items-center justify-between px-1 text-[10px] text-slate-400 flex-wrap gap-1">
           <div className="flex items-center gap-1.5">
             <span className={`h-2 w-2 rounded-full ${gpsQualityColor} animate-pulse`} />
             <span className="font-bold text-slate-300">{gpsQualityLabel}</span>
@@ -647,13 +663,22 @@ export default function RiderNavigationMap({
             )}
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={handleSetSerrotaoAsLocation}
+              className="flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white px-2 py-0.5 rounded font-extrabold transition-colors shadow-sm"
+              title="Fixar na R. Vereador Alberto Agra, Serrotão"
+            >
+              <Crosshair className="h-3 w-3" />
+              <span>Fixar Serrotão</span>
+            </button>
+
             <button
               onClick={() => setShowLayerMenu(!showLayerMenu)}
               className="flex items-center gap-1 bg-slate-800 hover:bg-slate-700 text-slate-200 px-2 py-0.5 rounded font-bold transition-colors"
             >
               <Layers className="h-3 w-3 text-indigo-400" />
-              <span>Camadas Mapa</span>
+              <span>Camadas</span>
             </button>
           </div>
         </div>
@@ -716,14 +741,6 @@ export default function RiderNavigationMap({
       <div className="relative flex-1 min-h-[220px]">
         <div ref={mapContainerRef} className="absolute inset-0 z-10 bg-slate-950" />
 
-        {/* ALERTA VISUAL CASO GPS ESTEJA BUSCANDO LOCALIZAÇÃO */}
-        {!activePos && (
-          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 bg-slate-900/90 text-amber-300 border border-amber-500/40 px-3 py-1.5 rounded-full text-xs font-bold shadow-xl flex items-center gap-2 backdrop-blur-md">
-            <LocateFixed className="h-4 w-4 animate-spin text-amber-400" />
-            <span>Obtendo sua localização GPS...</span>
-          </div>
-        )}
-
         {/* VELOCÍMETRO FLUTUANTE EM TEMPO REAL */}
         <div className="absolute bottom-4 left-3 z-20 bg-slate-900/90 border border-slate-700 p-2 rounded-xl shadow-xl backdrop-blur-md flex flex-col items-center justify-center min-w-[60px]">
           <span className={`text-xl font-black leading-none ${
@@ -763,12 +780,12 @@ export default function RiderNavigationMap({
                 setAutoFollow(true);
               }
             }}
-            className={`p-2 rounded-lg shadow-lg border transition-all flex items-center justify-center gap-1 font-bold text-xs ${
+            className={`p-2.5 rounded-xl shadow-xl border transition-all flex items-center justify-center gap-1 font-bold text-xs ${
               autoFollow 
                 ? 'bg-indigo-600 text-white border-indigo-500' 
                 : 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-500 animate-pulse'
             }`}
-            title="Minha Localização Exata"
+            title="Minha Localização Exata / Centralizar"
           >
             <RotateCcw className="h-4 w-4" />
           </button>
