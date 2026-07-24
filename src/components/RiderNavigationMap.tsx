@@ -23,7 +23,7 @@ import {
   CompassIcon
 } from 'lucide-react';
 import L from 'leaflet';
-import { gpsTracker, GpsState, isPointOffRoute } from '../utils/gpsTracker';
+import { gpsTracker, GpsState, isPointOffRoute, calculateDistanceMeters } from '../utils/gpsTracker';
 
 interface RiderNavigationMapProps {
   currentLocation: { lat: number; lng: number } | null;
@@ -67,6 +67,7 @@ export default function RiderNavigationMap({
   const destMarkerRef = useRef<L.Marker | null>(null);
   const routePolylineRef = useRef<L.Polyline | null>(null);
   const initialCenterDoneRef = useRef(false);
+  const lastFetchedDestRef = useRef<string>('');
 
   const [gpsState, setGpsState] = useState<GpsState>({
     currentLocation: null,
@@ -181,8 +182,9 @@ export default function RiderNavigationMap({
 
       if (foundLat && foundLng) {
         setDestCoords({ lat: foundLat, lng: foundLng });
+      } else {
+        setLoadingRoute(false);
       }
-      setLoadingRoute(false);
     };
 
     geocode();
@@ -278,7 +280,6 @@ export default function RiderNavigationMap({
 
     const heading = activePos.heading || 0;
     
-    // Ícone de Marcador Destaque Alta Visibilidade
     const riderIcon = L.divIcon({
       html: `
         <div style="position: relative; width: 60px; height: 60px; display: flex; align-items: center; justify-content: center;">
@@ -329,8 +330,9 @@ export default function RiderNavigationMap({
       initialCenterDoneRef.current = true;
     }
 
+    // Verificar se saiu da rota sem fazer chamadas de API desnecessárias
     if (isNavigating && routeCoordinates.length > 0) {
-      const offRoute = isPointOffRoute({ lat: activePos.lat, lng: activePos.lng }, routeCoordinates, 35);
+      const offRoute = isPointOffRoute({ lat: activePos.lat, lng: activePos.lng }, routeCoordinates, 45);
       if (offRoute && !isOffRouteDetected) {
         setIsOffRouteDetected(true);
         speakInstruction('Você saiu da rota. Recalculando percurso...');
@@ -338,10 +340,17 @@ export default function RiderNavigationMap({
     }
   }, [activePos?.lat, activePos?.lng, activePos?.heading, autoFollow, isNavigating, routeCoordinates]);
 
-  // Traçar Rota
+  // Traçar Rota APENAS quando o destino muda ou quando é detectado desvio real de rota
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !activePos || !destCoords) return;
+
+    const destKey = `${destCoords.lat.toFixed(5)},${destCoords.lng.toFixed(5)}`;
+    
+    // Se a rota já foi traçada para esse destino e não há desvio, não recalcula
+    if (lastFetchedDestRef.current === destKey && !isOffRouteDetected && routeCoordinates.length > 0) {
+      return;
+    }
 
     const destIcon = L.divIcon({
       html: `
@@ -389,6 +398,7 @@ export default function RiderNavigationMap({
           const coords = route.geometry.coordinates.map((c: [number, number]) => [c[1], c[0]] as [number, number]);
 
           setRouteCoordinates(coords);
+          lastFetchedDestRef.current = destKey;
 
           if (routePolylineRef.current) {
             routePolylineRef.current.setLatLngs(coords);
@@ -433,7 +443,7 @@ export default function RiderNavigationMap({
     };
 
     fetchRoute();
-  }, [activePos?.lat, activePos?.lng, destCoords, isOffRouteDetected]);
+  }, [destCoords?.lat, destCoords?.lng, isOffRouteDetected]);
 
   const formatOsmInstruction = (maneuver: any, streetName: string) => {
     const modifier = maneuver.modifier;
@@ -490,6 +500,7 @@ export default function RiderNavigationMap({
     const lng = parseFloat(result.lon);
     const title = result.display_name.split(',')[0] || 'Destino';
 
+    lastFetchedDestRef.current = '';
     setActiveDestination({
       name: title,
       addressText: result.display_name,
@@ -722,7 +733,6 @@ export default function RiderNavigationMap({
       <div className="relative flex-1 min-h-[220px]">
         <div ref={mapContainerRef} className="absolute inset-0 z-10 bg-slate-950" />
 
-        {/* BOTAO PARA ATIVAR / FORÇAR GEOLOCALIZACAO DO NAVEGADOR SE AINDA NÃO DETECTOU */}
         {!activePos && (
           <div className="absolute inset-0 z-30 bg-slate-950/85 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center space-y-3">
             <div className="p-4 bg-indigo-600/20 text-indigo-400 rounded-full animate-bounce">
@@ -730,14 +740,14 @@ export default function RiderNavigationMap({
             </div>
             <h3 className="text-base font-bold text-white">Localizando seu dispositivo...</h3>
             <p className="text-xs text-slate-400 max-w-xs leading-relaxed">
-              No computador, confirme a permissão de localização no popup do seu navegador (no canto da barra de endereço).
+              No computador ou celular, confirme a permissão de localização.
             </p>
             <button
               onClick={() => gpsTracker.requestManualPermission()}
               className="mt-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-5 py-2.5 rounded-xl text-xs flex items-center space-x-2 shadow-lg transition-all"
             >
               <LocateFixed className="h-4 w-4" />
-              <span>Ativar / Detectar Posição Agora</span>
+              <span>Detectar Posição Agora</span>
             </button>
           </div>
         )}
@@ -754,7 +764,7 @@ export default function RiderNavigationMap({
           </div>
         )}
 
-        {/* CONTROLES DE ZOOM E RECENTRALIZAR CÂMERA NO GPS REAL */}
+        {/* CONTROLES DE ZOOM E RECENTRALIZAR CÂMERA */}
         <div className="absolute bottom-4 right-3 z-20 flex flex-col space-y-1.5">
           <button
             onClick={() => {
@@ -793,13 +803,13 @@ export default function RiderNavigationMap({
           <div className="absolute inset-0 z-30 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center">
             <div className="bg-slate-900 border border-slate-700 p-3.5 rounded-xl flex items-center space-x-2 text-indigo-400 font-bold text-xs shadow-xl">
               <Navigation className="h-4 w-4 animate-spin text-emerald-400" />
-              <span>Calculando rota em tempo real...</span>
+              <span>Calculando rota inicial...</span>
             </div>
           </div>
         )}
       </div>
 
-      {/* RODAPÉ COMPACTO COM RESUMO DE TEMPO E DISTÂNCIA */}
+      {/* RODAPÉ COMPACTO */}
       <div className="bg-slate-900 border-t border-slate-800 p-2.5 z-20 space-y-1.5 flex-shrink-0">
         {activeDestination && (
           <div className="flex items-center justify-between bg-slate-800/80 p-2 rounded-lg border border-slate-700/50">
@@ -817,6 +827,7 @@ export default function RiderNavigationMap({
                 setActiveDestination(null);
                 setSteps([]);
                 setRouteInfo(null);
+                lastFetchedDestRef.current = '';
                 if (routePolylineRef.current) {
                   routePolylineRef.current.remove();
                   routePolylineRef.current = null;
