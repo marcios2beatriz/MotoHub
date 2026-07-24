@@ -735,7 +735,7 @@ export default function EstablishmentDashboard() {
 
             {scheduledRiders.length === 0 ? (
               <div className="text-center py-8 text-slate-400 text-sm">
-                Nenhum motoboy escalado para hoje. Fale com o administrador para criar escalas.
+                Nenum motoboy escalado para hoje. Fale com o administrador para criar escalas.
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -813,15 +813,15 @@ export default function EstablishmentDashboard() {
                   const isPending = del.status === 'pending';
 
                   return (
-                    <div key={del.id} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="flex items-center space-x-2 flex-wrap gap-y-1">
-                          <p className="font-bold text-slate-800 text-sm">{rider?.name || 'Motoboy'}</p>
+                    <div key={del.id} className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="min-w-0 space-y-1">
+                        <div className="flex items-center gap-2 flex-wrap">
                           {del.orderNumber && (
-                            <span className="bg-slate-100 text-slate-500 text-[10px] font-bold px-1.5 py-0.5 rounded">
+                            <span className="bg-indigo-600 text-white text-xs font-black px-2.5 py-0.5 rounded-lg shadow-sm flex-shrink-0">
                               #{del.orderNumber}
                             </span>
                           )}
+                          <p className="font-bold text-slate-800 text-sm">{rider?.name || 'Motoboy'}</p>
                           <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                             del.status === 'active' ? 'bg-emerald-100 text-emerald-800' :
                             del.status === 'pending' ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-red-800'
@@ -829,13 +829,13 @@ export default function EstablishmentDashboard() {
                             {del.status === 'active' ? 'Aprovada' : del.status === 'pending' ? 'Pendente Aprovação' : 'Rejeitada'}
                           </span>
                         </div>
-                        <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1">
+                        <p className="text-xs text-slate-400 flex items-center gap-1">
                           <Clock className="h-3 w-3" />
-                          <span>Lançada às {del.time} — Valor: <strong className="text-emerald-600">R$ {Number(del.value || 0).toFixed(2)}</strong></span>
+                          <span>Lançada às {del.time} — Valor: <strong className="text-emerald-600 font-extrabold">R$ {Number(del.value || 0).toFixed(2)}</strong></span>
                         </p>
                       </div>
 
-                      <div className="flex items-center space-x-2 flex-wrap">
+                      <div className="flex items-center space-x-2 flex-wrap justify-between sm:justify-end">
                         {isPending && (
                           <>
                             <button

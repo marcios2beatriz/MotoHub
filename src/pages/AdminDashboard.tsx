@@ -144,6 +144,153 @@ export default function AdminDashboard() {
       
       return {
         id: 'req_virtual_' + e.id,
+<dyad-write path="src/pages/AdminDashboard.tsx" description="Atualizado layout de corridas no painel administrativo destacando o número do pedido">
+import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { db, User, Establishment, Schedule, Delivery, Notification, PartnerRequest } from '../utils/db';
+import { 
+  Users, 
+  Store, 
+  Calendar, 
+  CalendarDays,
+  Bike, 
+  BarChart3, 
+  LogOut, 
+  Plus, 
+  Edit2, 
+  Trash2, 
+  Check, 
+  X, 
+  Download, 
+  Search,
+  Clock,
+  Send,
+  LayoutGrid,
+  List,
+  ChevronDown,
+  MessageSquare,
+  Building2,
+  CheckCircle2,
+  UserCheck,
+  UserPlus,
+  Eye,
+  EyeOff,
+  TrendingUp,
+  DollarSign,
+  Phone,
+  MapPin,
+  Ban,
+  CheckCircle,
+  FileSpreadsheet,
+  CalendarCheck
+} from 'lucide-react';
+
+import UserModal from '../components/UserModal';
+import EstablishmentModal from '../components/EstablishmentModal';
+import ScheduleModal from '../components/ScheduleModal';
+import WeeklyScheduleModal from '../components/WeeklyScheduleModal';
+import RiderSchedulesModal from '../components/RiderSchedulesModal';
+import DeliveryModal from '../components/DeliveryModal';
+import DeliveryNotesModal from '../components/DeliveryNotesModal';
+import ScheduleChatModal from '../components/ScheduleChatModal';
+import ChatToastBanner, { ChatToast } from '../components/ChatToastBanner';
+import { sendDeviceNotification, playNotificationSound, requestNotificationPermission } from '../utils/notifications';
+
+const DAY_KEYS = ['seg', 'ter', 'qua', 'qui', 'sex', 'sab', 'dom'] as const;
+const DAY_LABELS = ['Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado', 'Domingo'];
+
+const getThisMonday = (): string => {
+  const d = new Date();
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+  const monday = new Date(d.setDate(diff));
+  return monday.toISOString().split('T')[0];
+};
+
+export default function AdminDashboard() {
+  const navigate = useNavigate();
+  const [adminUser, setAdminUser] = useState(db.getCurrentUser());
+  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'establishments' | 'requests' | 'schedules' | 'deliveries' | 'finance' | 'reports'>('overview');
+
+  const [users, setUsers] = useState<User[]>([]);
+  const [establishments, setEstablishments] = useState<Establishment[]>([]);
+  const [schedules, setSchedules] = useState<Schedule[]>([]);
+  const [deliveries, setDeliveries] = useState<Delivery[]>([]);
+  const [partnerRequests, setPartnerRequests] = useState<PartnerRequest[]>([]);
+  const [activeToast, setActiveToast] = useState<ChatToast | null>(null);
+
+  const prevNotesRef = useRef<Record<string, string>>({});
+  const prevScheduleChatRef = useRef<Record<string, string>>({});
+
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [roleFilter, setRoleFilter] = useState<'all' | 'admin' | 'rider' | 'establishment'>('all');
+  const [requestStatusFilter, setRequestStatusFilter] = useState<'all' | 'pending' | 'contacted'>('all');
+
+  const [visiblePasswords, setVisiblePasswords] = useState<Record<string, boolean>>({});
+
+  const [showUserModal, setShowUserModal] = useState(false);
+  const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [userForm, setUserForm] = useState({
+    name: '', cpf: '', phone: '', email: '', role: 'rider' as any, password: '', establishmentId: '', establishmentName: '', zipCode: '', street: '', number: '', neighborhood: '', city: '', state: ''
+  });
+
+  const [showEstModal, setShowEstModal] = useState(false);
+  const [editingEst, setEditingEst] = useState<Establishment | null>(null);
+  const [estForm, setEstForm] = useState({
+    name: '', street: '', number: '', complement: '', neighborhood: '', city: '', state: '', zipCode: '', phone: '', email: '', password: ''
+  });
+
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [scheduleForm, setScheduleForm] = useState({ 
+    riderId: '', establishmentId: '', date: '', shift: 'morning' as any, startTime: '08:00', endTime: '12:00'
+  });
+  const [scheduleConflictWarning, setScheduleConflictWarning] = useState('');
+
+  const [showWeeklyModal, setShowWeeklyModal] = useState(false);
+  const [weeklyForm, setWeeklyForm] = useState({
+    riderId: '', establishmentId: '', shift: 'morning' as any, startTime: '08:00', endTime: '12:00', weekStart: '',
+    days: { seg: true, ter: true, qua: true, qui: true, sex: true, sab: false, dom: false }
+  });
+  const [weeklyPreview, setWeeklyPreview] = useState<any[]>([]);
+  const [weeklyStep, setWeeklyStep] = useState<'form' | 'preview'>('form');
+
+  const [scheduleSearch, setScheduleSearch] = useState('');
+  const [riderSchedulesModal, setRiderSchedulesModal] = useState<string | null>(null);
+
+  const [modalHistoryEst, setModalHistoryEst] = useState('');
+  const [modalHistoryFrom, setModalHistoryFrom] = useState('');
+  const [modalHistoryTo, setModalHistoryTo] = useState('');
+
+  const [showDeliveryModal, setShowDeliveryModal] = useState(false);
+  const [editingDelivery, setEditingDelivery] = useState<Delivery | null>(null);
+  const [deliveryForm, setDeliveryForm] = useState({ riderId: '', establishmentId: '', date: '', time: '', value: '', orderNumber: '', notes: '' });
+
+  const [notesDeliveryId, setNotesDeliveryId] = useState<string | null>(null);
+  const [activeScheduleChatId, setActiveScheduleChatId] = useState<string | null>(null);
+
+  const [reportType, setReportType] = useState<'earnings' | 'deliveries' | 'schedules'>('earnings');
+  const [reportPeriod, setReportPeriod] = useState<'daily' | 'weekly' | 'monthly' | 'custom'>('weekly');
+  const [customStartDate, setCustomStartDate] = useState('');
+  const [customEndDate, setCustomEndDate] = useState('');
+
+  const loadData = () => {
+    const currentUsers = db.getUsers();
+    const currentEsts = db.getEstablishments();
+    const currentSchedules = db.getSchedules();
+    const currentDeliveries = db.getDeliveries();
+    const rawRequests = db.getPartnerRequests();
+
+    const inactiveEsts = currentEsts.filter(e => !e.active);
+    const virtualRequests: PartnerRequest[] = inactiveEsts.map(e => {
+      const manager = currentUsers.find(u => u.establishmentId === e.id);
+      const street = e.address?.street || 'Endereço não informado';
+      const num = e.address?.number || 'S/N';
+      const neighborhood = e.address?.neighborhood || '';
+      const city = e.address?.city || '';
+      
+      return {
+        id: 'req_virtual_' + e.id,
         establishmentName: e.name,
         ownerName: manager ? manager.name.replace('Gerente ', '') : 'Proprietário',
         phone: e.phone || manager?.phone || 'Sem telefone',
@@ -1433,32 +1580,38 @@ export default function AdminDashboard() {
                   const est = establishments.find(e => e.id === del.establishmentId);
 
                   return (
-                    <div key={del.id} className="py-3.5 flex items-center justify-between gap-3">
-                      <div>
-                        <div className="flex items-center space-x-2">
-                          <p className="font-bold text-slate-800">{rider?.name || 'Motoboy'}</p>
-                          <span className="text-xs text-slate-400">• {est?.name}</span>
+                    <div key={del.id} className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="min-w-0 space-y-1">
+                        <div className="flex items-center gap-2 flex-wrap">
                           {del.orderNumber && (
-                            <span className="bg-slate-100 text-slate-600 text-[10px] font-bold px-2 py-0.5 rounded">
+                            <span className="bg-indigo-600 text-white text-xs font-black px-2.5 py-0.5 rounded-lg shadow-sm flex-shrink-0">
                               #{del.orderNumber}
                             </span>
                           )}
+                          <p className="font-bold text-slate-800 text-sm">{rider?.name || 'Motoboy'}</p>
+                          <span className="text-xs text-slate-500 font-medium">• {est?.name}</span>
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                            del.status === 'active' ? 'bg-emerald-100 text-emerald-800' :
+                            del.status === 'pending' ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-red-800'
+                          }`}>
+                            {del.status === 'active' ? 'Aprovada' : del.status === 'pending' ? 'Pendente' : 'Cancelada'}
+                          </span>
                         </div>
-                        <p className="text-xs text-slate-400 mt-1">
+                        <p className="text-xs text-slate-400">
                           {new Date(del.date + 'T00:00:00').toLocaleDateString('pt-BR')} às {del.time}
                         </p>
                       </div>
 
-                      <div className="flex items-center space-x-3">
+                      <div className="flex items-center gap-2 justify-between sm:justify-end">
                         <button
                           onClick={() => setNotesDeliveryId(del.id)}
-                          className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors flex items-center gap-1 text-xs font-semibold"
+                          className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg transition-colors flex items-center gap-1 text-xs font-bold"
                         >
                           <MessageSquare className="h-4 w-4" />
                           <span>Observações</span>
                         </button>
 
-                        <span className="font-bold text-emerald-600 text-sm">
+                        <span className="font-black text-emerald-600 text-sm">
                           R$ {del.value.toFixed(2)}
                         </span>
                       </div>
