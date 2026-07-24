@@ -20,7 +20,8 @@ import {
   Play,
   Square,
   LocateFixed,
-  CompassIcon
+  CompassIcon,
+  Loader2
 } from 'lucide-react';
 import L from 'leaflet';
 import { gpsTracker, GpsState, isPointOffRoute, calculateDistanceMeters } from '../utils/gpsTracker';
@@ -68,6 +69,7 @@ export default function RiderNavigationMap({
   const routePolylineRef = useRef<L.Polyline | null>(null);
   const initialCenterDoneRef = useRef(false);
   const lastFetchedDestRef = useRef<string>('');
+  const searchTimeoutRef = useRef<any>(null);
 
   const [gpsState, setGpsState] = useState<GpsState>({
     currentLocation: null,
@@ -330,7 +332,6 @@ export default function RiderNavigationMap({
       initialCenterDoneRef.current = true;
     }
 
-    // Verificar se saiu da rota sem fazer chamadas de API desnecessárias
     if (isNavigating && routeCoordinates.length > 0) {
       const offRoute = isPointOffRoute({ lat: activePos.lat, lng: activePos.lng }, routeCoordinates, 45);
       if (offRoute && !isOffRouteDetected) {
@@ -347,7 +348,6 @@ export default function RiderNavigationMap({
 
     const destKey = `${destCoords.lat.toFixed(5)},${destCoords.lng.toFixed(5)}`;
     
-    // Se a rota já foi traçada para esse destino e não há desvio, não recalcula
     if (lastFetchedDestRef.current === destKey && !isOffRouteDetected && routeCoordinates.length > 0) {
       return;
     }
@@ -472,25 +472,36 @@ export default function RiderNavigationMap({
     }
   };
 
-  const handleSearchAddresses = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!searchQuery.trim()) return;
+  // BUSCA COM AUTOCOMPLETAR EM TEMPO REAL AO DIGITAR
+  const handleSearchInput = (value: string) => {
+    setSearchQuery(value);
+    
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
 
-    setIsSearching(true);
-    try {
-      const rawText = searchQuery.trim();
-      const formattedQuery = rawText.toLowerCase().includes('campina grande') 
-        ? rawText 
-        : `${rawText}, Campina Grande - PB, Brasil`;
+    if (value.trim().length >= 3) {
+      setIsSearching(true);
+      searchTimeoutRef.current = setTimeout(async () => {
+        try {
+          const rawText = value.trim();
+          const formattedQuery = rawText.toLowerCase().includes('campina grande') 
+            ? rawText 
+            : `${rawText}, Campina Grande - PB, Brasil`;
 
-      const res = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(formattedQuery)}&limit=6`
-      );
-      const data = await res.json();
-      setSearchResults(data || []);
-    } catch (err) {
-      console.warn('Erro na busca:', err);
-    } finally {
+          const res = await fetch(
+            `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(formattedQuery)}&limit=6`
+          );
+          const data = await res.json();
+          setSearchResults(data || []);
+        } catch (err) {
+          console.warn('Erro no autocomplete:', err);
+        } fontally {
+          setIsSearching(false);
+        }
+      }, 350);
+    } else {
+      setSearchResults([]);
       setIsSearching(false);
     }
   };
@@ -636,23 +647,27 @@ export default function RiderNavigationMap({
 
       {/* BARRA SUPERIOR DE BUSCA E DIAGNÓSTICO DO GPS */}
       <div className="bg-slate-900 border-b border-slate-800 p-2 z-20 relative flex-shrink-0 space-y-1.5">
-        <form onSubmit={handleSearchAddresses} className="relative flex items-center">
+        <div className="relative flex items-center">
           <input
             type="text"
-            placeholder="Buscar endereço de entrega..."
+            placeholder="Digite a rua para ver sugestões em tempo real..."
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-slate-800 text-white placeholder-slate-400 text-xs pl-8 pr-20 py-2 rounded-lg border border-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            onChange={(e) => handleSearchInput(e.target.value)}
+            className="w-full bg-slate-800 text-white placeholder-slate-400 text-xs pl-8 pr-8 py-2 rounded-lg border border-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500"
           />
           <Search className="h-3.5 w-3.5 text-slate-400 absolute left-2.5 pointer-events-none" />
-          <button
-            type="submit"
-            disabled={isSearching}
-            className="absolute right-1 bg-indigo-600 hover:bg-indigo-700 text-white px-2.5 py-1 rounded text-xs font-bold transition-colors"
-          >
-            {isSearching ? <Navigation className="h-3 w-3 animate-spin" /> : <span>Buscar</span>}
-          </button>
-        </form>
+          {isSearching && (
+            <Loader2 className="h-3.5 w-3.5 text-indigo-400 animate-spin absolute right-2.5 pointer-events-none" />
+          )}
+          {!isSearching && searchQuery && (
+            <button
+              onClick={() => { setSearchQuery(''); setSearchResults([]); }}
+              className="absolute right-2.5 text-slate-400 hover:text-white"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
 
         {/* METRO DE DIAGNÓSTICO DO SINAL DO GPS */}
         <div className="flex items-center justify-between px-1 text-[10px] text-slate-400 flex-wrap gap-1">
@@ -710,18 +725,29 @@ export default function RiderNavigationMap({
           </div>
         )}
 
+        {/* LISTA DE SUGESTÕES EM TEMPO REAL AO DIGITAR */}
         {searchResults.length > 0 && (
-          <div className="absolute left-2 right-2 top-full mt-1 bg-slate-900 rounded-xl border border-slate-700 shadow-2xl z-50 overflow-hidden divide-y divide-slate-800 max-h-48 overflow-y-auto">
+          <div className="absolute left-2 right-2 top-full mt-1 bg-slate-900 rounded-xl border border-slate-700 shadow-2xl z-50 overflow-hidden divide-y divide-slate-800 max-h-56 overflow-y-auto">
+            <div className="bg-slate-950 px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between">
+              <span>Sugestões encontradas</span>
+              <span>{searchResults.length} resultado(s)</span>
+            </div>
             {searchResults.map((res) => (
               <button
                 key={res.place_id}
                 onClick={() => handleSelectSearchResult(res)}
-                className="w-full p-2.5 text-left hover:bg-slate-800 transition-colors flex items-start space-x-2"
+                className="w-full p-2.5 text-left hover:bg-indigo-950/60 transition-colors flex items-start space-x-2.5 group"
               >
-                <MapPin className="h-3.5 w-3.5 text-emerald-400 flex-shrink-0 mt-0.5" />
-                <div className="min-w-0">
-                  <p className="text-xs font-bold text-white truncate">{res.display_name.split(',')[0]}</p>
-                  <p className="text-[10px] text-slate-400 truncate">{res.display_name}</p>
+                <div className="p-1.5 bg-slate-800 group-hover:bg-indigo-600 rounded-lg text-emerald-400 group-hover:text-white transition-colors mt-0.5 flex-shrink-0">
+                  <MapPin className="h-3.5 w-3.5" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-bold text-white truncate group-hover:text-indigo-200">
+                    {res.display_name.split(',')[0]}
+                  </p>
+                  <p className="text-[10px] text-slate-400 truncate">
+                    {res.display_name.split(',').slice(1).join(',').trim()}
+                  </p>
                 </div>
               </button>
             ))}
