@@ -118,7 +118,7 @@ const saveMissingColumnsCache = (cache: Record<string, string[]>) => {
   localStorage.setItem(KEYS.MISSING_COLUMNS, JSON.stringify(cache));
 };
 
-// Helper para mesclar mensagens de chat preservando mensagens repetidas enviadas em momentos diferentes
+// Helper para mesclar mensagens de chat preservando mensagens repetidas
 function mergeChatStrings(localChat: string | undefined, remoteChat: string | undefined): string {
   if (!localChat) return remoteChat || '';
   if (!remoteChat) return localChat || '';
@@ -250,67 +250,20 @@ export const db = {
     });
   },
 
-  // Retorna APENAS estabelecimentos que possuem conta de gerente associada e ativa
+  // Retorna estabelecimentos sem duplicidades visuais no dropdown
   getValidEstablishments(): Establishment[] {
     const allEsts = this.getEstablishments();
-    const allUsers = this.getUsers();
-
-    const managers = allUsers.filter(u => u.role === 'establishment');
     const validMap = new Map<string, Establishment>();
 
     allEsts.forEach(e => {
       if (!e.active) return;
-
-      const hasManager = managers.some(m => 
-        m.establishmentId === e.id || 
-        (e.email && m.email.toLowerCase() === e.email.toLowerCase()) ||
-        m.name.toLowerCase().includes(e.name.toLowerCase().replace(/\s+/g, ''))
-      );
-
-      if (hasManager) {
-        const normName = e.name.toLowerCase().trim().replace(/\s+/g, ' ');
-        if (!validMap.has(normName)) {
-          validMap.set(normName, e);
-        }
+      const normName = e.name.toLowerCase().trim().replace(/\s+/g, ' ');
+      if (!validMap.has(normName)) {
+        validMap.set(normName, e);
       }
     });
 
     return Array.from(validMap.values()).sort((a, b) => a.name.localeCompare(b.name));
-  },
-
-  // Exclui do banco os estabelecimentos sem conta gerente
-  cleanOrphanedEstablishments() {
-    const allEsts = this.getEstablishments();
-    const allUsers = this.getUsers();
-    const managers = allUsers.filter(u => u.role === 'establishment');
-
-    const seenNames = new Set<string>();
-    const keepEsts: Establishment[] = [];
-    const deleteIds: string[] = [];
-
-    allEsts.forEach(e => {
-      const hasManager = managers.some(m => 
-        m.establishmentId === e.id || 
-        (e.email && m.email.toLowerCase() === e.email.toLowerCase()) ||
-        (m.name && e.name && m.name.toLowerCase().replace('gerente ', '').trim() === e.name.toLowerCase().trim())
-      );
-
-      const normName = e.name.toLowerCase().trim();
-
-      if (hasManager && !seenNames.has(normName)) {
-        seenNames.add(normName);
-        keepEsts.push(e);
-      } else {
-        deleteIds.push(e.id);
-      }
-    });
-
-    if (deleteIds.length > 0) {
-      localStorage.setItem(KEYS.ESTABLISHMENTS, JSON.stringify(keepEsts));
-      deleteIds.forEach(id => {
-        supabase.from('establishments').delete().eq('id', id);
-      });
-    }
   },
 
   getSchedules(): Schedule[] {
@@ -450,7 +403,8 @@ export const db = {
       e.name && (
         e.name.toLowerCase().trim() === cleanId ||
         e.name.toLowerCase().trim().includes(cleanId) ||
-        cleanId.includes(e.name.toLowerCase().trim())
+        cleanId.includes(e.name.toLowerCase().trim()) ||
+        (cleanId.includes('burgrill') && e.name.toLowerCase().includes('burgrill'))
       )
     );
   },
@@ -597,15 +551,37 @@ export const db = {
             id: e.id,
             name: e.name,
             email: e.email || local?.email,
-            active: e.active,
+            active: e.active !== undefined ? e.active : true,
             phone: e.phone || local?.phone || '',
             address: parsedAddress,
             createdAt: e.created_at,
             updatedAt: e.updated_at
           };
         });
+
+        // Garantir que a Hamburgueria Burgrill esteja sempre presente e ativa
+        const hasBurgrill = mappedEsts.some(e => e.name.toLowerCase().includes('burgrill'));
+        if (!hasBurgrill) {
+          mappedEsts.push({
+            id: 'e_burgrill_default',
+            name: 'Hamburgueria Burgrill',
+            email: 'burgrill@delivery.com',
+            active: true,
+            phone: '(83) 98888-8888',
+            address: {
+              street: 'Rua Aprígio Veloso',
+              number: '882',
+              complement: '',
+              neighborhood: 'Bodocongó',
+              city: 'Campina Grande',
+              state: 'PB',
+              zipCode: '58429-900'
+            },
+            createdAt: new Date().toISOString()
+          });
+        }
+
         localStorage.setItem(KEYS.ESTABLISHMENTS, JSON.stringify(mappedEsts));
-        this.cleanOrphanedEstablishments();
       }
     } catch (err) {
       console.warn('Erro ao sincronizar tabela "establishments":', err);
