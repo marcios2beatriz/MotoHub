@@ -108,7 +108,6 @@ export default function AdminDashboard() {
   const [weeklyPreview, setWeeklyPreview] = useState<any[]>([]);
   const [weeklyStep, setWeeklyStep] = useState<'form' | 'preview'>('form');
 
-  const [expandedRider, setExpandedRider] = useState<string | null>(null);
   const [scheduleSearch, setScheduleSearch] = useState('');
   const [riderSchedulesModal, setRiderSchedulesModal] = useState<string | null>(null);
 
@@ -293,6 +292,7 @@ export default function AdminDashboard() {
         finalEstId = existingEst.id;
         const updatedEsts = allEsts.map(e => e.id === existingEst.id ? {
           ...e,
+          email: userForm.email || e.email,
           address: {
             street: userForm.street || e.address?.street || '',
             number: userForm.number || e.address?.number || '',
@@ -310,6 +310,7 @@ export default function AdminDashboard() {
         const newEst: Establishment = {
           id: newEstId,
           name: userForm.establishmentName,
+          email: userForm.email,
           phone: userForm.phone || '',
           active: true,
           address: {
@@ -428,6 +429,7 @@ export default function AdminDashboard() {
       const updated = allEst.map(es => es.id === editingEst.id ? {
         ...es,
         name: estForm.name,
+        email: estForm.email || es.email,
         phone: estForm.phone,
         address: {
           street: estForm.street,
@@ -442,22 +444,43 @@ export default function AdminDashboard() {
       } : es);
       db.setEstablishments(updated);
 
-      const hasManager = allUsers.some(u => u.establishmentId === editingEst.id);
-      if (hasManager) {
-        const updatedUsers = allUsers.map(u => u.establishmentId === editingEst.id ? {
+      const existingManager = allUsers.find(u => 
+        u.establishmentId === editingEst.id || 
+        (u.role === 'establishment' && u.email.toLowerCase() === (editingEst.email || '').toLowerCase())
+      );
+
+      if (existingManager) {
+        const updatedUsers = allUsers.map(u => u.id === existingManager.id ? {
           ...u,
           name: 'Gerente ' + estForm.name,
-          email: estForm.email,
-          passwordHash: estForm.password || u.passwordHash,
-          phone: estForm.phone,
+          email: estForm.email || u.email,
+          passwordHash: estForm.password ? estForm.password : u.passwordHash,
+          phone: estForm.phone || u.phone,
+          establishmentId: estId,
+          active: true,
           updatedAt: nowStr
         } : u);
         db.setUsers(updatedUsers);
+      } else if (estForm.email) {
+        const newEstUser: User = {
+          id: 'u_' + Date.now(),
+          name: 'Gerente ' + estForm.name,
+          cpf: db.generateUniqueDummyCpf(),
+          phone: estForm.phone,
+          email: estForm.email,
+          role: 'establishment',
+          active: true,
+          passwordHash: estForm.password || 'bella123',
+          establishmentId: estId,
+          updatedAt: nowStr
+        };
+        db.setUsers([...allUsers, newEstUser]);
       }
     } else {
       const newEst: Establishment = {
         id: estId,
         name: estForm.name,
+        email: estForm.email,
         phone: estForm.phone,
         active: true,
         address: {
@@ -701,10 +724,37 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleToggleRequestStatus = (id: string) => {
-    const updated = partnerRequests.map(r => r.id === id ? { ...r, status: r.status === 'pending' ? 'contacted' as const : 'pending' as const } : r);
-    db.setPartnerRequests(updated);
-    loadData();
+  const handleContactRequest = (request: PartnerRequest) => {
+    const cleanPhone = request.phone.replace(/\D/g, '');
+    const formattedPhone = cleanPhone.startsWith('55') ? cleanPhone : `55${cleanPhone}`;
+    const message = encodeURIComponent(`Olá ${request.ownerName}! Recebemos sua solicitação de parceria para o estabelecimento ${request.establishmentName} no MotoHub.`);
+    window.open(`https://wa.me/${formattedPhone}?text=${message}`, '_blank');
+  };
+
+  const handleApproveRequest = (req: PartnerRequest) => {
+    const allEsts = db.getEstablishments();
+    const est = allEsts.find(e => e.name.toLowerCase().trim() === req.establishmentName.toLowerCase().trim());
+    if (est) {
+      const updatedEsts = allEsts.map(e => e.id === est.id ? { ...e, active: true, updatedAt: new Date().toISOString() } : e);
+      db.setEstablishments(updatedEsts);
+      const updatedUsers = db.getUsers().map(u => {
+        if (u.establishmentId === est.id || (u.role === 'establishment' && est.email && u.email.toLowerCase() === est.email.toLowerCase())) {
+          return { ...u, active: true, establishmentId: est.id, updatedAt: new Date().toISOString() };
+        }
+        return u;
+      });
+      db.setUsers(updatedUsers);
+      
+      if (!req.id.startsWith('req_virtual_')) {
+        const updatedRequests = partnerRequests.map(r => r.id === req.id ? { ...r, status: 'contacted' as const } : r);
+        db.setPartnerRequests(updatedRequests);
+      }
+      
+      loadData();
+      alert('Solicitação aprovada com sucesso!');
+    } else {
+      alert('Erro: Estabelecimento correspondente não encontrado.');
+    }
   };
 
   const handleDeleteRequest = async (id: string) => {
@@ -719,34 +769,6 @@ export default function AdminDashboard() {
         await db.deletePartnerRequest(id);
         loadData();
       }
-    }
-  };
-
-  const handleContactRequest = (request: PartnerRequest) => {
-    const cleanPhone = request.phone.replace(/\D/g, '');
-    const formattedPhone = cleanPhone.startsWith('55') ? cleanPhone : `55${cleanPhone}`;
-    const message = encodeURIComponent(`Olá ${request.ownerName}! Recebemos sua solicitação de parceria para o estabelecimento ${request.establishmentName} no MotoHub.`);
-    window.open(`https://wa.me/${formattedPhone}?text=${message}`, '_blank');
-  };
-
-  const handleApproveRequest = (req: PartnerRequest) => {
-    const allEsts = db.getEstablishments();
-    const est = allEsts.find(e => e.name.toLowerCase().trim() === req.establishmentName.toLowerCase().trim());
-    if (est) {
-      const updatedEsts = allEsts.map(e => e.id === est.id ? { ...e, active: true, updatedAt: new Date().toISOString() } : e);
-      db.setEstablishments(updatedEsts);
-      const updatedUsers = db.getUsers().map(u => u.establishmentId === est.id ? { ...u, active: true, updatedAt: new Date().toISOString() } : u);
-      db.setUsers(updatedUsers);
-      
-      if (!req.id.startsWith('req_virtual_')) {
-        const updatedRequests = partnerRequests.map(r => r.id === req.id ? { ...r, status: 'contacted' as const } : r);
-        db.setPartnerRequests(updatedRequests);
-      }
-      
-      loadData();
-      alert('Solicitação aprovada com sucesso!');
-    } else {
-      alert('Erro: Estabelecimento correspondente não encontrado.');
     }
   };
 
@@ -896,7 +918,6 @@ export default function AdminDashboard() {
   });
 
   const pendingRequestsCount = partnerRequests.filter(r => r.status === 'pending').length;
-  const pendingRidersCount = users.filter(u => u.role === 'rider' && !u.active).length;
   const pendingDeliveries = deliveries.filter(d => d.status === 'pending');
 
   const todayStr = db.getLocalDateString();
@@ -1245,48 +1266,58 @@ export default function AdminDashboard() {
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {filteredEsts.map(e => (
-                  <div key={e.id} className="border border-slate-200 rounded-xl p-4 space-y-2 bg-slate-50/50">
-                    <div className="flex justify-between items-start">
-                      <h3 className="font-bold text-slate-800 text-base">{e.name}</h3>
-                      <button onClick={() => toggleEstStatus(e.id)} className={`px-2 py-0.5 rounded-full font-bold text-[10px] uppercase ${e.active ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}`}>
-                        {e.active ? 'Ativo' : 'Inativo'}
-                      </button>
+                {filteredEsts.map(e => {
+                  const managerUser = users.find(u => u.establishmentId === e.id || (u.role === 'establishment' && e.email && u.email.toLowerCase() === e.email.toLowerCase()));
+
+                  return (
+                    <div key={e.id} className="border border-slate-200 rounded-xl p-4 space-y-2 bg-slate-50/50">
+                      <div className="flex justify-between items-start">
+                        <h3 className="font-bold text-slate-800 text-base">{e.name}</h3>
+                        <button onClick={() => toggleEstStatus(e.id)} className={`px-2 py-0.5 rounded-full font-bold text-[10px] uppercase ${e.active ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}`}>
+                          {e.active ? 'Ativo' : 'Inativo'}
+                        </button>
+                      </div>
+                      <p className="text-xs text-slate-500 flex items-center gap-1">
+                        <MapPin className="h-3.5 w-3.5 text-slate-400" />
+                        {e.address?.street}, {e.address?.number} - {e.address?.neighborhood}, {e.address?.city}/{e.address?.state}
+                      </p>
+                      <p className="text-xs text-slate-500 flex items-center gap-1">
+                        <Phone className="h-3.5 w-3.5 text-slate-400" />
+                        {e.phone}
+                      </p>
+                      {managerUser && (
+                        <p className="text-xs text-indigo-600 font-semibold flex items-center gap-1">
+                          <Users className="h-3.5 w-3.5" />
+                          <span>Login Gerente: {managerUser.email}</span>
+                        </p>
+                      )}
+                      <div className="pt-2 border-t border-slate-200 flex justify-end space-x-2">
+                        <button onClick={() => {
+                          setEditingEst(e);
+                          setEstForm({
+                            name: e.name,
+                            street: e.address?.street || '',
+                            number: e.address?.number || '',
+                            complement: e.address?.complement || '',
+                            neighborhood: e.address?.neighborhood || '',
+                            city: e.address?.city || '',
+                            state: e.address?.state || '',
+                            zipCode: e.address?.zipCode || '',
+                            phone: e.phone || '',
+                            email: e.email || managerUser?.email || '',
+                            password: ''
+                          });
+                          setShowEstModal(true);
+                        }} className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded text-xs font-bold">
+                          Editar
+                        </button>
+                        <button onClick={() => handleDeleteEst(e.id)} className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 rounded text-xs font-bold">
+                          Excluir
+                        </button>
+                      </div>
                     </div>
-                    <p className="text-xs text-slate-500 flex items-center gap-1">
-                      <MapPin className="h-3.5 w-3.5 text-slate-400" />
-                      {e.address?.street}, {e.address?.number} - {e.address?.neighborhood}, {e.address?.city}/{e.address?.state}
-                    </p>
-                    <p className="text-xs text-slate-500 flex items-center gap-1">
-                      <Phone className="h-3.5 w-3.5 text-slate-400" />
-                      {e.phone}
-                    </p>
-                    <div className="pt-2 border-t border-slate-200 flex justify-end space-x-2">
-                      <button onClick={() => {
-                        setEditingEst(e);
-                        setEstForm({
-                          name: e.name,
-                          street: e.address?.street || '',
-                          number: e.address?.number || '',
-                          complement: e.address?.complement || '',
-                          neighborhood: e.address?.neighborhood || '',
-                          city: e.address?.city || '',
-                          state: e.address?.state || '',
-                          zipCode: e.address?.zipCode || '',
-                          phone: e.phone || '',
-                          email: e.email || '',
-                          password: ''
-                        });
-                        setShowEstModal(true);
-                      }} className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded text-xs font-bold">
-                        Editar
-                      </button>
-                      <button onClick={() => handleDeleteEst(e.id)} className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 rounded text-xs font-bold">
-                        Excluir
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
