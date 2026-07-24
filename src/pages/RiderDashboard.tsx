@@ -22,7 +22,8 @@ import {
   MessageSquare,
   ShieldAlert,
   Check,
-  Compass
+  Compass,
+  Map as MapIcon
 } from 'lucide-react';
 import DeliveryNotesModal from '../components/DeliveryNotesModal';
 import CustomerChatModal from '../components/CustomerChatModal';
@@ -121,6 +122,20 @@ export default function RiderDashboard() {
     setDeliveries(sortedDeliveries);
     setNotifications(sortedNotifications);
     setEstablishments(allEsts);
+
+    // Se tiver escala hoje, pré-definir como destino da navegação
+    const todayStr = db.getLocalDateString();
+    const todaySch = sortedSchedules.find(s => s.date === todayStr);
+    if (todaySch) {
+      const est = db.resolveEstablishment(todaySch.establishmentId);
+      if (est && est.address) {
+        const addrText = `${est.address.street}, ${est.address.number} - ${est.address.neighborhood}, ${est.address.city}/${est.address.state}`;
+        setNavDestination({
+          name: est.name,
+          addressText: addrText
+        });
+      }
+    }
   };
 
   useEffect(() => {
@@ -400,28 +415,6 @@ export default function RiderDashboard() {
     });
   };
 
-  const handleStartInAppNavigation = (est: Establishment) => {
-    if (!est.address) return;
-    const addrText = `${est.address.street}, ${est.address.number} - ${est.address.neighborhood}, ${est.address.city}/${est.address.state}`;
-    setNavDestination({
-      name: est.name,
-      addressText: addrText
-    });
-    setActiveTab('navigation');
-  };
-
-  const openWaze = (est: Establishment) => {
-    if (!est.address) return;
-    const query = encodeURIComponent(`${est.name}, ${est.address.street}, ${est.address.number}, ${est.address.city}`);
-    window.open(`https://waze.com/ul?q=${query}&navigate=yes`, '_blank');
-  };
-
-  const openGoogleMaps = (est: Establishment) => {
-    if (!est.address) return;
-    const query = encodeURIComponent(`${est.name}, ${est.address.street}, ${est.address.number}, ${est.address.city}`);
-    window.open(`https://www.google.com/maps/dir/?api=1&destination=${query}&travelmode=driving`, '_blank');
-  };
-
   const todayStr = db.getLocalDateString();
 
   const todayDeliveries = deliveries.filter(d => d.date === todayStr);
@@ -664,7 +657,7 @@ export default function RiderDashboard() {
           <div>
             <h4 className="text-sm font-bold text-indigo-900">Rastreamento GPS Ativo e Seguro</h4>
             <p className="text-xs text-indigo-700 mt-1 leading-relaxed">
-              O GPS do seu dispositivo continuará transmitindo em tempo real durante suas rotas. Você continuará conectado permanentemente nesta conta até clicar no botão Sair.
+              Sua localização está sendo transmitida em tempo real para o painel.
             </p>
           </div>
         </div>
@@ -677,7 +670,7 @@ export default function RiderDashboard() {
             }`}
           >
             <TrendingUp className="h-4 w-4" />
-            <span>Ganhos</span>
+            <span>Início</span>
           </button>
           <button
             onClick={() => setActiveTab('navigation')}
@@ -722,76 +715,27 @@ export default function RiderDashboard() {
           </button>
         </div>
 
-        {/* TAB NAVEGAÇÃO GPS DENTRO DO APP (ESTILO WAZE) */}
-        {activeTab === 'navigation' && (
-          <div className="space-y-4">
-            {!navDestination && todaySchedule ? (
-              (() => {
-                const est = resolveEst(todaySchedule.establishmentId);
-                if (!est) return null;
-                return (
-                  <div className="bg-indigo-50 border border-indigo-200 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                    <div>
-                      <p className="text-xs font-bold uppercase text-indigo-600">Sua Escala Hoje</p>
-                      <h3 className="text-base font-bold text-slate-800">{est.name}</h3>
-                      <p className="text-xs text-slate-500 mt-0.5">{est.address?.street}, {est.address?.number} - {est.address?.neighborhood}</p>
-                    </div>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <button
-                        onClick={() => openWaze(est)}
-                        className="bg-sky-500 hover:bg-sky-600 text-white px-3 py-2 rounded-xl font-bold text-xs flex items-center gap-1 shadow-sm"
-                      >
-                        <span>💧 Waze</span>
-                      </button>
-                      <button
-                        onClick={() => openGoogleMaps(est)}
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-xl font-bold text-xs flex items-center gap-1 shadow-sm"
-                      >
-                        <MapPin className="h-3.5 w-3.5" />
-                        <span>Google Maps</span>
-                      </button>
-                      <button
-                        onClick={() => handleStartInAppNavigation(est)}
-                        className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded-xl font-bold text-xs flex items-center gap-1 shadow-sm"
-                      >
-                        <Navigation className="h-3.5 w-3.5" />
-                        <span>No App</span>
-                      </button>
-                    </div>
-                  </div>
-                );
-              })()
-            ) : null}
-
-            <RiderNavigationMap
-              currentLocation={gpsCoords}
-              destination={navDestination}
-              onClose={() => setActiveTab('dashboard')}
-            />
-          </div>
-        )}
-
-        {/* TAB 1: GANHOS (DASHBOARD) */}
+        {/* TAB 1: INÍCIO E NAVEGADOR EM TEMPO REAL NO LOGIN */}
         {activeTab === 'dashboard' && (
           <div className="space-y-6">
-            <div className={`rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border ${
-              gpsStatus === 'active'
-                ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-                : 'bg-blue-50 border-blue-200 text-blue-800'
-            }`}>
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-full bg-emerald-100">
-                  <Radio className="h-5 w-5 text-emerald-600 animate-pulse" />
-                </div>
-                <div className="min-w-0">
-                  <p className="font-bold text-sm">📡 GPS Ativo — Transmitindo posição em tempo real</p>
-                  {gpsCoords && (
-                    <p className="text-xs opacity-75 font-mono truncate">
-                      {gpsCoords.lat.toFixed(5)}, {gpsCoords.lng.toFixed(5)}
-                    </p>
-                  )}
-                </div>
+            
+            {/* MAPA EM TEMPO REAL EXIBIDO IMEDIATAMENTE NO INÍCIO DO LOGIN */}
+            <div className="space-y-2">
+              <div className="flex justify-between items-center px-1">
+                <h3 className="text-sm font-black uppercase tracking-wider text-slate-700 flex items-center gap-2">
+                  <MapIcon className="h-4 w-4 text-indigo-600" />
+                  <span>Sua Posição no Mapa</span>
+                </h3>
+                <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
+                  <Radio className="h-3 w-3 animate-pulse text-emerald-600" /> GPS Ao Vivo
+                </span>
               </div>
+
+              {/* MAPA EMBUTIDO DIRETO NO LOGIN */}
+              <RiderNavigationMap
+                currentLocation={gpsCoords}
+                destination={navDestination}
+              />
             </div>
 
             {/* Resumo de Ganhos de Hoje */}
@@ -853,22 +797,6 @@ export default function RiderDashboard() {
                             <p className="font-bold">{est.address.street}, {est.address.number}</p>
                             <p>{est.address.neighborhood} • {est.address.city}/{est.address.state}</p>
                           </div>
-                        </div>
-
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <button
-                            onClick={() => openWaze(est)}
-                            className="bg-sky-500 hover:bg-sky-600 text-white px-3 py-2 rounded-xl text-xs font-extrabold transition-all flex items-center gap-1 shadow-md"
-                          >
-                            <span>💧 Waze</span>
-                          </button>
-                          <button
-                            onClick={() => openGoogleMaps(est)}
-                            className="bg-emerald-500 hover:bg-emerald-600 text-white px-3 py-2 rounded-xl text-xs font-extrabold transition-all flex items-center gap-1 shadow-md"
-                          >
-                            <MapPin className="h-3.5 w-3.5" />
-                            <span>Maps</span>
-                          </button>
                         </div>
                       </div>
                     )}
@@ -993,6 +921,17 @@ export default function RiderDashboard() {
           </div>
         )}
 
+        {/* TAB GPS NAVEGAÇÃO EXPANDIDA */}
+        {activeTab === 'navigation' && (
+          <div className="space-y-4">
+            <RiderNavigationMap
+              currentLocation={gpsCoords}
+              destination={navDestination}
+              onClose={() => setActiveTab('dashboard')}
+            />
+          </div>
+        )}
+
         {/* TAB 2: ESCALAS */}
         {activeTab === 'schedules' && (
           <div className="space-y-6">
@@ -1084,26 +1023,6 @@ export default function RiderDashboard() {
                               <MessageSquare className="h-4 w-4" />
                               <span className="hidden sm:inline">Chat</span>
                             </button>
-
-                            {est?.address && (
-                              <>
-                                <button
-                                  onClick={() => openWaze(est)}
-                                  className="px-2.5 py-2 bg-sky-500 hover:bg-sky-600 text-white rounded-lg text-xs font-extrabold flex items-center gap-1 transition-colors shadow-sm"
-                                  title="Abrir Rota no Waze"
-                                >
-                                  <span>💧 Waze</span>
-                                </button>
-                                <button
-                                  onClick={() => openGoogleMaps(est)}
-                                  className="px-2.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-extrabold flex items-center gap-1 transition-colors shadow-sm"
-                                  title="Abrir Rota no Google Maps"
-                                >
-                                  <MapPin className="h-3.5 w-3.5" />
-                                  <span>Maps</span>
-                                </button>
-                              </>
-                            )}
                           </div>
                         </div>
                       </div>
