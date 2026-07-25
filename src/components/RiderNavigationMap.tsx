@@ -556,7 +556,7 @@ export default function RiderNavigationMap({
           const lat = activePos ? activePos.lat : -7.2247;
           const lng = activePos ? activePos.lng : -35.8878;
 
-          // 1. Esri World GeocodeServer (O motor do Maps/ArcGIS de maior precisão comercial e residencial)
+          // 1. Esri World GeocodeServer
           const esriQuery = rawText.toLowerCase().includes('campina grande') 
             ? rawText 
             : `${rawText}, Campina Grande - PB`;
@@ -617,7 +617,7 @@ export default function RiderNavigationMap({
           if (photonRes && photonRes.features) {
             photonRes.features.forEach((feat: any) => {
               const props = feat.properties;
-              const coords = feat.geometry.coordinates; // [lon, lat]
+              const coords = feat.geometry.coordinates;
               if (!coords || coords.length < 2) return;
 
               const title = props.name || props.street || 'Local';
@@ -707,7 +707,6 @@ export default function RiderNavigationMap({
   };
 
   const handleSelectSearchResult = (result: CustomSearchResult) => {
-    // Se a busca for uma rua sem número definido, abre a caixinha solicitando o número
     const hasNumberInTitle = /\d+/.test(result.title) || /\d+/.test(searchQuery);
 
     if (result.type === 'street' && !hasNumberInTitle && result.source !== 'esri') {
@@ -807,7 +806,7 @@ export default function RiderNavigationMap({
     }
   };
 
-  // Garante que a transmissão GPS e serviço Keep-Alive em background permaneçam rodando antes de abrir aplicativo externo
+  // Garante que a transmissão GPS em background permaneça rodando ao abrir aplicativo externo
   const openExternalGps = (url: string) => {
     gpsTracker.startTracking();
     window.open(url, '_blank');
@@ -1086,7 +1085,7 @@ export default function RiderNavigationMap({
           </div>
         )}
 
-        {/* LISTA DE SUGESTÕES EM TEMPO REAL AO DIGITAR OU FALAR */}
+        {/* LISTA DE SUGESTÕES EM TEMPO REAL */}
         {!selectedStreetResult && searchResults.length > 0 && (
           <div className="absolute left-2 right-2 top-full mt-1 bg-slate-900 rounded-xl border border-slate-700 shadow-2xl z-50 overflow-hidden divide-y divide-slate-800 max-h-64 overflow-y-auto">
             <div className="bg-slate-950 px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between">
