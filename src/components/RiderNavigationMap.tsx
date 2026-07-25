@@ -28,10 +28,11 @@ import {
   Store,
   Mic,
   MicOff,
-  Navigation2
+  Navigation2,
+  RefreshCw
 } from 'lucide-react';
 import L from 'leaflet';
-import { gpsTracker, GpsState, isPointOffRoute } from '../utils/gpsTracker';
+import { gpsTracker, GpsState, isPointOffRoute, smoothAngle } from '../utils/gpsTracker';
 
 interface RiderNavigationMapProps {
   currentLocation: { lat: number; lng: number } | null;
@@ -163,12 +164,13 @@ export default function RiderNavigationMap({
 
   // Atualizar ângulo de rotação em tempo real estilo WAZE (Heading Up)
   useEffect(() => {
-    if (rotationMode === 'waze' && activePos && activePos.heading !== undefined) {
-      setMapDegrees(activePos.heading);
+    if (rotationMode === 'waze' && activePos) {
+      const heading = activePos.heading || 0;
+      setMapDegrees(prev => Math.round(smoothAngle(prev, heading, 0.4)));
     } else if (rotationMode === 'north') {
       setMapDegrees(0);
     }
-  }, [activePos?.heading, rotationMode]);
+  }, [activePos?.heading, activePos?.lat, activePos?.lng, rotationMode]);
 
   // Gesto Multi-touch com 2 dedos na tela para girar o mapa livremente
   useEffect(() => {
@@ -358,7 +360,7 @@ export default function RiderNavigationMap({
     if (!map || !activePos) return;
 
     const rawHeading = activePos.heading || 0;
-    // Se o mapa está girando no modo Waze, o pino fica fixo apontando para cima (0deg) na tela!
+    // Se o mapa está girando no modo Waze, a seta fica apontada para cima na tela
     const displayMarkerRotation = rotationMode === 'waze' ? 0 : rawHeading;
 
     const riderIcon = L.divIcon({
@@ -404,10 +406,7 @@ export default function RiderNavigationMap({
 
     if (!initialCenterDoneRef.current || autoFollow) {
       map.invalidateSize();
-      map.setView([activePos.lat, activePos.lng], NAV_ZOOM_LEVEL, {
-        animate: true,
-        duration: 0.5
-      });
+      map.panTo([activePos.lat, activePos.lng], { animate: true });
       initialCenterDoneRef.current = true;
     }
 
@@ -507,7 +506,7 @@ export default function RiderNavigationMap({
           setIsOffRouteDetected(false);
 
           if (autoFollow) {
-            map.setView([activePos.lat, activePos.lng], NAV_ZOOM_LEVEL, { animate: true });
+            map.panTo([activePos.lat, activePos.lng], { animate: true });
           }
 
           if (isNavigating && routeSteps.length > 0) {
@@ -795,7 +794,7 @@ export default function RiderNavigationMap({
   const handleRecenter = () => {
     if (mapRef.current && activePos) {
       mapRef.current.invalidateSize();
-      mapRef.current.setView([activePos.lat, activePos.lng], NAV_ZOOM_LEVEL, { animate: true });
+      mapRef.current.panTo([activePos.lat, activePos.lng], { animate: true });
       setAutoFollow(true);
       setRotationMode('waze');
     } else {
@@ -809,6 +808,12 @@ export default function RiderNavigationMap({
     } else {
       setRotationMode('waze');
     }
+  };
+
+  // Botão para simular giro no desktop para testes
+  const handleSimulateRotation = () => {
+    setRotationMode('manual');
+    setMapDegrees(prev => (prev + 45) % 360);
   };
 
   const activeStep = steps[currentStepIndex] || {
@@ -961,18 +966,29 @@ export default function RiderNavigationMap({
             <span className="font-bold text-slate-300">{gpsQualityLabel}</span>
             {activePos && (
               <span className="text-slate-500">
-                (Precisão: ±{activePos.accuracy}m)
+                (Precisão: ±{activePos.accuracy}m • Graus: {mapDegrees}°)
               </span>
             )}
           </div>
 
-          <button
-            onClick={() => setShowLayerMenu(!showLayerMenu)}
-            className="flex items-center gap-1 bg-slate-800 hover:bg-slate-700 text-slate-200 px-2 py-0.5 rounded font-bold transition-colors"
-          >
-            <Layers className="h-3 w-3 text-indigo-400" />
-            <span>Camadas</span>
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={handleSimulateRotation}
+              className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-2 py-0.5 rounded font-bold text-[10px] flex items-center gap-0.5"
+              title="Testar giro de 45 graus"
+            >
+              <RefreshCw className="h-3 w-3" />
+              <span>Girar +45°</span>
+            </button>
+
+            <button
+              onClick={() => setShowLayerMenu(!showLayerMenu)}
+              className="flex items-center gap-1 bg-slate-800 hover:bg-slate-700 text-slate-200 px-2 py-0.5 rounded font-bold transition-colors"
+            >
+              <Layers className="h-3 w-3 text-indigo-400" />
+              <span>Camadas</span>
+            </button>
+          </div>
         </div>
 
         {/* MENU DE SELEÇÃO DE CAMADAS */}
@@ -1128,9 +1144,9 @@ export default function RiderNavigationMap({
           style={{
             transform: `rotate(-${mapDegrees}deg)`,
             transformOrigin: 'center center',
-            transition: rotationMode === 'waze' ? 'transform 0.4s ease-out' : 'none'
+            transition: 'transform 0.3s cubic-bezier(0.25, 1, 0.5, 1)'
           }}
-          className="absolute -inset-20 z-10"
+          className="absolute -inset-24 z-10"
         >
           <div ref={mapContainerRef} className="w-full h-full" />
         </div>
