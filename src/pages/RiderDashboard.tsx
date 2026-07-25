@@ -122,7 +122,6 @@ export default function RiderDashboard() {
     setNotifications(sortedNotifications);
     setEstablishments(allEsts);
 
-    // Sugerir destino inicial APENAS na primeira carregada (sem ficar resetando a cada 3s)
     if (!hasInitializedDestRef.current) {
       const todayStr = db.getLocalDateString();
       const todaySch = sortedSchedules.find(s => s.date === todayStr);
@@ -370,18 +369,16 @@ export default function RiderDashboard() {
 
     fallbackIntervalRef.current = setInterval(() => {
       navigator.geolocation.getCurrentPosition(onSuccess, () => {}, options);
-    }, 4000);
+    }, 2000);
   };
 
   useEffect(() => {
     startGpsTracking();
 
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        requestWakeLock();
-        startSilentAudio();
-        startGpsTracking();
-      }
+      requestWakeLock();
+      startSilentAudio();
+      startGpsTracking();
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
@@ -659,7 +656,7 @@ export default function RiderDashboard() {
           <div>
             <h4 className="text-sm font-bold text-indigo-900">Rastreamento GPS Ativo e Seguro</h4>
             <p className="text-xs text-indigo-700 mt-1 leading-relaxed">
-              Sua localização está sendo transmitida em tempo real para o painel.
+              Sua localização está sendo transmitida em tempo real para a loja, mesmo com a tela do celular em segundo plano.
             </p>
           </div>
         </div>
