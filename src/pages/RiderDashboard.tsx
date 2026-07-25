@@ -42,7 +42,6 @@ export default function RiderDashboard() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [activeToast, setActiveToast] = useState<ChatToast | null>(null);
 
-  // Selected navigation destination state
   const [navDestination, setNavDestination] = useState<{
     name: string;
     addressText: string;
@@ -114,8 +113,6 @@ export default function RiderDashboard() {
     const allEsts = db.getEstablishments().filter(e => e.active);
     
     const sortedSchedules = [...allSchedules].sort((a, b) => a.date.localeCompare(b.date) || a.shift.localeCompare(b.shift) || a.id.localeCompare(b.id));
-    
-    // ORDENAÇÃO CRONOLÓGICA DE LANÇAMENTO (do horário mais antigo ao mais recente)
     const sortedDeliveries = [...allDeliveries].sort((a, b) => 
       a.date.localeCompare(b.date) || 
       a.time.localeCompare(b.time) || 
@@ -342,7 +339,7 @@ export default function RiderDashboard() {
         const dx = (longitude - prev.lng) * 111000 * Math.cos(latitude * Math.PI / 180);
         const distance = Math.sqrt(dx * dx + dy * dy);
 
-        if (distance < 8) {
+        if (distance < 5) {
           finalLat = prev.lat;
           finalLng = prev.lng;
         } else {
@@ -368,7 +365,7 @@ export default function RiderDashboard() {
     const options: PositionOptions = {
       enableHighAccuracy: true,
       maximumAge: 0,
-      timeout: 10000
+      timeout: 8000
     };
 
     navigator.geolocation.getCurrentPosition(onSuccess, onError, options);
@@ -658,12 +655,12 @@ export default function RiderDashboard() {
       </header>
 
       <main className="max-w-4xl mx-auto px-4 mt-6">
-        <div className="bg-indigo-50 border-l-4 border-indigo-600 p-4 rounded-xl mb-6 flex items-start gap-3 shadow-sm">
-          <ShieldAlert className="h-5 w-5 text-indigo-600 flex-shrink-0 mt-0.5" />
+        <div className="bg-emerald-50 border-l-4 border-emerald-600 p-4 rounded-xl mb-6 flex items-start gap-3 shadow-sm">
+          <ShieldAlert className="h-5 w-5 text-emerald-600 flex-shrink-0 mt-0.5" />
           <div>
-            <h4 className="text-sm font-bold text-indigo-900">Rastreamento GPS Ativo e Seguro</h4>
-            <p className="text-xs text-indigo-700 mt-1 leading-relaxed">
-              Sua localização está sendo transmitida em tempo real para a loja, mesmo com a tela do celular em segundo plano.
+            <h4 className="text-sm font-bold text-emerald-900">GPS e Navegação no MotoHub</h4>
+            <p className="text-xs text-emerald-800 mt-1 leading-relaxed">
+              Ao navegar pela aba <strong>GPS App</strong>, sua localização permanece 100% transmitida para a loja sem perda de sinal.
             </p>
           </div>
         </div>
@@ -725,7 +722,6 @@ export default function RiderDashboard() {
         {/* TAB 1: INÍCIO / GANHOS */}
         {activeTab === 'dashboard' && (
           <div className="space-y-6">
-            {/* Resumo de Ganhos de Hoje */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-4">
                 <div className="p-3 bg-emerald-100 text-emerald-600 rounded-lg">
@@ -1080,7 +1076,7 @@ export default function RiderDashboard() {
 
               {historyDeliveries.length === 0 ? (
                 <div className="text-center py-12 text-slate-400">
-                  <p className="text-sm font-medium">Nenum registro encontrado para este filtro.</p>
+                  <p className="text-sm font-medium">Nenhum registro encontrado para este filtro.</p>
                 </div>
               ) : (
                 <div className="divide-y divide-slate-100">
