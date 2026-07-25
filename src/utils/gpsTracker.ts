@@ -47,15 +47,6 @@ export function calculateBearingDegrees(lat1: number, lon1: number, lat2: number
   return (θ * (180 / Math.PI) + 360) % 360;
 }
 
-// Suavizador de rotação para evitar pulos bruscos no mapa
-export function smoothAngle(currentAngle: number, targetAngle: number, factor: number = 0.25): number {
-  let diff = (targetAngle - currentAngle) % 360;
-  if (diff < -180) diff += 360;
-  if (diff > 180) diff -= 360;
-  let result = (currentAngle + diff * factor) % 360;
-  return result < 0 ? result + 360 : result;
-}
-
 // Verifica se um ponto está muito distante da rota estipulada (em metros)
 export function isPointOffRoute(
   point: { lat: number; lng: number },
@@ -106,7 +97,6 @@ class HighPrecisionGpsTracker {
   private audioKeepAlive: HTMLAudioElement | null = null;
 
   private lastLocation: GpsLocation | null = null;
-  private compassHeading: number | null = null;
   private listeners: Set<(state: GpsState) => void> = new Set();
   
   private currentState: GpsState = {
@@ -115,46 +105,6 @@ class HighPrecisionGpsTracker {
     errorMessage: null,
     isNavigating: false
   };
-
-  constructor() {
-    this.initCompassSensor();
-  }
-
-  // Escuta os sensores de orientação magnética do dispositivo (Bússola)
-  private initCompassSensor() {
-    if (typeof window === 'undefined') return;
-
-    const handleOrientation = (e: any) => {
-      let heading: number | null = null;
-      if (e.webkitCompassHeading !== undefined && e.webkitCompassHeading !== null) {
-        // iOS Safari
-        heading = e.webkitCompassHeading;
-      } else if (e.alpha !== undefined && e.alpha !== null) {
-        // Android / Chrome
-        heading = (360 - e.alpha) % 360;
-      }
-
-      if (heading !== null && !isNaN(heading)) {
-        this.compassHeading = Math.round(heading);
-        if (this.currentState.currentLocation) {
-          const speed = this.currentState.currentLocation.speedKmh || 0;
-          // Se estiver devagar ou parado, usa a bússola do celular para definir a direção do mapa
-          if (speed < 4) {
-            const smoothedHeading = Math.round(
-              smoothAngle(this.currentState.currentLocation.heading, this.compassHeading, 0.3)
-            );
-            this.currentState.currentLocation.heading = smoothedHeading;
-            this.notify();
-          }
-        }
-      }
-    };
-
-    if ('DeviceOrientationEvent' in window) {
-      window.addEventListener('deviceorientationabsolute', handleOrientation, true);
-      window.addEventListener('deviceorientation', handleOrientation, true);
-    }
-  }
 
   public subscribe(callback: (state: GpsState) => void) {
     this.listeners.add(callback);
@@ -196,21 +146,15 @@ class HighPrecisionGpsTracker {
       const now = Date.now();
 
       let speedKmh = pos.coords.speed !== null && pos.coords.speed >= 0 ? Math.round(pos.coords.speed * 3.6) : 0;
-      let heading = pos.coords.heading !== null && !isNaN(pos.coords.heading) && pos.coords.heading >= 0 ? Math.round(pos.coords.heading) : null;
+      let heading = pos.coords.heading !== null && !isNaN(pos.coords.heading) ? Math.round(pos.coords.heading) : 0;
 
       if (this.lastLocation) {
         const distanceM = calculateDistanceMeters(this.lastLocation.lat, this.lastLocation.lng, lat, lng);
-        
-        if (distanceM > 1.5) {
-          // Se deslocou, calcula o ângulo de direção baseado no movimento
-          const calculatedHeading = Math.round(calculateBearingDegrees(this.lastLocation.lat, this.lastLocation.lng, lat, lng));
-          heading = Math.round(smoothAngle(this.lastLocation.heading, calculatedHeading, 0.4));
-        } else {
-          // Se está parado ou velocidade baixa, usa a bússola ou mantém o último rumo
-          heading = this.compassHeading !== null ? this.compassHeading : this.lastLocation.heading;
+        if (distanceM > 2.0 && (!pos.coords.heading || isNaN(pos.coords.heading))) {
+          heading = Math.round(calculateBearingDegrees(this.lastLocation.lat, this.lastLocation.lng, lat, lng));
+        } else if (distanceM <= 2.0) {
+          heading = this.lastLocation.heading;
         }
-      } else if (heading === null) {
-        heading = this.compassHeading !== null ? this.compassHeading : 0;
       }
 
       const newLocation: GpsLocation = {
