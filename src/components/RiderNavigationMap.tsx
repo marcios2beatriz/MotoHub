@@ -101,7 +101,6 @@ export default function RiderNavigationMap({
   const [isSearching, setIsSearching] = useState(false);
   const [isListeningVoice, setIsListeningVoice] = useState(false);
 
-  // ESTADO PARA O NÚMERO DA RESIDÊNCIA (QUANDO É UMA RUA)
   const [selectedStreetResult, setSelectedStreetResult] = useState<CustomSearchResult | null>(null);
   const [houseNumberInput, setHouseNumberInput] = useState('');
 
@@ -169,7 +168,6 @@ export default function RiderNavigationMap({
     lastSpokenInstructionRef.current = text;
   };
 
-  // Geocodificação do destino
   useEffect(() => {
     if (!activeDestination) return;
 
@@ -188,7 +186,6 @@ export default function RiderNavigationMap({
           ? activeDestination.addressText 
           : `${activeDestination.addressText}, Campina Grande - PB, Brasil`;
 
-        // 1. Tentar Esri ArcGIS World Geocoding
         const esriUrl = `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?singleLine=${encodeURIComponent(fullQuery)}&f=json&maxLocations=1`;
         const esriRes = await fetch(esriUrl);
         const esriData = await esriRes.json();
@@ -198,7 +195,6 @@ export default function RiderNavigationMap({
           foundLng = loc.x;
         }
 
-        // 2. Fallback Nominatim
         if (!foundLat || !foundLng) {
           const res = await fetch(
             `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(fullQuery)}&limit=1`
@@ -221,7 +217,6 @@ export default function RiderNavigationMap({
     geocode();
   }, [activeDestination?.addressText, activeDestination?.name]);
 
-  // Inicialização do Mapa Leaflet
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return;
 
@@ -265,7 +260,6 @@ export default function RiderNavigationMap({
     };
   }, []);
 
-  // Alternar Camada do Mapa
   const updateMapTileLayer = (provider: MapProviderType, traffic: boolean) => {
     const map = mapRef.current;
     if (!map) return;
@@ -304,7 +298,6 @@ export default function RiderNavigationMap({
     setShowTraffic(traffic);
   };
 
-  // Renderização do Ponto do Motoboy no Mapa
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !activePos) return;
@@ -370,7 +363,6 @@ export default function RiderNavigationMap({
     }
   }, [activePos?.lat, activePos?.lng, activePos?.heading, autoFollow, isNavigating, routeCoordinates]);
 
-  // Traçar Rota
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !activePos || !destCoords) return;
@@ -501,7 +493,6 @@ export default function RiderNavigationMap({
     }
   };
 
-  // PESQUISA POR COMANDO DE VOZ
   const handleStartVoiceSearch = () => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
@@ -539,7 +530,6 @@ export default function RiderNavigationMap({
     }
   };
 
-  // MOTOR DE BUSCA MULTISSISTEMAS (ESRI ARCGIS + PHOTON + NOMINATIM)
   const handleSearchInput = (value: string) => {
     setSearchQuery(value);
     
@@ -556,16 +546,13 @@ export default function RiderNavigationMap({
           const lat = activePos ? activePos.lat : -7.2247;
           const lng = activePos ? activePos.lng : -35.8878;
 
-          // 1. Esri World GeocodeServer
           const esriQuery = rawText.toLowerCase().includes('campina grande') 
             ? rawText 
             : `${rawText}, Campina Grande - PB`;
           const esriUrl = `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?singleLine=${encodeURIComponent(esriQuery)}&f=json&maxLocations=6&location=${lng},${lat}`;
 
-          // 2. Photon API
           const photonUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(rawText)}&lat=${lat}&lon=${lng}&limit=6`;
           
-          // 3. Nominatim
           const nomUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(esriQuery)}&limit=4&viewbox=${lng-0.4},${lat+0.4},${lng+0.4},${lat-0.4}`;
 
           const [esriRes, photonRes, nomRes] = await Promise.all([
@@ -577,7 +564,6 @@ export default function RiderNavigationMap({
           const combined: CustomSearchResult[] = [];
           const seenKeys = new Set<string>();
 
-          // A. Processar resultados do Esri ArcGIS (Prioridade Máxima)
           if (esriRes && esriRes.candidates) {
             esriRes.candidates.forEach((cand: any) => {
               const loc = cand.location;
@@ -613,7 +599,6 @@ export default function RiderNavigationMap({
             });
           }
 
-          // B. Processar Photon API
           if (photonRes && photonRes.features) {
             photonRes.features.forEach((feat: any) => {
               const props = feat.properties;
@@ -658,7 +643,6 @@ export default function RiderNavigationMap({
             });
           }
 
-          // C. Processar Nominatim OSM
           if (nomRes && Array.isArray(nomRes)) {
             nomRes.forEach((item: any) => {
               const itemLat = parseFloat(item.lat);
@@ -806,7 +790,7 @@ export default function RiderNavigationMap({
     }
   };
 
-  // Garante que a transmissão GPS em background permaneça rodando ao abrir aplicativo externo
+  // Garante a execução do serviço de rastreamento e keep-alive em background antes de abrir Waze ou Google Maps
   const openExternalGps = (url: string) => {
     gpsTracker.startTracking();
     window.open(url, '_blank');
@@ -934,7 +918,6 @@ export default function RiderNavigationMap({
           />
           <Search className="h-3.5 w-3.5 text-slate-400 absolute left-2.5 pointer-events-none" />
 
-          {/* CONTROLES DA BARRA DE PESQUISA (MICROFONE + LIMPAR) */}
           <div className="absolute right-2 flex items-center gap-1">
             {isSearching && (
               <Loader2 className="h-3.5 w-3.5 text-indigo-400 animate-spin mr-1" />
@@ -965,7 +948,6 @@ export default function RiderNavigationMap({
           </div>
         </div>
 
-        {/* METRO DE DIAGNÓSTICO DO SINAL DO GPS */}
         <div className="flex items-center justify-between px-1 text-[10px] text-slate-400 flex-wrap gap-1">
           <div className="flex items-center gap-1.5">
             <span className={`h-2 w-2 rounded-full ${gpsQualityColor} animate-pulse`} />
@@ -986,7 +968,6 @@ export default function RiderNavigationMap({
           </button>
         </div>
 
-        {/* MENU DE SELEÇÃO DE CAMADAS */}
         {showLayerMenu && (
           <div className="absolute right-2 top-full mt-1 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-2 z-50 space-y-1.5 min-w-[180px]">
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-2">Tipo de Mapa</p>
@@ -1021,7 +1002,6 @@ export default function RiderNavigationMap({
           </div>
         )}
 
-        {/* OVERLAY PARA SELEÇÃO DO NÚMERO DA RESIDÊNCIA */}
         {selectedStreetResult && (
           <div className="absolute left-2 right-2 top-full mt-1 bg-slate-900 border-2 border-indigo-500 rounded-xl p-3 shadow-2xl z-50 animate-in fade-in slide-in-from-top-2">
             <div className="flex justify-between items-start mb-2">
@@ -1085,7 +1065,6 @@ export default function RiderNavigationMap({
           </div>
         )}
 
-        {/* LISTA DE SUGESTÕES EM TEMPO REAL */}
         {!selectedStreetResult && searchResults.length > 0 && (
           <div className="absolute left-2 right-2 top-full mt-1 bg-slate-900 rounded-xl border border-slate-700 shadow-2xl z-50 overflow-hidden divide-y divide-slate-800 max-h-64 overflow-y-auto">
             <div className="bg-slate-950 px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between">
@@ -1243,7 +1222,6 @@ export default function RiderNavigationMap({
               </button>
             </div>
 
-            {/* BOTÕES DE ATALHO DE 1 CLIQUE COM PERSISTÊNCIA DE GPS GARANTIDA */}
             <div className="grid grid-cols-2 gap-2">
               <button
                 onClick={openInWaze}
