@@ -807,16 +807,20 @@ export default function RiderNavigationMap({
     }
   };
 
+  // Garante que a transmissão GPS e serviço Keep-Alive em background permaneçam rodando antes de abrir aplicativo externo
+  const openExternalGps = (url: string) => {
+    gpsTracker.startTracking();
+    window.open(url, '_blank');
+  };
+
   const openInWaze = () => {
     if (!destCoords) return;
-    const url = `https://waze.com/ul?ll=${destCoords.lat},${destCoords.lng}&navigate=yes`;
-    window.open(url, '_blank');
+    openExternalGps(`https://waze.com/ul?ll=${destCoords.lat},${destCoords.lng}&navigate=yes`);
   };
 
   const openInGoogleMaps = () => {
     if (!destCoords) return;
-    const url = `https://www.google.com/maps/dir/?api=1&destination=${destCoords.lat},${destCoords.lng}&travelmode=driving`;
-    window.open(url, '_blank');
+    openExternalGps(`https://www.google.com/maps/dir/?api=1&destination=${destCoords.lat},${destCoords.lng}&travelmode=driving`);
   };
 
   const activeStep = steps[currentStepIndex] || {
@@ -1240,13 +1244,13 @@ export default function RiderNavigationMap({
               </button>
             </div>
 
-            {/* BOTÕES DE ATALHO DE 1 CLIQUE PARA WAZE E GOOGLE MAPS */}
+            {/* BOTÕES DE ATALHO DE 1 CLIQUE COM PERSISTÊNCIA DE GPS GARANTIDA */}
             <div className="grid grid-cols-2 gap-2">
               <button
                 onClick={openInWaze}
                 disabled={!destCoords}
                 className="bg-sky-600 hover:bg-sky-500 text-white font-extrabold text-xs py-2 px-3 rounded-xl transition-all flex items-center justify-center gap-1.5 shadow-md disabled:opacity-50"
-                title="Abrir navegação no Waze com alertas de radar e trânsito"
+                title="Abrir no Waze mantendo o rastreamento ativo na loja"
               >
                 <span>Abrir no Waze 🚗</span>
                 <ExternalLink className="h-3.5 w-3.5" />
@@ -1256,7 +1260,7 @@ export default function RiderNavigationMap({
                 onClick={openInGoogleMaps}
                 disabled={!destCoords}
                 className="bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs py-2 px-3 rounded-xl transition-all flex items-center justify-center gap-1.5 shadow-md disabled:opacity-50"
-                title="Abrir navegação no Google Maps"
+                title="Abrir no Google Maps mantendo o rastreamento ativo na loja"
               >
                 <span>Google Maps 🗺️</span>
                 <ExternalLink className="h-3.5 w-3.5" />
