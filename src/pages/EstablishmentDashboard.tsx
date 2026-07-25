@@ -172,22 +172,26 @@ export default function EstablishmentDashboard() {
     setTodaySchedules(estSchedules);
 
     const allUsers = db.getUsers();
-    
-    const riders = allUsers.filter(u => 
-      u.role === 'rider' && u.active && (
-        u.establishmentId === currentEst?.id ||
-        estSchedules.some(s => {
-          if (s.riderId === u.id) return true;
-          const riderOfSch = db.resolveUser(s.riderId);
-          return riderOfSch && riderOfSch.email.toLowerCase() === u.email.toLowerCase();
-        })
-      )
-    );
-    setScheduledRiders(riders);
-
     const allDeliveries = db.getDeliveries();
     const estDeliveriesToday = allDeliveries.filter(d => isDeliveryForCurrentEst(d, currentEstName, matchingEstIds) && d.date === todayStr);
     setTodayDeliveries(estDeliveriesToday);
+
+    // Seleção de motoboys vinculados ou ativos para exibição imediata
+    let riders = allUsers.filter(u => 
+      u.role === 'rider' && u.active && (
+        u.establishmentId === currentEst?.id ||
+        estSchedules.some(s => s.riderId === u.id || db.resolveUser(s.riderId)?.email.toLowerCase() === u.email.toLowerCase()) ||
+        allSchedules.some(s => isScheduleForCurrentEst(s, currentEstName, matchingEstIds) && (s.riderId === u.id || db.resolveUser(s.riderId)?.email.toLowerCase() === u.email.toLowerCase())) ||
+        estDeliveriesToday.some(d => d.riderId === u.id)
+      )
+    );
+
+    // Fallback: Caso nenhum motoboy tenha escala prévia hoje, exibe todos os motoboys ativos no sistema
+    if (riders.length === 0) {
+      riders = allUsers.filter(u => u.role === 'rider' && u.active);
+    }
+
+    setScheduledRiders(riders);
 
     const locations = db.getRiderLocations();
     setRiderLocations(locations);
@@ -350,7 +354,7 @@ export default function EstablishmentDashboard() {
     };
   }, [establishment?.id, serializedAddress]);
 
-  // Atualização em Tempo Real com FILTRO ESTRITO sem desmontar o mapa
+  // Atualização em Tempo Real com tolerância expandida para exibição de motoboys online
   useEffect(() => {
     const currentMap = mapRef.current;
     if (!currentMap) return;
@@ -358,16 +362,19 @@ export default function EstablishmentDashboard() {
     const allUsers = db.getUsers();
     const now = Date.now();
     
-    // LIMITE DE TEMPO ONLINE: 45 segundos sem atualização = OFFLINE
-    const ONLINE_THRESHOLD_MS = 45000;
+    // LIMITE DE TEMPO ONLINE COM TOLERÂNCIA: 10 minutos (previne descarte por pequenas diferenças de relógio)
+    const ONLINE_THRESHOLD_MS = 10 * 60 * 1000;
 
     const activeRiderIdsOnMap = new Set<string>();
 
     riderLocations.forEach(loc => {
-      const lastUpdateMs = loc.updatedAt ? new Date(loc.updatedAt).getTime() : 0;
-      const isOnline = (now - lastUpdateMs) < ONLINE_THRESHOLD_MS;
+      if (!loc.lat || !loc.lng || isNaN(loc.lat) || isNaN(loc.lng)) return;
 
-      // 1. SE O MOTOBOY ESTÁ OFFLINE HÁ MAIS DE 45 SEG, REMOVER IMEDIATAMENTE
+      const lastUpdateMs = loc.updatedAt ? new Date(loc.updatedAt).getTime() : 0;
+      const timeDiff = Math.abs(now - lastUpdateMs);
+      const isOnline = lastUpdateMs > 0 && timeDiff < ONLINE_THRESHOLD_MS;
+
+      // 1. Descartar apenas se o motoboy estiver completamente inativo há mais de 10 minutos
       if (!isOnline) {
         if (markersRef.current[loc.riderId]) {
           currentMap.removeLayer(markersRef.current[loc.riderId]);
@@ -376,15 +383,14 @@ export default function EstablishmentDashboard() {
         return;
       }
 
-      // 2. VERIFICAR SE O MOTOBOY REALMENTE PERTENCE OU TEM ESCALA/CORRIDA NESTA LOJA HOJE
+      // 2. Verificar se o motoboy é um entregador ativo
       const isRiderBelongsToEst = scheduledRiders.some(r => {
         if (r.id === loc.riderId) return true;
         if (r.name.toLowerCase().trim() === loc.riderName.toLowerCase().trim()) return true;
         const locUser = allUsers.find(u => u.id === loc.riderId);
         return locUser && locUser.email.toLowerCase() === r.email.toLowerCase();
-      }) || todayDeliveries.some(d => d.riderId === loc.riderId);
+      }) || allUsers.some(u => u.id === loc.riderId && u.role === 'rider' && u.active);
 
-      // Se não for motoboy desta loja, remover do mapa imediatamente
       if (!isRiderBelongsToEst) {
         if (markersRef.current[loc.riderId]) {
           currentMap.removeLayer(markersRef.current[loc.riderId]);
@@ -454,7 +460,7 @@ export default function EstablishmentDashboard() {
       }
     });
 
-    // LIMPEZA FINAL: Remover marcadores de motoboys deslogados ou fora do escopo
+    // LIMPEZA FINAL
     Object.keys(markersRef.current).forEach(rId => {
       if (!activeRiderIdsOnMap.has(rId)) {
         currentMap.removeLayer(markersRef.current[rId]);
@@ -473,17 +479,17 @@ export default function EstablishmentDashboard() {
     if (!currentMap) return;
 
     const now = Date.now();
-    const ONLINE_THRESHOLD_MS = 45000;
+    const ONLINE_THRESHOLD_MS = 10 * 60 * 1000;
 
     const points: L.LatLngExpression[] = [];
     if (estCoords) points.push([estCoords.lat, estCoords.lng]);
 
     riderLocations.forEach(loc => {
+      if (!loc.lat || !loc.lng || isNaN(loc.lat) || isNaN(loc.lng)) return;
       const lastUpdateMs = loc.updatedAt ? new Date(loc.updatedAt).getTime() : 0;
-      const isOnline = (now - lastUpdateMs) < ONLINE_THRESHOLD_MS;
-      const isRiderBelongsToEst = scheduledRiders.some(r => r.id === loc.riderId || r.name.toLowerCase().trim() === loc.riderName.toLowerCase().trim());
+      const isOnline = lastUpdateMs > 0 && Math.abs(now - lastUpdateMs) < ONLINE_THRESHOLD_MS;
 
-      if (isOnline && isRiderBelongsToEst) {
+      if (isOnline) {
         points.push([loc.lat, loc.lng]);
       }
     });
@@ -614,7 +620,7 @@ export default function EstablishmentDashboard() {
   const onlineRidersCount = scheduledRiders.filter(r => {
     return riderLocations.some(l => {
       const isSameRider = l.riderId === r.id || l.riderName.toLowerCase().trim() === r.name.toLowerCase().trim();
-      const isRecent = Date.now() - new Date(l.updatedAt).getTime() < 45000;
+      const isRecent = Date.now() - new Date(l.updatedAt).getTime() < (10 * 60 * 1000);
       return isSameRider && isRecent;
     });
   }).length;
@@ -649,7 +655,7 @@ export default function EstablishmentDashboard() {
                 <Users className="h-6 w-6" />
               </div>
               <div>
-                <p className="text-xs text-slate-500 font-medium uppercase">Motoboys Escalados</p>
+                <p className="text-xs text-slate-500 font-medium uppercase">Motoboys Ativos</p>
                 <p className="text-2xl font-bold text-slate-800">{scheduledRiders.length}</p>
               </div>
             </div>
@@ -681,12 +687,12 @@ export default function EstablishmentDashboard() {
             <div className="flex justify-between items-center">
               <h2 className="text-lg font-bold text-slate-800 flex items-center space-x-2">
                 <Users className="h-5 w-5 text-indigo-600" />
-                <span>Motoboys Escalados Hoje</span>
+                <span>Motoboys do Estabelecimento</span>
               </h2>
               <button
                 onClick={() => {
                   if (scheduledRiders.length === 0) {
-                    alert('Não há motoboys escalados para hoje.');
+                    alert('Não há motoboys ativos cadastrados no sistema.');
                     return;
                   }
                   setEditingDelivery(null);
@@ -702,7 +708,7 @@ export default function EstablishmentDashboard() {
 
             {scheduledRiders.length === 0 ? (
               <div className="text-center py-8 text-slate-400 text-sm">
-                Nenhum motoboy escalado para hoje. Fale com o administrador para criar escalas.
+                Nenhum motoboy ativo no momento.
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -711,7 +717,7 @@ export default function EstablishmentDashboard() {
                   const total = riderDeliveries.reduce((sum, d) => sum + Number(d.value || 0), 0);
                   const isOnline = riderLocations.some(l => {
                     const isSameRider = l.riderId === rider.id || l.riderName.toLowerCase().trim() === rider.name.toLowerCase().trim();
-                    const isRecent = Date.now() - new Date(l.updatedAt).getTime() < 45000;
+                    const isRecent = Date.now() - new Date(l.updatedAt).getTime() < (10 * 60 * 1000);
                     return isSameRider && isRecent;
                   });
                   const riderSchedule = todaySchedules.find(s => s.riderId === rider.id);
@@ -855,7 +861,7 @@ export default function EstablishmentDashboard() {
                   <span>Central de Rastreamento</span>
                 </h2>
                 <p className="text-[11px] text-slate-500 mt-0.5">
-                  {onlineRidersCount} de {scheduledRiders.length} motoboy(s) online
+                  {onlineRidersCount} motoboy(s) ativo(s) com sinal GPS
                 </p>
               </div>
 

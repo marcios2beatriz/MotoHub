@@ -95,6 +95,7 @@ class HighPrecisionGpsTracker {
   private fallbackTimer: any = null;
   private wakeLock: any = null;
   private audioKeepAlive: HTMLAudioElement | null = null;
+  private audioContext: AudioContext | null = null;
 
   private lastLocation: GpsLocation | null = null;
   private listeners: Set<(state: GpsState) => void> = new Set();
@@ -137,8 +138,6 @@ class HighPrecisionGpsTracker {
       return;
     }
 
-    this.stopTracking();
-
     const handleSuccess = (pos: GeolocationPosition) => {
       const lat = pos.coords.latitude;
       const lng = pos.coords.longitude;
@@ -179,7 +178,7 @@ class HighPrecisionGpsTracker {
         errorMessage: null
       };
 
-      // Transmitir imediatamente para a tabela de acompanhamento do Estabelecimento se for motoboy
+      // Transmitir imediatamente para o estabelecimento se for motoboy
       const currentUser = db.getCurrentUser();
       if (currentUser && currentUser.role === 'rider') {
         db.updateRiderLocation(currentUser.id, currentUser.name, lat, lng);
@@ -223,26 +222,30 @@ class HighPrecisionGpsTracker {
       this.notify();
     };
 
-    const highAccOptions: PositionOptions = { enableHighAccuracy: true, timeout: 4000, maximumAge: 0 };
+    const highAccOptions: PositionOptions = { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 };
     navigator.geolocation.getCurrentPosition(handleSuccess, handleError, highAccOptions);
 
-    this.watchId = navigator.geolocation.watchPosition(
-      handleSuccess, 
-      () => {
-        navigator.geolocation.getCurrentPosition(handleSuccess, () => {}, { enableHighAccuracy: false, timeout: 10000 });
-      }, 
-      { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
-    );
-
-    this.fallbackTimer = setInterval(() => {
-      navigator.geolocation.getCurrentPosition(
+    if (this.watchId === null) {
+      this.watchId = navigator.geolocation.watchPosition(
         handleSuccess, 
         () => {
-          navigator.geolocation.getCurrentPosition(handleSuccess, () => {}, { enableHighAccuracy: false });
+          navigator.geolocation.getCurrentPosition(handleSuccess, () => {}, { enableHighAccuracy: false, timeout: 10000 });
         }, 
-        { enableHighAccuracy: false, timeout: 5000 }
+        { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
       );
-    }, 2000);
+    }
+
+    if (!this.fallbackTimer) {
+      this.fallbackTimer = setInterval(() => {
+        navigator.geolocation.getCurrentPosition(
+          handleSuccess, 
+          () => {
+            navigator.geolocation.getCurrentPosition(handleSuccess, () => {}, { enableHighAccuracy: false });
+          }, 
+          { enableHighAccuracy: false, timeout: 5000 }
+        );
+      }, 2500);
+    }
   }
 
   public requestManualPermission() {
@@ -279,6 +282,7 @@ class HighPrecisionGpsTracker {
 
   private enableAudioKeepAlive() {
     try {
+      // 1. Áudio HTML5 Silencioso
       if (!this.audioKeepAlive) {
         const audio = document.createElement('audio');
         audio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==';
@@ -287,6 +291,17 @@ class HighPrecisionGpsTracker {
         this.audioKeepAlive = audio;
       }
       this.audioKeepAlive.play().catch(() => {});
+
+      // 2. AudioContext sintetizado
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioCtx) {
+        if (!this.audioContext) {
+          this.audioContext = new AudioCtx();
+        }
+        if (this.audioContext.state === 'suspended') {
+          this.audioContext.resume();
+        }
+      }
     } catch (e) {}
   }
 
