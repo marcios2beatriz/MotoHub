@@ -27,8 +27,7 @@ import {
   Building2,
   Store,
   Mic,
-  MicOff,
-  Navigation2
+  MicOff
 } from 'lucide-react';
 import L from 'leaflet';
 import { gpsTracker, GpsState, isPointOffRoute } from '../utils/gpsTracker';
@@ -62,7 +61,6 @@ interface CustomSearchResult {
 }
 
 type MapProviderType = 'google_roadmap' | 'google_satellite' | 'google_terrain' | 'osm';
-type RotationMode = 'waze' | 'north' | 'manual';
 
 export default function RiderNavigationMap({ 
   currentLocation: externalLocation, 
@@ -71,7 +69,6 @@ export default function RiderNavigationMap({
   defaultFullscreen = false 
 }: RiderNavigationMapProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
-  const mapRotatorRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const tileLayerRef = useRef<L.TileLayer | null>(null);
   const trafficLayerRef = useRef<L.TileLayer | null>(null);
@@ -82,12 +79,6 @@ export default function RiderNavigationMap({
   const initialCenterDoneRef = useRef(false);
   const lastFetchedDestRef = useRef<string>('');
   const searchTimeoutRef = useRef<any>(null);
-
-  // Estados de rotação e bússola Waze
-  const [rotationMode, setRotationMode] = useState<RotationMode>('waze');
-  const [mapDegrees, setMapDegrees] = useState<number>(0);
-  const touchStartAngleRef = useRef<number | null>(null);
-  const initialMapDegreeOnTouchRef = useRef<number>(0);
 
   const [gpsState, setGpsState] = useState<GpsState>({
     currentLocation: null,
@@ -108,6 +99,7 @@ export default function RiderNavigationMap({
   const [isSearching, setIsSearching] = useState(false);
   const [isListeningVoice, setIsListeningVoice] = useState(false);
 
+  // ESTADO PARA O NÚMERO DA RESIDÊNCIA (QUANDO É UMA RUA)
   const [selectedStreetResult, setSelectedStreetResult] = useState<CustomSearchResult | null>(null);
   const [houseNumberInput, setHouseNumberInput] = useState('');
 
@@ -160,61 +152,6 @@ export default function RiderNavigationMap({
       setActiveDestination(initialDestination);
     }
   }, [initialDestination]);
-
-  // Atualizar ângulo de rotação em tempo real estilo WAZE (Heading Up)
-  useEffect(() => {
-    if (rotationMode === 'waze' && activePos && activePos.heading !== undefined) {
-      setMapDegrees(activePos.heading);
-    } else if (rotationMode === 'north') {
-      setMapDegrees(0);
-    }
-  }, [activePos?.heading, rotationMode]);
-
-  // Gesto Multi-touch com 2 dedos na tela para girar o mapa livremente
-  useEffect(() => {
-    const rotator = mapRotatorRef.current;
-    if (!rotator) return;
-
-    const getTouchAngle = (t1: Touch, t2: Touch) => {
-      const dx = t2.clientX - t1.clientX;
-      const dy = t2.clientY - t1.clientY;
-      return Math.atan2(dy, dx) * (180 / Math.PI);
-    };
-
-    const handleTouchStart = (e: TouchEvent) => {
-      if (e.touches.length === 2) {
-        touchStartAngleRef.current = getTouchAngle(e.touches[0], e.touches[1]);
-        initialMapDegreeOnTouchRef.current = mapDegrees;
-        setRotationMode('manual');
-      }
-    };
-
-    const handleTouchMove = (e: TouchEvent) => {
-      if (e.touches.length === 2 && touchStartAngleRef.current !== null) {
-        const currentAngle = getTouchAngle(e.touches[0], e.touches[1]);
-        const deltaAngle = currentAngle - touchStartAngleRef.current;
-        let newDegrees = (initialMapDegreeOnTouchRef.current - deltaAngle) % 360;
-        if (newDegrees < 0) newDegrees += 360;
-        setMapDegrees(Math.round(newDegrees));
-      }
-    };
-
-    const handleTouchEnd = (e: TouchEvent) => {
-      if (e.touches.length < 2) {
-        touchStartAngleRef.current = null;
-      }
-    };
-
-    rotator.addEventListener('touchstart', handleTouchStart, { passive: true });
-    rotator.addEventListener('touchmove', handleTouchMove, { passive: true });
-    rotator.addEventListener('touchend', handleTouchEnd, { passive: true });
-
-    return () => {
-      rotator.removeEventListener('touchstart', handleTouchStart);
-      rotator.removeEventListener('touchmove', handleTouchMove);
-      rotator.removeEventListener('touchend', handleTouchEnd);
-    };
-  }, [mapDegrees]);
 
   const speakInstruction = (text: string) => {
     if (!voiceEnabled || !('speechSynthesis' in window)) return;
@@ -352,21 +289,19 @@ export default function RiderNavigationMap({
     setShowTraffic(traffic);
   };
 
-  // Renderização do Ponto do Motoboy no Mapa com contra-rotação
+  // Renderização do Ponto do Motoboy no Mapa
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !activePos) return;
 
-    const rawHeading = activePos.heading || 0;
-    // Se o mapa está girando no modo Waze, o pino fica fixo apontando para cima (0deg) na tela!
-    const displayMarkerRotation = rotationMode === 'waze' ? 0 : rawHeading;
-
+    const heading = activePos.heading || 0;
+    
     const riderIcon = L.divIcon({
       html: `
         <div style="position: relative; width: 60px; height: 60px; display: flex; align-items: center; justify-content: center;">
           <div style="position: absolute; width: 52px; height: 52px; border-radius: 50%; background: rgba(37,99,235,0.35); border: 2.5px solid #2563eb;"></div>
           <div style="
-            transform: rotate(${displayMarkerRotation}deg);
+            transform: rotate(${heading}deg);
             transition: transform 0.2s ease-out;
             background: #1d4ed8;
             color: white;
@@ -418,7 +353,7 @@ export default function RiderNavigationMap({
         speakInstruction('Você saiu da rota. Recalculando percurso...');
       }
     }
-  }, [activePos?.lat, activePos?.lng, activePos?.heading, autoFollow, isNavigating, routeCoordinates, rotationMode]);
+  }, [activePos?.lat, activePos?.lng, activePos?.heading, autoFollow, isNavigating, routeCoordinates]);
 
   // Traçar Rota
   useEffect(() => {
@@ -606,8 +541,10 @@ export default function RiderNavigationMap({
           const lat = activePos ? activePos.lat : -7.2247;
           const lng = activePos ? activePos.lng : -35.8878;
 
+          // 1. Photon API (Mecanismo geográfico por proximidade)
           const photonUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(rawText)}&lat=${lat}&lon=${lng}&limit=8`;
           
+          // 2. Nominatim com Bias
           const nominatimQuery = rawText.toLowerCase().includes('campina grande') 
             ? rawText 
             : `${rawText}, Campina Grande - PB`;
@@ -624,7 +561,7 @@ export default function RiderNavigationMap({
           if (photonRes && photonRes.features) {
             photonRes.features.forEach((feat: any) => {
               const props = feat.properties;
-              const coords = feat.geometry.coordinates;
+              const coords = feat.geometry.coordinates; // [lon, lat]
               if (!coords || coords.length < 2) return;
 
               const title = props.name || props.street || 'Local';
@@ -711,6 +648,7 @@ export default function RiderNavigationMap({
   };
 
   const handleSelectSearchResult = (result: CustomSearchResult) => {
+    // Se a busca for uma rua sem número definido, abre a caixinha solicitando o número
     const hasNumberInTitle = /\d+/.test(result.title) || /\d+/.test(searchQuery);
 
     if (result.type === 'street' && !hasNumberInTitle) {
@@ -783,7 +721,6 @@ export default function RiderNavigationMap({
 
     if (nextState) {
       setAutoFollow(true);
-      setRotationMode('waze');
       if (steps.length > 0) {
         speakInstruction(`Iniciando navegação para ${activeDestination?.name || 'seu destino'}. ${steps[0].instruction}`);
       }
@@ -797,17 +734,8 @@ export default function RiderNavigationMap({
       mapRef.current.invalidateSize();
       mapRef.current.setView([activePos.lat, activePos.lng], NAV_ZOOM_LEVEL, { animate: true });
       setAutoFollow(true);
-      setRotationMode('waze');
     } else {
       gpsTracker.requestManualPermission();
-    }
-  };
-
-  const toggleRotationMode = () => {
-    if (rotationMode === 'waze') {
-      setRotationMode('north');
-    } else {
-      setRotationMode('waze');
     }
   };
 
@@ -844,7 +772,7 @@ export default function RiderNavigationMap({
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5 flex-wrap">
               <span className="bg-emerald-800/80 text-emerald-100 text-[9px] font-black uppercase px-2 py-0.5 rounded-full tracking-wider">
-                {isNavigating ? 'Navegação Ativa' : 'GPS Modo Waze'}
+                {isNavigating ? 'Navegação Ativa' : 'GPS em Tempo Real'}
               </span>
               {activeStep.distance > 0 && (
                 <span className="text-[11px] font-extrabold text-emerald-200">
@@ -1121,19 +1049,9 @@ export default function RiderNavigationMap({
         )}
       </div>
 
-      {/* ENVOLTÓRIO DO MAPA COM ROTAÇÃO ESTILO WAZE / TOUCH 2 DEDOS */}
-      <div className="relative flex-1 min-h-[220px] overflow-hidden bg-slate-950">
-        <div 
-          ref={mapRotatorRef}
-          style={{
-            transform: `rotate(-${mapDegrees}deg)`,
-            transformOrigin: 'center center',
-            transition: rotationMode === 'waze' ? 'transform 0.4s ease-out' : 'none'
-          }}
-          className="absolute -inset-20 z-10"
-        >
-          <div ref={mapContainerRef} className="w-full h-full" />
-        </div>
+      {/* MAPA INTERATIVO */}
+      <div className="relative flex-1 min-h-[220px]">
+        <div ref={mapContainerRef} className="absolute inset-0 z-10 bg-slate-950" />
 
         {!activePos && (
           <div className="absolute inset-0 z-30 bg-slate-950/85 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center space-y-3">
@@ -1166,24 +1084,8 @@ export default function RiderNavigationMap({
           </div>
         )}
 
-        {/* CONTROLES DE ZOOM, BÚSSOLA WAZE E RECENTRALIZAR CÂMERA */}
+        {/* CONTROLES DE ZOOM E RECENTRALIZAR CÂMERA */}
         <div className="absolute bottom-4 right-3 z-20 flex flex-col space-y-1.5">
-          {/* BOTÃO BÚSSOLA WAZE / MODO DE DIREÇÃO */}
-          <button
-            onClick={toggleRotationMode}
-            className={`p-2.5 rounded-xl shadow-xl border transition-all flex items-center justify-center font-bold ${
-              rotationMode === 'waze'
-                ? 'bg-emerald-600 text-white border-emerald-400 shadow-emerald-900/50'
-                : 'bg-slate-900/90 text-slate-300 border-slate-700'
-            }`}
-            title={rotationMode === 'waze' ? 'Modo Waze: Mapa acompanha a rota da moto' : 'Clique para atuar Modo Waze'}
-          >
-            <Navigation2 
-              className="h-4 w-4 transition-transform duration-300" 
-              style={{ transform: `rotate(${mapDegrees}deg)` }} 
-            />
-          </button>
-
           <button
             onClick={() => {
               if (mapRef.current) mapRef.current.zoomIn();
@@ -1207,11 +1109,11 @@ export default function RiderNavigationMap({
           <button
             onClick={handleRecenter}
             className={`p-2.5 rounded-xl shadow-xl border transition-all flex items-center justify-center gap-1 font-bold text-xs ${
-              autoFollow && rotationMode === 'waze'
+              autoFollow 
                 ? 'bg-indigo-600 text-white border-indigo-500' 
                 : 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-500 animate-pulse'
             }`}
-            title="Recentralizar na minha localização exata e alinhar visão Waze"
+            title="Recentralizar na minha localização exata"
           >
             <RotateCcw className="h-4 w-4" />
           </button>
@@ -1276,9 +1178,9 @@ export default function RiderNavigationMap({
           </div>
 
           <div className="bg-purple-500/10 border border-purple-500/20 p-1.5 rounded-lg">
-            <p className="text-[9px] uppercase font-extrabold text-purple-400">Visão GPS</p>
-            <p className="text-xs font-bold text-purple-300 mt-0.5 truncate uppercase">
-              {rotationMode === 'waze' ? 'Modo Waze' : rotationMode === 'north' ? 'Norte Fixado' : 'Giro Manual'}
+            <p className="text-[9px] uppercase font-extrabold text-purple-400">Precisão GPS</p>
+            <p className="text-xs font-bold text-purple-300 mt-0.5 truncate">
+              {activePos ? `±${activePos.accuracy}m` : 'Buscando...'}
             </p>
           </div>
         </div>
