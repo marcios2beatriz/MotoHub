@@ -33,10 +33,22 @@ export async function geocodeAddress(address: {
 
   if (!street && !zipCode) return null;
 
-  // 1. Busca Direta via Nominatim OpenStreetMap (Endereço Completo com Número)
+  const fullQuery = `${street} ${number}, ${neighborhood}, ${city} - ${state}, Brasil`.replace(/\s+/g, ' ').trim();
+
+  // 1. Busca no Esri ArcGIS World Geocoding (Extremamente preciso para números e condomínios no Brasil)
+  try {
+    const esriUrl = `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?singleLine=${encodeURIComponent(fullQuery)}&f=json&maxLocations=1`;
+    const esriRes = await fetch(esriUrl);
+    const esriData = await esriRes.json();
+    if (esriData && esriData.candidates && esriData.candidates.length > 0) {
+      const loc = esriData.candidates[0].location;
+      return { lat: loc.y, lng: loc.x };
+    }
+  } catch (e) {}
+
+  // 2. Busca Direta via Nominatim OpenStreetMap
   if (street) {
     try {
-      const fullQuery = `${street} ${number}, ${neighborhood}, ${city} - ${state}, Brasil`.replace(/\s+/g, ' ').trim();
       const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(fullQuery)}&limit=1`);
       const data = await res.json();
       if (data && data.length > 0) {
@@ -53,7 +65,7 @@ export async function geocodeAddress(address: {
     } catch (e) {}
   }
 
-  // 2. Busca via Photon API (Suporta locais comerciais e condomínios)
+  // 3. Busca via Photon API (Suporta locais comerciais e condomínios)
   if (street) {
     try {
       const photonQuery = `${street} ${number}, ${city}`.replace(/\s+/g, ' ').trim();
@@ -66,7 +78,7 @@ export async function geocodeAddress(address: {
     } catch (e) {}
   }
 
-  // 3. Geocodificação por CEP via ViaCEP + Nominatim
+  // 4. Geocodificação por CEP via ViaCEP + Nominatim
   if (zipCode) {
     const cleanCep = zipCode.replace(/\D/g, '');
     if (cleanCep.length === 8) {

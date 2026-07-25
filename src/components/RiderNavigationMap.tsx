@@ -28,7 +28,7 @@ import {
   Store,
   Mic,
   MicOff,
-  Navigation2
+  ExternalLink
 } from 'lucide-react';
 import L from 'leaflet';
 import { gpsTracker, GpsState, isPointOffRoute } from '../utils/gpsTracker';
@@ -59,10 +59,10 @@ interface CustomSearchResult {
   lat: number;
   lng: number;
   type: 'poi' | 'street' | 'condo';
+  source?: 'esri' | 'photon' | 'osm';
 }
 
 type MapProviderType = 'google_roadmap' | 'google_satellite' | 'google_terrain' | 'osm';
-type RotationMode = 'waze' | 'north' | 'manual';
 
 export default function RiderNavigationMap({ 
   currentLocation: externalLocation, 
@@ -71,7 +71,6 @@ export default function RiderNavigationMap({
   defaultFullscreen = false 
 }: RiderNavigationMapProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
-  const mapRotatorRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const tileLayerRef = useRef<L.TileLayer | null>(null);
   const trafficLayerRef = useRef<L.TileLayer | null>(null);
@@ -82,12 +81,6 @@ export default function RiderNavigationMap({
   const initialCenterDoneRef = useRef(false);
   const lastFetchedDestRef = useRef<string>('');
   const searchTimeoutRef = useRef<any>(null);
-
-  // Estados de rotação e bússola Waze
-  const [rotationMode, setRotationMode] = useState<RotationMode>('waze');
-  const [mapDegrees, setMapDegrees] = useState<number>(0);
-  const touchStartAngleRef = useRef<number | null>(null);
-  const initialMapDegreeOnTouchRef = useRef<number>(0);
 
   const [gpsState, setGpsState] = useState<GpsState>({
     currentLocation: null,
@@ -108,6 +101,7 @@ export default function RiderNavigationMap({
   const [isSearching, setIsSearching] = useState(false);
   const [isListeningVoice, setIsListeningVoice] = useState(false);
 
+  // ESTADO PARA O NÚMERO DA RESIDÊNCIA (QUANDO É UMA RUA)
   const [selectedStreetResult, setSelectedStreetResult] = useState<CustomSearchResult | null>(null);
   const [houseNumberInput, setHouseNumberInput] = useState('');
 
@@ -161,61 +155,6 @@ export default function RiderNavigationMap({
     }
   }, [initialDestination]);
 
-  // Atualizar ângulo de rotação em tempo real estilo WAZE (Heading Up)
-  useEffect(() => {
-    if (rotationMode === 'waze' && activePos && activePos.heading !== undefined) {
-      setMapDegrees(activePos.heading);
-    } else if (rotationMode === 'north') {
-      setMapDegrees(0);
-    }
-  }, [activePos?.heading, rotationMode]);
-
-  // Gesto Multi-touch com 2 dedos na tela para girar o mapa livremente
-  useEffect(() => {
-    const rotator = mapRotatorRef.current;
-    if (!rotator) return;
-
-    const getTouchAngle = (t1: Touch, t2: Touch) => {
-      const dx = t2.clientX - t1.clientX;
-      const dy = t2.clientY - t1.clientY;
-      return Math.atan2(dy, dx) * (180 / Math.PI);
-    };
-
-    const handleTouchStart = (e: TouchEvent) => {
-      if (e.touches.length === 2) {
-        touchStartAngleRef.current = getTouchAngle(e.touches[0], e.touches[1]);
-        initialMapDegreeOnTouchRef.current = mapDegrees;
-        setRotationMode('manual');
-      }
-    };
-
-    const handleTouchMove = (e: TouchEvent) => {
-      if (e.touches.length === 2 && touchStartAngleRef.current !== null) {
-        const currentAngle = getTouchAngle(e.touches[0], e.touches[1]);
-        const deltaAngle = currentAngle - touchStartAngleRef.current;
-        let newDegrees = (initialMapDegreeOnTouchRef.current - deltaAngle) % 360;
-        if (newDegrees < 0) newDegrees += 360;
-        setMapDegrees(Math.round(newDegrees));
-      }
-    };
-
-    const handleTouchEnd = (e: TouchEvent) => {
-      if (e.touches.length < 2) {
-        touchStartAngleRef.current = null;
-      }
-    };
-
-    rotator.addEventListener('touchstart', handleTouchStart, { passive: true });
-    rotator.addEventListener('touchmove', handleTouchMove, { passive: true });
-    rotator.addEventListener('touchend', handleTouchEnd, { passive: true });
-
-    return () => {
-      rotator.removeEventListener('touchstart', handleTouchStart);
-      rotator.removeEventListener('touchmove', handleTouchMove);
-      rotator.removeEventListener('touchend', handleTouchEnd);
-    };
-  }, [mapDegrees]);
-
   const speakInstruction = (text: string) => {
     if (!voiceEnabled || !('speechSynthesis' in window)) return;
     if (lastSpokenInstructionRef.current === text) return;
@@ -249,13 +188,26 @@ export default function RiderNavigationMap({
           ? activeDestination.addressText 
           : `${activeDestination.addressText}, Campina Grande - PB, Brasil`;
 
-        const res = await fetch(
-          `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(fullQuery)}&limit=1`
-        );
-        const data = await res.json();
-        if (data && data.length > 0) {
-          foundLat = parseFloat(data[0].lat);
-          foundLng = parseFloat(data[0].lon);
+        // 1. Tentar Esri ArcGIS World Geocoding
+        const esriUrl = `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?singleLine=${encodeURIComponent(fullQuery)}&f=json&maxLocations=1`;
+        const esriRes = await fetch(esriUrl);
+        const esriData = await esriRes.json();
+        if (esriData && esriData.candidates && esriData.candidates.length > 0) {
+          const loc = esriData.candidates[0].location;
+          foundLat = loc.y;
+          foundLng = loc.x;
+        }
+
+        // 2. Fallback Nominatim
+        if (!foundLat || !foundLng) {
+          const res = await fetch(
+            `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(fullQuery)}&limit=1`
+          );
+          const data = await res.json();
+          if (data && data.length > 0) {
+            foundLat = parseFloat(data[0].lat);
+            foundLng = parseFloat(data[0].lon);
+          }
         }
       } catch (e) {}
 
@@ -352,21 +304,19 @@ export default function RiderNavigationMap({
     setShowTraffic(traffic);
   };
 
-  // Renderização do Ponto do Motoboy no Mapa com contra-rotação
+  // Renderização do Ponto do Motoboy no Mapa
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !activePos) return;
 
-    const rawHeading = activePos.heading || 0;
-    // Se o mapa está girando no modo Waze, o pino fica fixo apontando para cima (0deg) na tela!
-    const displayMarkerRotation = rotationMode === 'waze' ? 0 : rawHeading;
-
+    const heading = activePos.heading || 0;
+    
     const riderIcon = L.divIcon({
       html: `
         <div style="position: relative; width: 60px; height: 60px; display: flex; align-items: center; justify-content: center;">
           <div style="position: absolute; width: 52px; height: 52px; border-radius: 50%; background: rgba(37,99,235,0.35); border: 2.5px solid #2563eb;"></div>
           <div style="
-            transform: rotate(${displayMarkerRotation}deg);
+            transform: rotate(${heading}deg);
             transition: transform 0.2s ease-out;
             background: #1d4ed8;
             color: white;
@@ -418,7 +368,7 @@ export default function RiderNavigationMap({
         speakInstruction('Você saiu da rota. Recalculando percurso...');
       }
     }
-  }, [activePos?.lat, activePos?.lng, activePos?.heading, autoFollow, isNavigating, routeCoordinates, rotationMode]);
+  }, [activePos?.lat, activePos?.lng, activePos?.heading, autoFollow, isNavigating, routeCoordinates]);
 
   // Traçar Rota
   useEffect(() => {
@@ -589,7 +539,7 @@ export default function RiderNavigationMap({
     }
   };
 
-  // MOTOR DE BUSCA
+  // MOTOR DE BUSCA MULTISSISTEMAS (ESRI ARCGIS + PHOTON + NOMINATIM)
   const handleSearchInput = (value: string) => {
     setSearchQuery(value);
     
@@ -606,14 +556,20 @@ export default function RiderNavigationMap({
           const lat = activePos ? activePos.lat : -7.2247;
           const lng = activePos ? activePos.lng : -35.8878;
 
-          const photonUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(rawText)}&lat=${lat}&lon=${lng}&limit=8`;
-          
-          const nominatimQuery = rawText.toLowerCase().includes('campina grande') 
+          // 1. Esri World GeocodeServer (O motor do Maps/ArcGIS de maior precisão comercial e residencial)
+          const esriQuery = rawText.toLowerCase().includes('campina grande') 
             ? rawText 
             : `${rawText}, Campina Grande - PB`;
-          const nomUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(nominatimQuery)}&limit=6&viewbox=${lng-0.4},${lat+0.4},${lng+0.4},${lat-0.4}`;
+          const esriUrl = `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?singleLine=${encodeURIComponent(esriQuery)}&f=json&maxLocations=6&location=${lng},${lat}`;
 
-          const [photonRes, nomRes] = await Promise.all([
+          // 2. Photon API
+          const photonUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(rawText)}&lat=${lat}&lon=${lng}&limit=6`;
+          
+          // 3. Nominatim
+          const nomUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(esriQuery)}&limit=4&viewbox=${lng-0.4},${lat+0.4},${lng+0.4},${lat-0.4}`;
+
+          const [esriRes, photonRes, nomRes] = await Promise.all([
+            fetch(esriUrl).then(r => r.json()).catch(() => null),
             fetch(photonUrl).then(r => r.json()).catch(() => null),
             fetch(nomUrl).then(r => r.json()).catch(() => null)
           ]);
@@ -621,10 +577,47 @@ export default function RiderNavigationMap({
           const combined: CustomSearchResult[] = [];
           const seenKeys = new Set<string>();
 
+          // A. Processar resultados do Esri ArcGIS (Prioridade Máxima)
+          if (esriRes && esriRes.candidates) {
+            esriRes.candidates.forEach((cand: any) => {
+              const loc = cand.location;
+              if (!loc) return;
+
+              const key = `${loc.y.toFixed(4)},${loc.x.toFixed(4)}`;
+              const fullAddr = cand.address || 'Endereço encontrado';
+              const parts = fullAddr.split(',');
+              const title = parts[0] ? parts[0].trim() : 'Endereço';
+              const subtitle = parts.slice(1).join(',').trim();
+
+              let type: 'poi' | 'street' | 'condo' = 'street';
+              const lower = fullAddr.toLowerCase();
+              if (lower.includes('condom') || lower.includes('residencial') || lower.includes('edificio') || lower.includes('torre') || lower.includes('villas')) {
+                type = 'condo';
+              } else if (cand.attributes && (cand.attributes.Type === 'POI' || cand.attributes.Type === 'Establishment')) {
+                type = 'poi';
+              }
+
+              if (!seenKeys.has(key)) {
+                seenKeys.add(key);
+                combined.push({
+                  id: 'esri_' + Math.random(),
+                  title,
+                  subtitle: subtitle || 'Campina Grande - PB',
+                  fullAddress: fullAddr,
+                  lat: loc.y,
+                  lng: loc.x,
+                  type,
+                  source: 'esri'
+                });
+              }
+            });
+          }
+
+          // B. Processar Photon API
           if (photonRes && photonRes.features) {
             photonRes.features.forEach((feat: any) => {
               const props = feat.properties;
-              const coords = feat.geometry.coordinates;
+              const coords = feat.geometry.coordinates; // [lon, lat]
               if (!coords || coords.length < 2) return;
 
               const title = props.name || props.street || 'Local';
@@ -658,12 +651,14 @@ export default function RiderNavigationMap({
                   fullAddress: `${title}, ${subtitle}`,
                   lat: coords[1],
                   lng: coords[0],
-                  type
+                  type,
+                  source: 'photon'
                 });
               }
             });
           }
 
+          // C. Processar Nominatim OSM
           if (nomRes && Array.isArray(nomRes)) {
             nomRes.forEach((item: any) => {
               const itemLat = parseFloat(item.lat);
@@ -691,7 +686,8 @@ export default function RiderNavigationMap({
                   fullAddress: item.display_name,
                   lat: itemLat,
                   lng: itemLng,
-                  type
+                  type,
+                  source: 'osm'
                 });
               }
             });
@@ -711,9 +707,10 @@ export default function RiderNavigationMap({
   };
 
   const handleSelectSearchResult = (result: CustomSearchResult) => {
+    // Se a busca for uma rua sem número definido, abre a caixinha solicitando o número
     const hasNumberInTitle = /\d+/.test(result.title) || /\d+/.test(searchQuery);
 
-    if (result.type === 'street' && !hasNumberInTitle) {
+    if (result.type === 'street' && !hasNumberInTitle && result.source !== 'esri') {
       setSelectedStreetResult(result);
       setHouseNumberInput('');
       setSearchResults([]);
@@ -748,13 +745,22 @@ export default function RiderNavigationMap({
       setLoadingRoute(true);
       try {
         const queryWithNum = `${streetTitle}, ${num}, Campina Grande - PB, Brasil`;
-        const res = await fetch(
-          `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(queryWithNum)}&limit=1`
-        );
-        const data = await res.json();
-        if (data && data.length > 0) {
-          finalLat = parseFloat(data[0].lat);
-          finalLng = parseFloat(data[0].lon);
+        const esriUrl = `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?singleLine=${encodeURIComponent(queryWithNum)}&f=json&maxLocations=1`;
+        const esriRes = await fetch(esriUrl);
+        const esriData = await esriRes.json();
+        if (esriData && esriData.candidates && esriData.candidates.length > 0) {
+          const loc = esriData.candidates[0].location;
+          finalLat = loc.y;
+          finalLng = loc.x;
+        } else {
+          const res = await fetch(
+            `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(queryWithNum)}&limit=1`
+          );
+          const data = await res.json();
+          if (data && data.length > 0) {
+            finalLat = parseFloat(data[0].lat);
+            finalLng = parseFloat(data[0].lon);
+          }
         }
       } catch (err) {
         console.warn('Erro geocodificando número exato:', err);
@@ -783,7 +789,6 @@ export default function RiderNavigationMap({
 
     if (nextState) {
       setAutoFollow(true);
-      setRotationMode('waze');
       if (steps.length > 0) {
         speakInstruction(`Iniciando navegação para ${activeDestination?.name || 'seu destino'}. ${steps[0].instruction}`);
       }
@@ -797,18 +802,25 @@ export default function RiderNavigationMap({
       mapRef.current.invalidateSize();
       mapRef.current.setView([activePos.lat, activePos.lng], NAV_ZOOM_LEVEL, { animate: true });
       setAutoFollow(true);
-      setRotationMode('waze');
     } else {
       gpsTracker.requestManualPermission();
     }
   };
 
-  const toggleRotationMode = () => {
-    if (rotationMode === 'waze') {
-      setRotationMode('north');
-    } else {
-      setRotationMode('waze');
-    }
+  // Garante que a transmissão GPS e serviço Keep-Alive em background permaneçam rodando antes de abrir aplicativo externo
+  const openExternalGps = (url: string) => {
+    gpsTracker.startTracking();
+    window.open(url, '_blank');
+  };
+
+  const openInWaze = () => {
+    if (!destCoords) return;
+    openExternalGps(`https://waze.com/ul?ll=${destCoords.lat},${destCoords.lng}&navigate=yes`);
+  };
+
+  const openInGoogleMaps = () => {
+    if (!destCoords) return;
+    openExternalGps(`https://www.google.com/maps/dir/?api=1&destination=${destCoords.lat},${destCoords.lng}&travelmode=driving`);
   };
 
   const activeStep = steps[currentStepIndex] || {
@@ -844,7 +856,7 @@ export default function RiderNavigationMap({
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5 flex-wrap">
               <span className="bg-emerald-800/80 text-emerald-100 text-[9px] font-black uppercase px-2 py-0.5 rounded-full tracking-wider">
-                {isNavigating ? 'Navegação Ativa' : 'GPS Modo Waze'}
+                {isNavigating ? 'Navegação Ativa' : 'GPS em Tempo Real'}
               </span>
               {activeStep.distance > 0 && (
                 <span className="text-[11px] font-extrabold text-emerald-200">
@@ -1121,19 +1133,9 @@ export default function RiderNavigationMap({
         )}
       </div>
 
-      {/* ENVOLTÓRIO DO MAPA COM ROTAÇÃO ESTILO WAZE / TOUCH 2 DEDOS */}
-      <div className="relative flex-1 min-h-[220px] overflow-hidden bg-slate-950">
-        <div 
-          ref={mapRotatorRef}
-          style={{
-            transform: `rotate(-${mapDegrees}deg)`,
-            transformOrigin: 'center center',
-            transition: rotationMode === 'waze' ? 'transform 0.4s ease-out' : 'none'
-          }}
-          className="absolute -inset-20 z-10"
-        >
-          <div ref={mapContainerRef} className="w-full h-full" />
-        </div>
+      {/* MAPA INTERATIVO */}
+      <div className="relative flex-1 min-h-[220px]">
+        <div ref={mapContainerRef} className="absolute inset-0 z-10 bg-slate-950" />
 
         {!activePos && (
           <div className="absolute inset-0 z-30 bg-slate-950/85 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center space-y-3">
@@ -1166,24 +1168,8 @@ export default function RiderNavigationMap({
           </div>
         )}
 
-        {/* CONTROLES DE ZOOM, BÚSSOLA WAZE E RECENTRALIZAR CÂMERA */}
+        {/* CONTROLES DE ZOOM E RECENTRALIZAR CÂMERA */}
         <div className="absolute bottom-4 right-3 z-20 flex flex-col space-y-1.5">
-          {/* BOTÃO BÚSSOLA WAZE / MODO DE DIREÇÃO */}
-          <button
-            onClick={toggleRotationMode}
-            className={`p-2.5 rounded-xl shadow-xl border transition-all flex items-center justify-center font-bold ${
-              rotationMode === 'waze'
-                ? 'bg-emerald-600 text-white border-emerald-400 shadow-emerald-900/50'
-                : 'bg-slate-900/90 text-slate-300 border-slate-700'
-            }`}
-            title={rotationMode === 'waze' ? 'Modo Waze: Mapa acompanha a rota da moto' : 'Clique para atuar Modo Waze'}
-          >
-            <Navigation2 
-              className="h-4 w-4 transition-transform duration-300" 
-              style={{ transform: `rotate(${mapDegrees}deg)` }} 
-            />
-          </button>
-
           <button
             onClick={() => {
               if (mapRef.current) mapRef.current.zoomIn();
@@ -1207,11 +1193,11 @@ export default function RiderNavigationMap({
           <button
             onClick={handleRecenter}
             className={`p-2.5 rounded-xl shadow-xl border transition-all flex items-center justify-center gap-1 font-bold text-xs ${
-              autoFollow && rotationMode === 'waze'
+              autoFollow 
                 ? 'bg-indigo-600 text-white border-indigo-500' 
                 : 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-500 animate-pulse'
             }`}
-            title="Recentralizar na minha localização exata e alinhar visão Waze"
+            title="Recentralizar na minha localização exata"
           >
             <RotateCcw className="h-4 w-4" />
           </button>
@@ -1227,34 +1213,59 @@ export default function RiderNavigationMap({
         )}
       </div>
 
-      {/* RODAPÉ COMPACTO DO DESTINO E MÉTRICAS */}
-      <div className="bg-slate-900 border-t border-slate-800 p-2.5 z-20 space-y-1.5 flex-shrink-0">
+      {/* RODAPÉ COMPACTO DO DESTINO E ATALHOS PARA WAZE E GOOGLE MAPS */}
+      <div className="bg-slate-900 border-t border-slate-800 p-2.5 z-20 space-y-2 flex-shrink-0">
         {activeDestination && (
-          <div className="flex items-center justify-between bg-slate-800/80 p-2 rounded-lg border border-slate-700/50">
-            <div className="flex items-center space-x-2 min-w-0">
-              <div className="p-1 bg-red-500/20 text-red-400 rounded">
-                <MapPin className="h-4 w-4" />
+          <div className="space-y-2">
+            <div className="flex items-center justify-between bg-slate-800/80 p-2 rounded-lg border border-slate-700/50">
+              <div className="flex items-center space-x-2 min-w-0">
+                <div className="p-1 bg-red-500/20 text-red-400 rounded">
+                  <MapPin className="h-4 w-4" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs font-bold text-white truncate">{activeDestination.name}</p>
+                  <p className="text-[10px] text-slate-400 truncate">{activeDestination.addressText}</p>
+                </div>
               </div>
-              <div className="min-w-0">
-                <p className="text-xs font-bold text-white truncate">{activeDestination.name}</p>
-                <p className="text-[10px] text-slate-400 truncate">{activeDestination.addressText}</p>
-              </div>
+              <button
+                onClick={() => {
+                  setActiveDestination(null);
+                  setSteps([]);
+                  setRouteInfo(null);
+                  lastFetchedDestRef.current = '';
+                  if (routePolylineRef.current) {
+                    routePolylineRef.current.remove();
+                    routePolylineRef.current = null;
+                  }
+                }}
+                className="text-[10px] text-slate-400 hover:text-red-400 font-bold px-2 py-0.5 rounded hover:bg-slate-700"
+              >
+                Cancelar
+              </button>
             </div>
-            <button
-              onClick={() => {
-                setActiveDestination(null);
-                setSteps([]);
-                setRouteInfo(null);
-                lastFetchedDestRef.current = '';
-                if (routePolylineRef.current) {
-                  routePolylineRef.current.remove();
-                  routePolylineRef.current = null;
-                }
-              }}
-              className="text-[10px] text-slate-400 hover:text-red-400 font-bold px-2 py-0.5 rounded hover:bg-slate-700"
-            >
-              Cancelar
-            </button>
+
+            {/* BOTÕES DE ATALHO DE 1 CLIQUE COM PERSISTÊNCIA DE GPS GARANTIDA */}
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={openInWaze}
+                disabled={!destCoords}
+                className="bg-sky-600 hover:bg-sky-500 text-white font-extrabold text-xs py-2 px-3 rounded-xl transition-all flex items-center justify-center gap-1.5 shadow-md disabled:opacity-50"
+                title="Abrir no Waze mantendo o rastreamento ativo na loja"
+              >
+                <span>Abrir no Waze 🚗</span>
+                <ExternalLink className="h-3.5 w-3.5" />
+              </button>
+
+              <button
+                onClick={openInGoogleMaps}
+                disabled={!destCoords}
+                className="bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs py-2 px-3 rounded-xl transition-all flex items-center justify-center gap-1.5 shadow-md disabled:opacity-50"
+                title="Abrir no Google Maps mantendo o rastreamento ativo na loja"
+              >
+                <span>Google Maps 🗺️</span>
+                <ExternalLink className="h-3.5 w-3.5" />
+              </button>
+            </div>
           </div>
         )}
 
@@ -1276,9 +1287,9 @@ export default function RiderNavigationMap({
           </div>
 
           <div className="bg-purple-500/10 border border-purple-500/20 p-1.5 rounded-lg">
-            <p className="text-[9px] uppercase font-extrabold text-purple-400">Visão GPS</p>
-            <p className="text-xs font-bold text-purple-300 mt-0.5 truncate uppercase">
-              {rotationMode === 'waze' ? 'Modo Waze' : rotationMode === 'north' ? 'Norte Fixado' : 'Giro Manual'}
+            <p className="text-[9px] uppercase font-extrabold text-purple-400">Precisão GPS</p>
+            <p className="text-xs font-bold text-purple-300 mt-0.5 truncate">
+              {activePos ? `±${activePos.accuracy}m` : 'Buscando...'}
             </p>
           </div>
         </div>
