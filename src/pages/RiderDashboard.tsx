@@ -114,7 +114,14 @@ export default function RiderDashboard() {
     const allEsts = db.getEstablishments().filter(e => e.active);
     
     const sortedSchedules = [...allSchedules].sort((a, b) => a.date.localeCompare(b.date) || a.shift.localeCompare(b.shift) || a.id.localeCompare(b.id));
-    const sortedDeliveries = [...allDeliveries].sort((a, b) => b.date.localeCompare(a.date) || b.time.localeCompare(a.time) || b.id.localeCompare(a.id));
+    
+    // ORDENAÇÃO CRONOLÓGICA DE LANÇAMENTO (do horário mais antigo ao mais recente)
+    const sortedDeliveries = [...allDeliveries].sort((a, b) => 
+      a.date.localeCompare(b.date) || 
+      a.time.localeCompare(b.time) || 
+      a.id.localeCompare(b.id)
+    );
+
     const sortedNotifications = [...allNotifications].sort((a, b) => b.date.localeCompare(a.date));
 
     setSchedules(sortedSchedules);
@@ -1073,7 +1080,7 @@ export default function RiderDashboard() {
 
               {historyDeliveries.length === 0 ? (
                 <div className="text-center py-12 text-slate-400">
-                  <p className="text-sm font-medium">Nenhum registro encontrado para este filtro.</p>
+                  <p className="text-sm font-medium">Nenum registro encontrado para este filtro.</p>
                 </div>
               ) : (
                 <div className="divide-y divide-slate-100">
