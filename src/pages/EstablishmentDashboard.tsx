@@ -285,6 +285,9 @@ export default function EstablishmentDashboard() {
     });
   }, [todaySchedules, user]);
 
+  const serializedAddress = JSON.stringify(establishment?.address || {});
+
+  // Inicialização e montagem única do mapa (sem destruições repetidas)
   useEffect(() => {
     if (!establishment || !mapContainerRef.current) return;
 
@@ -345,9 +348,9 @@ export default function EstablishmentDashboard() {
         hasSetInitialBoundsRef.current = false;
       }
     };
-  }, [establishment?.id, establishment?.address]);
+  }, [establishment?.id, serializedAddress]);
 
-  // Atualização em Tempo Real com FILTRO ESTRITO
+  // Atualização em Tempo Real com FILTRO ESTRITO sem desmontar o mapa
   useEffect(() => {
     const currentMap = mapRef.current;
     if (!currentMap) return;
@@ -699,7 +702,7 @@ export default function EstablishmentDashboard() {
 
             {scheduledRiders.length === 0 ? (
               <div className="text-center py-8 text-slate-400 text-sm">
-                Nenum motoboy escalado para hoje. Fale com o administrador para criar escalas.
+                Nenhum motoboy escalado para hoje. Fale com o administrador para criar escalas.
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
