@@ -27,7 +27,8 @@ import {
   Building2,
   Store,
   Mic,
-  MicOff
+  MicOff,
+  ExternalLink
 } from 'lucide-react';
 import L from 'leaflet';
 import { gpsTracker, GpsState, isPointOffRoute } from '../utils/gpsTracker';
@@ -58,6 +59,7 @@ interface CustomSearchResult {
   lat: number;
   lng: number;
   type: 'poi' | 'street' | 'condo';
+  source?: 'esri' | 'photon' | 'osm';
 }
 
 type MapProviderType = 'google_roadmap' | 'google_satellite' | 'google_terrain' | 'osm';
@@ -186,13 +188,26 @@ export default function RiderNavigationMap({
           ? activeDestination.addressText 
           : `${activeDestination.addressText}, Campina Grande - PB, Brasil`;
 
-        const res = await fetch(
-          `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(fullQuery)}&limit=1`
-        );
-        const data = await res.json();
-        if (data && data.length > 0) {
-          foundLat = parseFloat(data[0].lat);
-          foundLng = parseFloat(data[0].lon);
+        // 1. Tentar Esri ArcGIS World Geocoding
+        const esriUrl = `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?singleLine=${encodeURIComponent(fullQuery)}&f=json&maxLocations=1`;
+        const esriRes = await fetch(esriUrl);
+        const esriData = await esriRes.json();
+        if (esriData && esriData.candidates && esriData.candidates.length > 0) {
+          const loc = esriData.candidates[0].location;
+          foundLat = loc.y;
+          foundLng = loc.x;
+        }
+
+        // 2. Fallback Nominatim
+        if (!foundLat || !foundLng) {
+          const res = await fetch(
+            `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(fullQuery)}&limit=1`
+          );
+          const data = await res.json();
+          if (data && data.length > 0) {
+            foundLat = parseFloat(data[0].lat);
+            foundLng = parseFloat(data[0].lon);
+          }
         }
       } catch (e) {}
 
@@ -524,7 +539,7 @@ export default function RiderNavigationMap({
     }
   };
 
-  // MOTOR DE BUSCA
+  // MOTOR DE BUSCA MULTISSISTEMAS (ESRI ARCGIS + PHOTON + NOMINATIM)
   const handleSearchInput = (value: string) => {
     setSearchQuery(value);
     
@@ -541,16 +556,20 @@ export default function RiderNavigationMap({
           const lat = activePos ? activePos.lat : -7.2247;
           const lng = activePos ? activePos.lng : -35.8878;
 
-          // 1. Photon API (Mecanismo geográfico por proximidade)
-          const photonUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(rawText)}&lat=${lat}&lon=${lng}&limit=8`;
-          
-          // 2. Nominatim com Bias
-          const nominatimQuery = rawText.toLowerCase().includes('campina grande') 
+          // 1. Esri World GeocodeServer (O motor do Maps/ArcGIS de maior precisão comercial e residencial)
+          const esriQuery = rawText.toLowerCase().includes('campina grande') 
             ? rawText 
             : `${rawText}, Campina Grande - PB`;
-          const nomUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(nominatimQuery)}&limit=6&viewbox=${lng-0.4},${lat+0.4},${lng+0.4},${lat-0.4}`;
+          const esriUrl = `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?singleLine=${encodeURIComponent(esriQuery)}&f=json&maxLocations=6&location=${lng},${lat}`;
 
-          const [photonRes, nomRes] = await Promise.all([
+          // 2. Photon API
+          const photonUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(rawText)}&lat=${lat}&lon=${lng}&limit=6`;
+          
+          // 3. Nominatim
+          const nomUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(esriQuery)}&limit=4&viewbox=${lng-0.4},${lat+0.4},${lng+0.4},${lat-0.4}`;
+
+          const [esriRes, photonRes, nomRes] = await Promise.all([
+            fetch(esriUrl).then(r => r.json()).catch(() => null),
             fetch(photonUrl).then(r => r.json()).catch(() => null),
             fetch(nomUrl).then(r => r.json()).catch(() => null)
           ]);
@@ -558,6 +577,43 @@ export default function RiderNavigationMap({
           const combined: CustomSearchResult[] = [];
           const seenKeys = new Set<string>();
 
+          // A. Processar resultados do Esri ArcGIS (Prioridade Máxima)
+          if (esriRes && esriRes.candidates) {
+            esriRes.candidates.forEach((cand: any) => {
+              const loc = cand.location;
+              if (!loc) return;
+
+              const key = `${loc.y.toFixed(4)},${loc.x.toFixed(4)}`;
+              const fullAddr = cand.address || 'Endereço encontrado';
+              const parts = fullAddr.split(',');
+              const title = parts[0] ? parts[0].trim() : 'Endereço';
+              const subtitle = parts.slice(1).join(',').trim();
+
+              let type: 'poi' | 'street' | 'condo' = 'street';
+              const lower = fullAddr.toLowerCase();
+              if (lower.includes('condom') || lower.includes('residencial') || lower.includes('edificio') || lower.includes('torre') || lower.includes('villas')) {
+                type = 'condo';
+              } else if (cand.attributes && (cand.attributes.Type === 'POI' || cand.attributes.Type === 'Establishment')) {
+                type = 'poi';
+              }
+
+              if (!seenKeys.has(key)) {
+                seenKeys.add(key);
+                combined.push({
+                  id: 'esri_' + Math.random(),
+                  title,
+                  subtitle: subtitle || 'Campina Grande - PB',
+                  fullAddress: fullAddr,
+                  lat: loc.y,
+                  lng: loc.x,
+                  type,
+                  source: 'esri'
+                });
+              }
+            });
+          }
+
+          // B. Processar Photon API
           if (photonRes && photonRes.features) {
             photonRes.features.forEach((feat: any) => {
               const props = feat.properties;
@@ -595,12 +651,14 @@ export default function RiderNavigationMap({
                   fullAddress: `${title}, ${subtitle}`,
                   lat: coords[1],
                   lng: coords[0],
-                  type
+                  type,
+                  source: 'photon'
                 });
               }
             });
           }
 
+          // C. Processar Nominatim OSM
           if (nomRes && Array.isArray(nomRes)) {
             nomRes.forEach((item: any) => {
               const itemLat = parseFloat(item.lat);
@@ -628,7 +686,8 @@ export default function RiderNavigationMap({
                   fullAddress: item.display_name,
                   lat: itemLat,
                   lng: itemLng,
-                  type
+                  type,
+                  source: 'osm'
                 });
               }
             });
@@ -651,7 +710,7 @@ export default function RiderNavigationMap({
     // Se a busca for uma rua sem número definido, abre a caixinha solicitando o número
     const hasNumberInTitle = /\d+/.test(result.title) || /\d+/.test(searchQuery);
 
-    if (result.type === 'street' && !hasNumberInTitle) {
+    if (result.type === 'street' && !hasNumberInTitle && result.source !== 'esri') {
       setSelectedStreetResult(result);
       setHouseNumberInput('');
       setSearchResults([]);
@@ -686,13 +745,22 @@ export default function RiderNavigationMap({
       setLoadingRoute(true);
       try {
         const queryWithNum = `${streetTitle}, ${num}, Campina Grande - PB, Brasil`;
-        const res = await fetch(
-          `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(queryWithNum)}&limit=1`
-        );
-        const data = await res.json();
-        if (data && data.length > 0) {
-          finalLat = parseFloat(data[0].lat);
-          finalLng = parseFloat(data[0].lon);
+        const esriUrl = `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?singleLine=${encodeURIComponent(queryWithNum)}&f=json&maxLocations=1`;
+        const esriRes = await fetch(esriUrl);
+        const esriData = await esriRes.json();
+        if (esriData && esriData.candidates && esriData.candidates.length > 0) {
+          const loc = esriData.candidates[0].location;
+          finalLat = loc.y;
+          finalLng = loc.x;
+        } else {
+          const res = await fetch(
+            `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(queryWithNum)}&limit=1`
+          );
+          const data = await res.json();
+          if (data && data.length > 0) {
+            finalLat = parseFloat(data[0].lat);
+            finalLng = parseFloat(data[0].lon);
+          }
         }
       } catch (err) {
         console.warn('Erro geocodificando número exato:', err);
@@ -737,6 +805,18 @@ export default function RiderNavigationMap({
     } else {
       gpsTracker.requestManualPermission();
     }
+  };
+
+  const openInWaze = () => {
+    if (!destCoords) return;
+    const url = `https://waze.com/ul?ll=${destCoords.lat},${destCoords.lng}&navigate=yes`;
+    window.open(url, '_blank');
+  };
+
+  const openInGoogleMaps = () => {
+    if (!destCoords) return;
+    const url = `https://www.google.com/maps/dir/?api=1&destination=${destCoords.lat},${destCoords.lng}&travelmode=driving`;
+    window.open(url, '_blank');
   };
 
   const activeStep = steps[currentStepIndex] || {
@@ -1129,34 +1209,59 @@ export default function RiderNavigationMap({
         )}
       </div>
 
-      {/* RODAPÉ COMPACTO DO DESTINO E MÉTRICAS */}
-      <div className="bg-slate-900 border-t border-slate-800 p-2.5 z-20 space-y-1.5 flex-shrink-0">
+      {/* RODAPÉ COMPACTO DO DESTINO E ATALHOS PARA WAZE E GOOGLE MAPS */}
+      <div className="bg-slate-900 border-t border-slate-800 p-2.5 z-20 space-y-2 flex-shrink-0">
         {activeDestination && (
-          <div className="flex items-center justify-between bg-slate-800/80 p-2 rounded-lg border border-slate-700/50">
-            <div className="flex items-center space-x-2 min-w-0">
-              <div className="p-1 bg-red-500/20 text-red-400 rounded">
-                <MapPin className="h-4 w-4" />
+          <div className="space-y-2">
+            <div className="flex items-center justify-between bg-slate-800/80 p-2 rounded-lg border border-slate-700/50">
+              <div className="flex items-center space-x-2 min-w-0">
+                <div className="p-1 bg-red-500/20 text-red-400 rounded">
+                  <MapPin className="h-4 w-4" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs font-bold text-white truncate">{activeDestination.name}</p>
+                  <p className="text-[10px] text-slate-400 truncate">{activeDestination.addressText}</p>
+                </div>
               </div>
-              <div className="min-w-0">
-                <p className="text-xs font-bold text-white truncate">{activeDestination.name}</p>
-                <p className="text-[10px] text-slate-400 truncate">{activeDestination.addressText}</p>
-              </div>
+              <button
+                onClick={() => {
+                  setActiveDestination(null);
+                  setSteps([]);
+                  setRouteInfo(null);
+                  lastFetchedDestRef.current = '';
+                  if (routePolylineRef.current) {
+                    routePolylineRef.current.remove();
+                    routePolylineRef.current = null;
+                  }
+                }}
+                className="text-[10px] text-slate-400 hover:text-red-400 font-bold px-2 py-0.5 rounded hover:bg-slate-700"
+              >
+                Cancelar
+              </button>
             </div>
-            <button
-              onClick={() => {
-                setActiveDestination(null);
-                setSteps([]);
-                setRouteInfo(null);
-                lastFetchedDestRef.current = '';
-                if (routePolylineRef.current) {
-                  routePolylineRef.current.remove();
-                  routePolylineRef.current = null;
-                }
-              }}
-              className="text-[10px] text-slate-400 hover:text-red-400 font-bold px-2 py-0.5 rounded hover:bg-slate-700"
-            >
-              Cancelar
-            </button>
+
+            {/* BOTÕES DE ATALHO DE 1 CLIQUE PARA WAZE E GOOGLE MAPS */}
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={openInWaze}
+                disabled={!destCoords}
+                className="bg-sky-600 hover:bg-sky-500 text-white font-extrabold text-xs py-2 px-3 rounded-xl transition-all flex items-center justify-center gap-1.5 shadow-md disabled:opacity-50"
+                title="Abrir navegação no Waze com alertas de radar e trânsito"
+              >
+                <span>Abrir no Waze 🚗</span>
+                <ExternalLink className="h-3.5 w-3.5" />
+              </button>
+
+              <button
+                onClick={openInGoogleMaps}
+                disabled={!destCoords}
+                className="bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs py-2 px-3 rounded-xl transition-all flex items-center justify-center gap-1.5 shadow-md disabled:opacity-50"
+                title="Abrir navegação no Google Maps"
+              >
+                <span>Google Maps 🗺️</span>
+                <ExternalLink className="h-3.5 w-3.5" />
+              </button>
+            </div>
           </div>
         )}
 
