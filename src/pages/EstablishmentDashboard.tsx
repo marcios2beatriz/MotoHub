@@ -21,7 +21,9 @@ import {
   Check,
   Ban,
   ListOrdered,
-  ArrowRight
+  ArrowRight,
+  Filter,
+  ArrowUpDown
 } from 'lucide-react';
 
 import L from 'leaflet';
@@ -56,6 +58,10 @@ export default function EstablishmentDashboard() {
   const [activeToast, setActiveToast] = useState<ChatToast | null>(null);
 
   const [isMapExpanded, setIsMapExpanded] = useState(false);
+
+  // Filtros e Ordenação de Corridas de Hoje
+  const [deliveryRiderFilter, setDeliveryRiderFilter] = useState<string>('all');
+  const [deliverySortOrder, setDeliverySortOrder] = useState<'time_desc' | 'time_asc' | 'rider_name' | 'value_desc'>('time_desc');
 
   const prevNotesRef = useRef<Record<string, string>>({});
   const prevScheduleChatRef = useRef<Record<string, string>>({});
@@ -172,6 +178,7 @@ export default function EstablishmentDashboard() {
     const todayStr = db.getLocalDateString();
     const allSchedules = db.getSchedules();
     
+    // Escalas RIGOROSAMENTE de HOJE para esta loja
     const estSchedules = allSchedules.filter(s => isScheduleForCurrentEst(s, currentEstName, matchingEstIds) && s.date === todayStr);
     setTodaySchedules(estSchedules);
 
@@ -180,15 +187,18 @@ export default function EstablishmentDashboard() {
     const estDeliveriesToday = allDeliveries.filter(d => isDeliveryForCurrentEst(d, currentEstName, matchingEstIds) && d.date === todayStr);
     setTodayDeliveries(estDeliveriesToday);
 
+    // CORREÇÃO DO BUG: Filtra motoboys escalados/ativos EXCLUSIVAMENTE NO DIA DE HOJE
     let riders = allUsers.filter(u => 
       u.role === 'rider' && u.active && (
-        u.establishmentId === currentEst?.id ||
         estSchedules.some(s => s.riderId === u.id || db.resolveUser(s.riderId)?.email.toLowerCase() === u.email.toLowerCase()) ||
-        allSchedules.some(s => isScheduleForCurrentEst(s, currentEstName, matchingEstIds) && (s.riderId === u.id || db.resolveUser(s.riderId)?.email.toLowerCase() === u.email.toLowerCase())) ||
         estDeliveriesToday.some(d => d.riderId === u.id)
       )
     );
 
+    // Fallback: se não houver escalas criadas especificamente para hoje, disponibiliza os motoboys vinculados ao estabelecimento
+    if (riders.length === 0) {
+      riders = allUsers.filter(u => u.role === 'rider' && u.active && u.establishmentId === currentEst?.id);
+    }
     if (riders.length === 0) {
       riders = allUsers.filter(u => u.role === 'rider' && u.active);
     }
@@ -668,6 +678,34 @@ export default function EstablishmentDashboard() {
     });
   }).length;
 
+  // Filtragem e Classificação das Corridas Lançadas Hoje
+  const filteredAndSortedTodayDeliveries = todayDeliveries
+    .filter(d => {
+      if (deliveryRiderFilter !== 'all' && d.riderId !== deliveryRiderFilter) {
+        const riderUser = db.resolveUser(d.riderId);
+        const selectedRiderUser = db.resolveUser(deliveryRiderFilter);
+        if (!riderUser || !selectedRiderUser || riderUser.email.toLowerCase() !== selectedRiderUser.email.toLowerCase()) {
+          return false;
+        }
+      }
+      return true;
+    })
+    .sort((a, b) => {
+      if (deliverySortOrder === 'rider_name') {
+        const riderA = db.resolveUser(a.riderId)?.name || '';
+        const riderB = db.resolveUser(b.riderId)?.name || '';
+        return riderA.localeCompare(riderB);
+      }
+      if (deliverySortOrder === 'value_desc') {
+        return Number(b.value || 0) - Number(a.value || 0);
+      }
+      if (deliverySortOrder === 'time_asc') {
+        return a.time.localeCompare(b.time);
+      }
+      // Padrão: Horário mais recente primeiro (time_desc)
+      return b.time.localeCompare(a.time);
+    });
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col relative">
       <ChatToastBanner toast={activeToast} onClose={() => setActiveToast(null)} />
@@ -698,7 +736,7 @@ export default function EstablishmentDashboard() {
                 <Users className="h-6 w-6" />
               </div>
               <div>
-                <p className="text-xs text-slate-500 font-medium uppercase">Motoboys Ativos</p>
+                <p className="text-xs text-slate-500 font-medium uppercase">Motoboys Hoje</p>
                 <p className="text-2xl font-bold text-slate-800">{scheduledRiders.length}</p>
               </div>
             </div>
@@ -812,7 +850,7 @@ export default function EstablishmentDashboard() {
             <div className="flex justify-between items-center">
               <h2 className="text-lg font-bold text-slate-800 flex items-center space-x-2">
                 <Users className="h-5 w-5 text-indigo-600" />
-                <span>Motoboys Cadastrados no Sistema</span>
+                <span>Motoboys Escalados Hoje ({scheduledRiders.length})</span>
               </h2>
               <button
                 onClick={() => handleOpenLaunchModal()}
@@ -825,7 +863,7 @@ export default function EstablishmentDashboard() {
 
             {scheduledRiders.length === 0 ? (
               <div className="text-center py-8 text-slate-400 text-sm">
-                Nenum motoboy ativo no momento.
+                Nenhum motoboy escalado para o dia de hoje.
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -882,23 +920,53 @@ export default function EstablishmentDashboard() {
             )}
           </div>
 
-          {/* Histórico e Aprovação de Corridas de Hoje */}
+          {/* Histórico e Aprovação de Corridas de Hoje com Filtro e Classificação */}
           <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
-            <h3 className="text-lg font-bold text-slate-800 flex items-center justify-between">
-              <span className="flex items-center gap-2">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+              <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
                 <CheckCircle className="h-5 w-5 text-indigo-600" />
-                <span>Corridas Lançadas Hoje</span>
-              </span>
-              <span className="text-xs text-slate-400 font-normal">{todayDeliveries.length} lançamento(s)</span>
-            </h3>
+                <span>Corridas Lançadas Hoje ({filteredAndSortedTodayDeliveries.length})</span>
+              </h3>
 
-            {todayDeliveries.length === 0 ? (
+              {/* Controles de Filtro e Classificação */}
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 text-xs">
+                  <Filter className="h-3.5 w-3.5 text-indigo-600 flex-shrink-0" />
+                  <select
+                    value={deliveryRiderFilter}
+                    onChange={(e) => setDeliveryRiderFilter(e.target.value)}
+                    className="bg-transparent font-semibold text-slate-700 focus:outline-none text-xs"
+                  >
+                    <option value="all">Todos os Motoboys</option>
+                    {scheduledRiders.map(r => (
+                      <option key={r.id} value={r.id}>{r.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 text-xs">
+                  <ArrowUpDown className="h-3.5 w-3.5 text-indigo-600 flex-shrink-0" />
+                  <select
+                    value={deliverySortOrder}
+                    onChange={(e) => setDeliverySortOrder(e.target.value as any)}
+                    className="bg-transparent font-semibold text-slate-700 focus:outline-none text-xs"
+                  >
+                    <option value="time_desc">Mais Recentes</option>
+                    <option value="time_asc">Mais Antigas</option>
+                    <option value="rider_name">Classificar por Motoboy</option>
+                    <option value="value_desc">Maior Valor</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {filteredAndSortedTodayDeliveries.length === 0 ? (
               <div className="text-center py-8 text-slate-400 text-sm">
-                Nenhuma corrida lançada hoje.
+                Nenhuma corrida encontrada para o filtro selecionado.
               </div>
             ) : (
               <div className="divide-y divide-slate-100">
-                {todayDeliveries.map(del => {
+                {filteredAndSortedTodayDeliveries.map(del => {
                   const rider = scheduledRiders.find(r => r.id === del.riderId) || db.resolveUser(del.riderId);
                   const isPending = del.status === 'pending';
 
