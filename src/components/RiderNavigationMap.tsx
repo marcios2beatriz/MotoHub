@@ -91,7 +91,7 @@ export default function RiderNavigationMap({
   defaultFullscreen = false 
 }: RiderNavigationMapProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
-  mapRef = useRef<L.Map | null>(null);
+  const mapRef = useRef<L.Map | null>(null);
   const tileLayerRef = useRef<L.TileLayer | null>(null);
   const trafficLayerRef = useRef<L.TileLayer | null>(null);
 
