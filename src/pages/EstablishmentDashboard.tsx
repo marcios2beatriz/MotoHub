@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db, User, Establishment, Schedule, Delivery, RiderLocation, QueueEntry } from '../utils/db';
+import { realtimeGps } from '../utils/realtimeGps';
 import { 
   Bike, 
   LogOut, 
@@ -214,6 +215,28 @@ export default function EstablishmentDashboard() {
       db.pullFromSupabase().then(() => loadData());
     }, 1500);
 
+    // Escuta transmissões de GPS em tempo real do WebSocket
+    const unsubscribeRealtime = realtimeGps.subscribeToLocations((payload) => {
+      setRiderLocations((prev) => {
+        const existingIdx = prev.findIndex(l => l.riderId === payload.riderId);
+        const updatedEntry: RiderLocation = {
+          riderId: payload.riderId,
+          riderName: payload.riderName,
+          lat: payload.lat,
+          lng: payload.lng,
+          updatedAt: new Date(payload.timestamp).toISOString()
+        };
+
+        if (existingIdx !== -1) {
+          const newArr = [...prev];
+          newArr[existingIdx] = updatedEntry;
+          return newArr;
+        } else {
+          return [...prev, updatedEntry];
+        }
+      });
+    });
+
     const handleSyncComplete = () => {
       loadData();
     };
@@ -221,6 +244,7 @@ export default function EstablishmentDashboard() {
 
     return () => {
       clearInterval(interval);
+      unsubscribeRealtime();
       window.removeEventListener('db-sync-complete', handleSyncComplete);
     };
   }, [user, navigate]);
