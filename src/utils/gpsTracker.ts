@@ -47,7 +47,6 @@ export function calculateBearingDegrees(lat1: number, lon1: number, lat2: number
   return (θ * (180 / Math.PI) + 360) % 360;
 }
 
-// Verifica se um ponto está muito distante da rota estipulada (em metros)
 export function isPointOffRoute(
   point: { lat: number; lng: number },
   routePolyline: [number, number][],
@@ -95,7 +94,6 @@ class HighPrecisionGpsTracker {
   private fallbackTimer: any = null;
   private wakeLock: any = null;
   private audioKeepAlive: HTMLAudioElement | null = null;
-  private audioContext: AudioContext | null = null;
 
   private lastLocation: GpsLocation | null = null;
   private listeners: Set<(state: GpsState) => void> = new Set();
@@ -132,7 +130,7 @@ class HighPrecisionGpsTracker {
       this.currentState = {
         ...this.currentState,
         quality: 'off',
-        errorMessage: 'O seu dispositivo/navegador não suporta geolocalização.'
+        errorMessage: 'Dispositivo sem suporte a geolocalização.'
       };
       this.notify();
       return;
@@ -141,7 +139,7 @@ class HighPrecisionGpsTracker {
     const handleSuccess = (pos: GeolocationPosition) => {
       const lat = pos.coords.latitude;
       const lng = pos.coords.longitude;
-      const accuracy = pos.coords.accuracy || 15;
+      const accuracy = pos.coords.accuracy || 10;
       const now = Date.now();
 
       let speedKmh = pos.coords.speed !== null && pos.coords.speed >= 0 ? Math.round(pos.coords.speed * 3.6) : 0;
@@ -149,9 +147,9 @@ class HighPrecisionGpsTracker {
 
       if (this.lastLocation) {
         const distanceM = calculateDistanceMeters(this.lastLocation.lat, this.lastLocation.lng, lat, lng);
-        if (distanceM > 2.0 && (!pos.coords.heading || isNaN(pos.coords.heading))) {
+        if (distanceM > 1.5 && (!pos.coords.heading || isNaN(pos.coords.heading))) {
           heading = Math.round(calculateBearingDegrees(this.lastLocation.lat, this.lastLocation.lng, lat, lng));
-        } else if (distanceM <= 2.0) {
+        } else if (distanceM <= 1.5) {
           heading = this.lastLocation.heading;
         }
       }
@@ -168,8 +166,8 @@ class HighPrecisionGpsTracker {
       this.lastLocation = newLocation;
 
       let quality: GpsSignalQuality = 'excellent';
-      if (accuracy > 100) quality = 'weak';
-      else if (accuracy > 30) quality = 'good';
+      if (accuracy > 80) quality = 'weak';
+      else if (accuracy > 25) quality = 'good';
 
       this.currentState = {
         ...this.currentState,
@@ -178,7 +176,7 @@ class HighPrecisionGpsTracker {
         errorMessage: null
       };
 
-      // Transmitir imediatamente para o estabelecimento se for motoboy
+      // Transmissão imediata para o estabelecimento (Supabase + LocalStorage)
       const currentUser = db.getCurrentUser();
       if (currentUser && currentUser.role === 'rider') {
         db.updateRiderLocation(currentUser.id, currentUser.name, lat, lng);
@@ -188,81 +186,32 @@ class HighPrecisionGpsTracker {
     };
 
     const handleError = (err: GeolocationPositionError) => {
-      if (err.code === GeolocationPositionError.TIMEOUT || err.code === GeolocationPositionError.POSITION_UNAVAILABLE) {
-        navigator.geolocation.getCurrentPosition(
-          handleSuccess,
-          (lowErr) => {
-            let quality: GpsSignalQuality = 'off';
-            let msg = 'Não foi possível obter a posição do seu navegador.';
-            if (lowErr.code === GeolocationPositionError.PERMISSION_DENIED) {
-              quality = 'denied';
-              msg = 'Permissão de localização negada no navegador.';
-            }
-            this.currentState = { ...this.currentState, quality, errorMessage: msg };
-            this.notify();
-          },
-          { enableHighAccuracy: false, timeout: 15000, maximumAge: 0 }
-        );
-        return;
-      }
-
       let quality: GpsSignalQuality = 'off';
-      let msg = 'Erro ao obter localização.';
-
+      let msg = 'Obtendo sinal GPS...';
       if (err.code === GeolocationPositionError.PERMISSION_DENIED) {
         quality = 'denied';
         msg = 'Permissão de localização negada.';
       }
-
-      this.currentState = {
-        ...this.currentState,
-        quality,
-        errorMessage: msg
-      };
+      this.currentState = { ...this.currentState, quality, errorMessage: msg };
       this.notify();
     };
 
-    const highAccOptions: PositionOptions = { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 };
-    navigator.geolocation.getCurrentPosition(handleSuccess, handleError, highAccOptions);
+    const options: PositionOptions = { enableHighAccuracy: true, timeout: 6000, maximumAge: 0 };
+    navigator.geolocation.getCurrentPosition(handleSuccess, handleError, options);
 
     if (this.watchId === null) {
-      this.watchId = navigator.geolocation.watchPosition(
-        handleSuccess, 
-        () => {
-          navigator.geolocation.getCurrentPosition(handleSuccess, () => {}, { enableHighAccuracy: false, timeout: 10000 });
-        }, 
-        { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
-      );
+      this.watchId = navigator.geolocation.watchPosition(handleSuccess, handleError, options);
     }
 
     if (!this.fallbackTimer) {
       this.fallbackTimer = setInterval(() => {
-        navigator.geolocation.getCurrentPosition(
-          handleSuccess, 
-          () => {
-            navigator.geolocation.getCurrentPosition(handleSuccess, () => {}, { enableHighAccuracy: false });
-          }, 
-          { enableHighAccuracy: false, timeout: 5000 }
-        );
-      }, 2500);
+        navigator.geolocation.getCurrentPosition(handleSuccess, () => {}, { enableHighAccuracy: true, timeout: 4000 });
+      }, 1500);
     }
   }
 
   public requestManualPermission() {
     this.startTracking();
-  }
-
-  public stopTracking() {
-    if (this.watchId !== null) {
-      navigator.geolocation.clearWatch(this.watchId);
-      this.watchId = null;
-    }
-    if (this.fallbackTimer) {
-      clearInterval(this.fallbackTimer);
-      this.fallbackTimer = null;
-    }
-    this.disableWakeLock();
-    this.disableAudioKeepAlive();
   }
 
   private async enableWakeLock() {
@@ -273,16 +222,8 @@ class HighPrecisionGpsTracker {
     } catch (e) {}
   }
 
-  private disableWakeLock() {
-    if (this.wakeLock) {
-      this.wakeLock.release().catch(() => {});
-      this.wakeLock = null;
-    }
-  }
-
   private enableAudioKeepAlive() {
     try {
-      // 1. Áudio HTML5 Silencioso
       if (!this.audioKeepAlive) {
         const audio = document.createElement('audio');
         audio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==';
@@ -291,24 +232,7 @@ class HighPrecisionGpsTracker {
         this.audioKeepAlive = audio;
       }
       this.audioKeepAlive.play().catch(() => {});
-
-      // 2. AudioContext sintetizado
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      if (AudioCtx) {
-        if (!this.audioContext) {
-          this.audioContext = new AudioCtx();
-        }
-        if (this.audioContext.state === 'suspended') {
-          this.audioContext.resume();
-        }
-      }
     } catch (e) {}
-  }
-
-  private disableAudioKeepAlive() {
-    if (this.audioKeepAlive) {
-      this.audioKeepAlive.pause();
-    }
   }
 }
 
