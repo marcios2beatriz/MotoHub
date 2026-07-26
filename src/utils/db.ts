@@ -378,8 +378,20 @@ export const db = {
     const queue = this.getQueue();
     const nowISO = new Date().toISOString();
 
-    // Remove entradas ativas anteriores deste rider para hoje
-    const filtered = queue.filter(q => !(q.riderId === riderId && q.establishmentId === establishmentId && q.date === todayStr));
+    const userObj = this.resolveUser(riderId);
+    const estObj = this.resolveEstablishment(establishmentId);
+
+    // Remove qualquer entrada ativa para hoje do mesmo motoboy no mesmo estabelecimento
+    const filtered = queue.filter(q => {
+      if (q.date !== todayStr) return true;
+      const qRider = this.resolveUser(q.riderId);
+      const qEst = this.resolveEstablishment(q.establishmentId);
+
+      const isSameRider = q.riderId === riderId || (qRider && userObj && qRider.email.toLowerCase() === userObj.email.toLowerCase());
+      const isSameEst = q.establishmentId === establishmentId || (qEst && estObj && qEst.name.toLowerCase().trim() === estObj.name.toLowerCase().trim());
+
+      return !(isSameRider && isSameEst && q.status === 'waiting');
+    });
 
     const newEntry: QueueEntry = {
       id: 'q_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
@@ -399,9 +411,20 @@ export const db = {
     const queue = this.getQueue();
     const nowISO = new Date().toISOString();
 
+    const userObj = this.resolveUser(riderId);
+    const estObj = this.resolveEstablishment(establishmentId);
+
     const updated = queue.map(q => {
-      if (q.riderId === riderId && q.establishmentId === establishmentId && q.date === todayStr && q.status === 'waiting') {
-        return { ...q, status: 'left' as const, updatedAt: nowISO };
+      if (q.date === todayStr && q.status === 'waiting') {
+        const qRider = this.resolveUser(q.riderId);
+        const qEst = this.resolveEstablishment(q.establishmentId);
+
+        const isSameRider = q.riderId === riderId || (qRider && userObj && qRider.email.toLowerCase() === userObj.email.toLowerCase());
+        const isSameEst = q.establishmentId === establishmentId || (qEst && estObj && qEst.name.toLowerCase().trim() === estObj.name.toLowerCase().trim());
+
+        if (isSameRider && isSameEst) {
+          return { ...q, status: 'left' as const, updatedAt: nowISO };
+        }
       }
       return q;
     });
@@ -414,9 +437,20 @@ export const db = {
     const queue = this.getQueue();
     const nowISO = new Date().toISOString();
 
+    const userObj = this.resolveUser(riderId);
+    const estObj = this.resolveEstablishment(establishmentId);
+
     const updated = queue.map(q => {
-      if (q.riderId === riderId && q.establishmentId === establishmentId && q.date === todayStr && q.status === 'waiting') {
-        return { ...q, status: 'delivering' as const, updatedAt: nowISO };
+      if (q.date === todayStr && q.status === 'waiting') {
+        const qRider = this.resolveUser(q.riderId);
+        const qEst = this.resolveEstablishment(q.establishmentId);
+
+        const isSameRider = q.riderId === riderId || (qRider && userObj && qRider.email.toLowerCase() === userObj.email.toLowerCase());
+        const isSameEst = q.establishmentId === establishmentId || (qEst && estObj && qEst.name.toLowerCase().trim() === estObj.name.toLowerCase().trim());
+
+        if (isSameRider && isSameEst) {
+          return { ...q, status: 'delivering' as const, updatedAt: nowISO };
+        }
       }
       return q;
     });
