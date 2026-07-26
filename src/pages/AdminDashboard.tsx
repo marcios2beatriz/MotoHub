@@ -38,7 +38,8 @@ import {
   CalendarCheck,
   Filter,
   ArrowUpDown,
-  UserCheck2
+  UserCheck2,
+  AlertTriangle
 } from 'lucide-react';
 
 import UserModal from '../components/UserModal';
@@ -90,6 +91,15 @@ export default function AdminDashboard() {
   const [schTimeframeFilter, setSchTimeframeFilter] = useState<'all' | 'today' | 'upcoming' | 'past'>('all');
   const [schSpecificDate, setSchSpecificDate] = useState<string>('');
   const [schSortOrder, setSchSortOrder] = useState<'date_desc' | 'date_asc' | 'rider_name' | 'est_name'>('date_desc');
+
+  // Filtros e Classificação de Corridas
+  const [delRiderFilter, setDelRiderFilter] = useState<string>('all');
+  const [delEstFilter, setDelEstFilter] = useState<string>('all');
+  const [delStatusFilter, setDelStatusFilter] = useState<string>('all');
+  const [delDateFrom, setDelDateFrom] = useState<string>('');
+  const [delDateTo, setDelDateTo] = useState<string>('');
+  const [delSearchQuery, setDelSearchQuery] = useState<string>('');
+  const [delSortOrder, setDelSortOrder] = useState<'date_desc' | 'date_asc' | 'value_desc' | 'value_asc' | 'rider_name' | 'est_name'>('date_desc');
 
   const [visiblePasswords, setVisiblePasswords] = useState<Record<string, boolean>>({});
 
@@ -732,6 +742,13 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleDeleteDelivery = async (id: string) => {
+    if (confirm('Deseja realmente excluir esta corrida definitivamente do banco de dados?')) {
+      await db.deleteDelivery(id);
+      loadData();
+    }
+  };
+
   const handleApproveDelivery = (id: string) => {
     const updated = deliveries.map(d => d.id === id ? { ...d, status: 'active' as const, updatedAt: new Date().toISOString() } : d);
     db.setDeliveries(updated);
@@ -947,7 +964,6 @@ export default function AdminDashboard() {
       const rider = users.find(u => u.id === s.riderId);
       const est = establishments.find(e => e.id === s.establishmentId);
 
-      // Busca por texto
       if (searchQuery) {
         const q = searchQuery.toLowerCase();
         const rName = rider?.name.toLowerCase() || '';
@@ -955,19 +971,11 @@ export default function AdminDashboard() {
         if (!rName.includes(q) && !eName.includes(q)) return false;
       }
 
-      // Filtro por Motoboy
       if (schRiderFilter !== 'all' && s.riderId !== schRiderFilter) return false;
-
-      // Filtro por Estabelecimento
       if (schEstFilter !== 'all' && s.establishmentId !== schEstFilter) return false;
-
-      // Filtro por Turno
       if (schShiftFilter !== 'all' && s.shift !== schShiftFilter) return false;
-
-      // Filtro por Data Específica
       if (schSpecificDate && s.date !== schSpecificDate) return false;
 
-      // Filtro por Período Tempo (Hoje, Futuras, Passadas)
       if (schTimeframeFilter === 'today' && s.date !== todayStr) return false;
       if (schTimeframeFilter === 'upcoming' && s.date < todayStr) return false;
       if (schTimeframeFilter === 'past' && s.date >= todayStr) return false;
@@ -988,9 +996,59 @@ export default function AdminDashboard() {
         const eB = establishments.find(e => e.id === b.establishmentId)?.name || '';
         return eA.localeCompare(eB) || b.date.localeCompare(a.date);
       }
-      // Padrão: Data mais recente primeiro (date_desc)
       return b.date.localeCompare(a.date) || a.shift.localeCompare(b.shift);
     });
+
+  // Filtragem e Ordenação da Aba de Corridas
+  const filteredAndSortedDeliveries = deliveries
+    .filter(d => {
+      const rider = users.find(u => u.id === d.riderId);
+      const est = establishments.find(e => e.id === d.establishmentId);
+
+      if (delSearchQuery) {
+        const q = delSearchQuery.toLowerCase().trim();
+        const orderNum = (d.orderNumber || '').toLowerCase();
+        const rName = (rider?.name || '').toLowerCase();
+        const eName = (est?.name || '').toLowerCase();
+        const matchNum = orderNum.includes(q.replace('#', ''));
+        if (!matchNum && !rName.includes(q) && !eName.includes(q)) return false;
+      }
+
+      if (delRiderFilter !== 'all' && d.riderId !== delRiderFilter) return false;
+      if (delEstFilter !== 'all' && d.establishmentId !== delEstFilter) return false;
+      if (delStatusFilter !== 'all' && d.status !== delStatusFilter) return false;
+
+      if (delDateFrom && d.date < delDateFrom) return false;
+      if (delDateTo && d.date > delDateTo) return false;
+
+      return true;
+    })
+    .sort((a, b) => {
+      if (delSortOrder === 'date_asc') {
+        return a.date.localeCompare(b.date) || a.time.localeCompare(b.time);
+      }
+      if (delSortOrder === 'value_desc') {
+        return Number(b.value || 0) - Number(a.value || 0);
+      }
+      if (delSortOrder === 'value_asc') {
+        return Number(a.value || 0) - Number(b.value || 0);
+      }
+      if (delSortOrder === 'rider_name') {
+        const rA = users.find(u => u.id === a.riderId)?.name || '';
+        const rB = users.find(u => u.id === b.riderId)?.name || '';
+        return rA.localeCompare(rB) || b.date.localeCompare(a.date);
+      }
+      if (delSortOrder === 'est_name') {
+        const eA = establishments.find(e => e.id === a.establishmentId)?.name || '';
+        const eB = establishments.find(e => e.id === b.establishmentId)?.name || '';
+        return eA.localeCompare(eB) || b.date.localeCompare(a.date);
+      }
+      return b.date.localeCompare(a.date) || b.time.localeCompare(a.time);
+    });
+
+  const totalFilteredRevenue = filteredAndSortedDeliveries
+    .filter(d => d.status === 'active')
+    .reduce((sum, d) => sum + Number(d.value || 0), 0);
 
   const pendingRequestsCount = partnerRequests.filter(r => r.status === 'pending').length;
   const pendingDeliveries = deliveries.filter(d => d.status === 'pending');
@@ -1089,7 +1147,7 @@ export default function AdminDashboard() {
             <span>Escalas</span>
           </button>
           <button
-            onClick={() => { setActiveTab('deliveries'); setSearchQuery(''); }}
+            onClick={() => { setActiveTab('deliveries'); }}
             className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
               activeTab === 'deliveries' ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-50'
             }`}
@@ -1446,7 +1504,7 @@ export default function AdminDashboard() {
             </div>
           )}
 
-          {/* ESCALAS (COM REACOMPANHAMENTO COMPLETO DE FILTROS E BOTÃO DESIGNAR MOTOBOY) */}
+          {/* ESCALAS */}
           {activeTab === 'schedules' && (
             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-5">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
@@ -1458,7 +1516,6 @@ export default function AdminDashboard() {
                   <p className="text-xs text-slate-500 mt-0.5">Aloque motoboys para os estabelecimentos por dia e turno</p>
                 </div>
                 
-                {/* BOTÕES DE AÇÃO: DESIGNAR MOTOBOY E ESCALA SEMANAL */}
                 <div className="flex flex-wrap items-center gap-2">
                   <button
                     onClick={() => handleOpenDesignateModal()}
@@ -1481,7 +1538,7 @@ export default function AdminDashboard() {
                 </div>
               </div>
 
-              {/* PAINEL COMPLETO DE FILTROS E CLASSIFICAÇÃO */}
+              {/* PAINEL COMPLETO DE FILTROS E CLASSIFICAÇÃO DAS ESCALAS */}
               <div className="bg-slate-50/80 p-4 rounded-xl border border-slate-200 space-y-3">
                 <div className="flex items-center justify-between">
                   <p className="text-xs font-extrabold uppercase text-slate-600 flex items-center gap-1.5">
@@ -1666,69 +1723,290 @@ export default function AdminDashboard() {
             </div>
           )}
 
-          {/* CORRIDAS */}
+          {/* CORRIDAS - COM PAINEL COMPLETO DE BUSCA, FILTROS E MÉTRICAS */}
           {activeTab === 'deliveries' && (
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <h2 className="text-xl font-bold text-slate-800">Registro de Corridas</h2>
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+                <div>
+                  <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+                    <Bike className="h-6 w-6 text-indigo-600" />
+                    <span>Registro e Controle de Corridas</span>
+                  </h2>
+                  <p className="text-xs text-slate-500 mt-0.5">Visualize, filtre e gerencie todas as entregas do sistema</p>
+                </div>
                 <button
                   onClick={() => {
                     setEditingDelivery(null);
                     setDeliveryForm({ riderId: '', establishmentId: '', date: db.getLocalDateString(), time: new Date().toTimeString().slice(0,5), value: '', orderNumber: '', notes: '' });
                     setShowDeliveryModal(true);
                   }}
-                  className="flex items-center justify-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                  className="flex items-center justify-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl text-xs font-bold transition-all shadow-md hover:shadow-lg"
                 >
                   <Plus className="h-4 w-4" />
-                  <span>Lançar Corrida</span>
+                  <span>Lançar Nova Corrida</span>
                 </button>
               </div>
 
-              <div className="divide-y divide-slate-100">
-                {deliveries.map(del => {
-                  const rider = users.find(r => r.id === del.riderId);
-                  const est = establishments.find(e => e.id === del.establishmentId);
-
-                  return (
-                    <div key={del.id} className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                      <div className="min-w-0 space-y-1.5 flex-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          {del.orderNumber && (
-                            <span className="bg-indigo-600 text-white text-xs font-black px-2.5 py-1 rounded-lg shadow-sm flex-shrink-0 tracking-wide">
-                              #{del.orderNumber}
-                            </span>
-                          )}
-                          <p className="font-bold text-slate-800 text-sm">{rider?.name || 'Motoboy'}</p>
-                          <span className="text-xs text-slate-500 font-medium">• {est?.name}</span>
-                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                            del.status === 'active' ? 'bg-emerald-100 text-emerald-800' :
-                            del.status === 'pending' ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-red-800'
-                          }`}>
-                            {del.status === 'active' ? 'Aprovada' : del.status === 'pending' ? 'Pendente' : 'Cancelada'}
-                          </span>
-                        </div>
-                        <p className="text-xs text-slate-400">
-                          {new Date(del.date + 'T00:00:00').toLocaleDateString('pt-BR')} às {del.time}
-                        </p>
-                      </div>
-
-                      <div className="flex items-center gap-2 justify-between sm:justify-end flex-shrink-0 pt-1 sm:pt-0 border-t sm:border-t-0 border-slate-100">
-                        <button
-                          onClick={() => setNotesDeliveryId(del.id)}
-                          className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg transition-colors flex items-center gap-1 text-xs font-bold"
-                        >
-                          <MessageSquare className="h-4 w-4" />
-                          <span>Observações</span>
-                        </button>
-
-                        <span className="font-black text-emerald-600 text-sm">
-                          R$ {del.value.toFixed(2)}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })}
+              {/* CARDS DE RESUMO E MÉTRICAS DAS CORRIDAS SELECIONADAS */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+                  <p className="text-[10px] font-bold text-slate-500 uppercase">Corridas Exibidas</p>
+                  <p className="text-xl font-black text-slate-800 mt-0.5">{filteredAndSortedDeliveries.length}</p>
+                </div>
+                <div className="bg-emerald-50 p-3.5 rounded-xl border border-emerald-200">
+                  <p className="text-[10px] font-bold text-emerald-700 uppercase">Faturamento Aprovado</p>
+                  <p className="text-xl font-black text-emerald-800 mt-0.5">R$ {totalFilteredRevenue.toFixed(2)}</p>
+                </div>
+                <div className="bg-amber-50 p-3.5 rounded-xl border border-amber-200">
+                  <p className="text-[10px] font-bold text-amber-700 uppercase">Pendentes</p>
+                  <p className="text-xl font-black text-amber-800 mt-0.5">
+                    {filteredAndSortedDeliveries.filter(d => d.status === 'pending').length}
+                  </p>
+                </div>
+                <div className="bg-red-50 p-3.5 rounded-xl border border-red-200">
+                  <p className="text-[10px] font-bold text-red-700 uppercase">Rejeitadas / Canceladas</p>
+                  <p className="text-xl font-black text-red-800 mt-0.5">
+                    {filteredAndSortedDeliveries.filter(d => d.status === 'rejected' || d.status === 'cancelled').length}
+                  </p>
+                </div>
               </div>
+
+              {/* PAINEL DE FILTROS AVANÇADOS DE CORRIDAS */}
+              <div className="bg-slate-50/80 p-4 rounded-xl border border-slate-200 space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-extrabold uppercase text-slate-600 flex items-center gap-1.5">
+                    <Filter className="h-4 w-4 text-indigo-600" />
+                    <span>Filtros e Busca de Corridas</span>
+                  </p>
+
+                  {(delRiderFilter !== 'all' || delEstFilter !== 'all' || delStatusFilter !== 'all' || delDateFrom || delDateTo || delSearchQuery) && (
+                    <button
+                      onClick={() => {
+                        setDelRiderFilter('all');
+                        setDelEstFilter('all');
+                        setDelStatusFilter('all');
+                        setDelDateFrom('');
+                        setDelDateTo('');
+                        setDelSearchQuery('');
+                      }}
+                      className="text-xs font-bold text-indigo-600 hover:underline"
+                    >
+                      Limpar Filtros
+                    </button>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+                  {/* Busca textual por Pedido/Nome */}
+                  <div className="lg:col-span-2">
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Buscar por Nº do Pedido, Motoboy ou Loja</label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        placeholder="Ex: #1042, João, Burgrill..."
+                        value={delSearchQuery}
+                        onChange={(e) => setDelSearchQuery(e.target.value)}
+                        className="w-full pl-8 pr-3 py-1.5 border border-slate-300 rounded-lg text-xs bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                      />
+                      <Search className="h-3.5 w-3.5 text-slate-400 absolute left-2.5 top-2.5" />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Status da Corrida</label>
+                    <select
+                      value={delStatusFilter}
+                      onChange={(e) => setDelStatusFilter(e.target.value)}
+                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500 font-semibold"
+                    >
+                      <option value="all">Todos os Status</option>
+                      <option value="active">Aprovadas (Ativas)</option>
+                      <option value="pending">Pendentes de Aprovação</option>
+                      <option value="rejected">Rejeitadas</option>
+                      <option value="cancelled">Canceladas</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 flex items-center gap-1">
+                      <ArrowUpDown className="h-3 w-3 text-indigo-600" />
+                      <span>Classificação</span>
+                    </label>
+                    <select
+                      value={delSortOrder}
+                      onChange={(e) => setDelSortOrder(e.target.value as any)}
+                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500 font-bold text-slate-700"
+                    >
+                      <option value="date_desc">Mais Recentes Primeiro</option>
+                      <option value="date_asc">Mais Antigas Primeiro</option>
+                      <option value="value_desc">Maior Valor (R$)</option>
+                      <option value="value_asc">Menor Valor (R$)</option>
+                      <option value="rider_name">Nome do Motoboy (A-Z)</option>
+                      <option value="est_name">Nome do Estabelecimento (A-Z)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 pt-1 border-t border-slate-200">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Motoboy</label>
+                    <select
+                      value={delRiderFilter}
+                      onChange={(e) => setDelRiderFilter(e.target.value)}
+                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    >
+                      <option value="all">Todos os Motoboys</option>
+                      {users.filter(u => u.role === 'rider').map(r => (
+                        <option key={r.id} value={r.id}>{r.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Estabelecimento</label>
+                    <select
+                      value={delEstFilter}
+                      onChange={(e) => setDelEstFilter(e.target.value)}
+                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    >
+                      <option value="all">Todos os Estabelecimentos</option>
+                      {establishments.map(e => (
+                        <option key={e.id} value={e.id}>{e.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">De (Data Inicial)</label>
+                    <input
+                      type="date"
+                      value={delDateFrom}
+                      onChange={(e) => setDelDateFrom(e.target.value)}
+                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Até (Data Final)</label>
+                    <input
+                      type="date"
+                      value={delDateTo}
+                      onChange={(e) => setDelDateTo(e.target.value)}
+                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* LISTA DE CORRIDAS FILTRADAS */}
+              {filteredAndSortedDeliveries.length === 0 ? (
+                <div className="text-center py-12 text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200 space-y-2">
+                  <Bike className="h-10 w-10 mx-auto text-slate-300" />
+                  <p className="text-sm font-medium">Nenhuma corrida encontrada com os filtros selecionados.</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-slate-100">
+                  {filteredAndSortedDeliveries.map(del => {
+                    const rider = users.find(r => r.id === del.riderId);
+                    const est = establishments.find(e => e.id === del.establishmentId);
+                    const isPending = del.status === 'pending';
+
+                    return (
+                      <div key={del.id} className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/60 p-2 rounded-xl transition-colors">
+                        <div className="min-w-0 space-y-1.5 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            {del.orderNumber && (
+                              <span className="bg-indigo-600 text-white text-xs font-black px-2.5 py-1 rounded-lg shadow-sm flex-shrink-0 tracking-wide">
+                                #{del.orderNumber}
+                              </span>
+                            )}
+                            <p className="font-extrabold text-slate-800 text-sm">{rider?.name || 'Motoboy'}</p>
+                            <span className="text-xs text-slate-500 font-medium">• {est?.name || 'Estabelecimento'}</span>
+                            <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider ${
+                              del.status === 'active' ? 'bg-emerald-100 text-emerald-800' :
+                              del.status === 'pending' ? 'bg-amber-100 text-amber-800 font-black animate-pulse' : 'bg-red-100 text-red-800'
+                            }`}>
+                              {del.status === 'active' ? 'Aprovada' : del.status === 'pending' ? 'Pendente' : del.status === 'rejected' ? 'Rejeitada' : 'Cancelada'}
+                            </span>
+                            {del.paid && (
+                              <span className="bg-blue-100 text-blue-800 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase">
+                                Pago
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-slate-500 flex items-center gap-2 flex-wrap">
+                            <span>{new Date(del.date + 'T00:00:00').toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
+                            <span className="text-slate-300">•</span>
+                            <span className="font-mono">{del.time}</span>
+                            <span className="text-slate-300">•</span>
+                            <span>Valor: <strong className="text-emerald-600 font-black">R$ {del.value.toFixed(2)}</strong></span>
+                          </p>
+                        </div>
+
+                        <div className="flex items-center gap-2 justify-between sm:justify-end flex-shrink-0 pt-1 sm:pt-0 border-t sm:border-t-0 border-slate-100">
+                          {isPending && (
+                            <>
+                              <button
+                                onClick={() => handleApproveDelivery(del.id)}
+                                className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 transition-colors shadow-sm"
+                                title="Aprovar Corrida"
+                              >
+                                <Check className="h-3.5 w-3.5" />
+                                <span>Aprovar</span>
+                              </button>
+                              <button
+                                onClick={() => handleRejectDelivery(del.id)}
+                                className="px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-lg text-xs font-bold flex items-center gap-1 transition-colors"
+                                title="Recusar Corrida com Justificativa"
+                              >
+                                <Ban className="h-3.5 w-3.5" />
+                                <span>Recusar</span>
+                              </button>
+                            </>
+                          )}
+
+                          <button
+                            onClick={() => setNotesDeliveryId(del.id)}
+                            className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg transition-colors flex items-center gap-1 text-xs font-bold"
+                            title="Observações e Chat da Corrida"
+                          >
+                            <MessageSquare className="h-3.5 w-3.5" />
+                            <span>Observações</span>
+                          </button>
+
+                          <button
+                            onClick={() => {
+                              setEditingDelivery(del);
+                              setDeliveryForm({
+                                riderId: del.riderId,
+                                establishmentId: del.establishmentId,
+                                date: del.date,
+                                time: del.time,
+                                value: del.value.toString(),
+                                orderNumber: del.orderNumber || '',
+                                notes: del.notes || ''
+                              });
+                              setShowDeliveryModal(true);
+                            }}
+                            className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                            title="Editar Corrida"
+                          >
+                            <Edit2 className="h-4 w-4" />
+                          </button>
+
+                          <button
+                            onClick={() => handleDeleteDelivery(del.id)}
+                            className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                            title="Excluir Corrida Definitivamente"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
 
