@@ -474,7 +474,7 @@ export default function RiderDashboard() {
     
     const uniqueEsts: Establishment[] = [];
     resolvedEsts.forEach(e => {
-      if (!uniqueEsts.some(x => x.id === e.id)) {
+      if (!uniqueEsts.some(x => x.id === e.id || x.name.toLowerCase().trim() === e.name.toLowerCase().trim())) {
         uniqueEsts.push(e);
       }
     });
@@ -775,11 +775,24 @@ export default function RiderDashboard() {
             {scheduledEstsToday.length > 0 && (
               <div className="space-y-4">
                 {scheduledEstsToday.map(est => {
-                  const estQueue = queueEntries
-                    .filter(q => q.establishmentId === est.id && q.date === todayStr && q.status === 'waiting')
-                    .sort((a, b) => a.joinedAt.localeCompare(b.joinedAt));
+                  const targetEstObj = db.resolveEstablishment(est.id);
 
-                  const myEntryIndex = estQueue.findIndex(q => q.riderId === user?.id);
+                  const estQueue = queueEntries
+                    .filter(q => {
+                      if (q.date !== todayStr || q.status !== 'waiting') return false;
+                      const qEstObj = db.resolveEstablishment(q.establishmentId);
+                      if (q.establishmentId === est.id) return true;
+                      if (qEstObj && targetEstObj && qEstObj.name.toLowerCase().trim() === targetEstObj.name.toLowerCase().trim()) return true;
+                      return false;
+                    })
+                    .sort((a, b) => new Date(a.joinedAt).getTime() - new Date(b.joinedAt).getTime());
+
+                  const myEntryIndex = estQueue.findIndex(q => {
+                    if (q.riderId === user?.id) return true;
+                    const qRider = db.resolveUser(q.riderId);
+                    return qRider && user && qRider.email.toLowerCase() === user.email.toLowerCase();
+                  });
+
                   const isInQueue = myEntryIndex !== -1;
                   const myQueueEntry = isInQueue ? estQueue[myEntryIndex] : null;
 
@@ -842,7 +855,7 @@ export default function RiderDashboard() {
                           <div className="divide-y divide-slate-100 bg-slate-50/70 rounded-xl border border-slate-200 overflow-hidden">
                             {estQueue.map((item, idx) => {
                               const riderUser = db.resolveUser(item.riderId);
-                              const isMe = item.riderId === user?.id;
+                              const isMe = item.riderId === user?.id || (riderUser && user && riderUser.email.toLowerCase() === user.email.toLowerCase());
                               const timeStr = new Date(item.joinedAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
                               return (
