@@ -96,6 +96,16 @@ export interface RiderLocation {
   updatedAt: string;
 }
 
+export interface QueueEntry {
+  id: string;
+  riderId: string;
+  establishmentId: string;
+  date: string; // YYYY-MM-DD
+  joinedAt: string; // ISO string
+  status: 'waiting' | 'delivering' | 'left';
+  updatedAt: string;
+}
+
 // Chaves para o LocalStorage
 const KEYS = {
   USERS: 'delivery_system_users',
@@ -106,6 +116,7 @@ const KEYS = {
   CURRENT_USER: 'delivery_system_current_user',
   RIDER_LOCATIONS: 'delivery_system_rider_locations',
   PARTNER_REQUESTS: 'delivery_system_partner_requests',
+  RIDER_QUEUE: 'delivery_system_rider_queue',
   MISSING_COLUMNS: 'delivery_system_missing_columns'
 };
 
@@ -341,6 +352,78 @@ export const db = {
     });
   },
 
+  // --- MÉTODOS DE FILA (QUEUE) ---
+  getQueue(): QueueEntry[] {
+    const data = localStorage.getItem(KEYS.RIDER_QUEUE);
+    return data ? JSON.parse(data) : [];
+  },
+  setQueue(queue: QueueEntry[]) {
+    localStorage.setItem(KEYS.RIDER_QUEUE, JSON.stringify(queue));
+    queue.forEach(q => {
+      const rawPayload = {
+        id: q.id,
+        rider_id: q.riderId,
+        establishment_id: q.establishmentId,
+        date: q.date,
+        joined_at: q.joinedAt,
+        status: q.status,
+        updated_at: q.updatedAt || new Date().toISOString()
+      };
+      safeUpsert('rider_queue', rawPayload);
+    });
+  },
+
+  joinQueue(riderId: string, establishmentId: string) {
+    const todayStr = this.getLocalDateString();
+    const queue = this.getQueue();
+    const nowISO = new Date().toISOString();
+
+    // Remove entradas ativas anteriores deste rider para hoje
+    const filtered = queue.filter(q => !(q.riderId === riderId && q.establishmentId === establishmentId && q.date === todayStr));
+
+    const newEntry: QueueEntry = {
+      id: 'q_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+      riderId,
+      establishmentId,
+      date: todayStr,
+      joinedAt: nowISO,
+      status: 'waiting',
+      updatedAt: nowISO
+    };
+
+    this.setQueue([...filtered, newEntry]);
+  },
+
+  leaveQueue(riderId: string, establishmentId: string) {
+    const todayStr = this.getLocalDateString();
+    const queue = this.getQueue();
+    const nowISO = new Date().toISOString();
+
+    const updated = queue.map(q => {
+      if (q.riderId === riderId && q.establishmentId === establishmentId && q.date === todayStr && q.status === 'waiting') {
+        return { ...q, status: 'left' as const, updatedAt: nowISO };
+      }
+      return q;
+    });
+
+    this.setQueue(updated);
+  },
+
+  markRiderDelivering(riderId: string, establishmentId: string) {
+    const todayStr = this.getLocalDateString();
+    const queue = this.getQueue();
+    const nowISO = new Date().toISOString();
+
+    const updated = queue.map(q => {
+      if (q.riderId === riderId && q.establishmentId === establishmentId && q.date === todayStr && q.status === 'waiting') {
+        return { ...q, status: 'delivering' as const, updatedAt: nowISO };
+      }
+      return q;
+    });
+
+    this.setQueue(updated);
+  },
+
   getCurrentUser(): User | null {
     const data = localStorage.getItem(KEYS.CURRENT_USER);
     return data ? JSON.parse(data) : null;
@@ -558,7 +641,6 @@ export const db = {
           let chat = s.chat || undefined;
           let createdBy = s.created_by || undefined;
 
-          // Parse do payload redundante gravado no created_by
           if (s.created_by && s.created_by.startsWith('{')) {
             try {
               const parsed = JSON.parse(s.created_by);
@@ -603,7 +685,6 @@ export const db = {
           let customerChat = d.customer_chat || undefined;
           let updatedAt = d.updated_at;
 
-          // Parse do payload redundante em order_number
           if (d.order_number && d.order_number.startsWith('{')) {
             try {
               const parsed = JSON.parse(d.order_number);
@@ -652,7 +733,27 @@ export const db = {
       console.warn('Erro ao sincronizar tabela "deliveries":', err);
     }
 
-    // 5. Solicitações de Parceria
+    // 5. Fila de Entregadores (rider_queue)
+    try {
+      const { data: queueData, error } = await supabase.from('rider_queue').select('*');
+      if (error) throw error;
+      if (queueData) {
+        const mappedQueue: QueueEntry[] = queueData.map(q => ({
+          id: q.id,
+          riderId: q.rider_id,
+          establishmentId: q.establishment_id,
+          date: q.date,
+          joinedAt: q.joined_at,
+          status: q.status,
+          updatedAt: q.updated_at
+        }));
+        localStorage.setItem(KEYS.RIDER_QUEUE, JSON.stringify(mappedQueue));
+      }
+    } catch (err) {
+      console.warn('Erro ao sincronizar tabela "rider_queue":', err);
+    }
+
+    // 6. Solicitações de Parceria
     try {
       const { data: reqsData, error } = await supabase.from('partner_requests').select('*');
       if (error) throw error;
@@ -672,7 +773,7 @@ export const db = {
       console.warn('Erro ao sincronizar tabela "partner_requests":', err);
     }
 
-    // 6. Localizações dos Motoboys
+    // 7. Localizações dos Motoboys
     try {
       const { data: locData, error } = await supabase.from('rider_locations').select('*');
       if (error) throw error;

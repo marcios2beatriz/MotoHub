@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { db, User, Establishment, Schedule, Delivery, RiderLocation } from '../utils/db';
+import { db, User, Establishment, Schedule, Delivery, RiderLocation, QueueEntry } from '../utils/db';
 import { 
   Bike, 
   LogOut, 
@@ -19,7 +19,9 @@ import {
   CheckCircle,
   Check,
   Ban,
-  Layers
+  ListOrdered,
+  UserCheck,
+  Play
 } from 'lucide-react';
 
 import L from 'leaflet';
@@ -48,6 +50,8 @@ export default function EstablishmentDashboard() {
   const [todaySchedules, setTodaySchedules] = useState<Schedule[]>([]);
   const [todayDeliveries, setTodayDeliveries] = useState<Delivery[]>([]);
   const [riderLocations, setRiderLocations] = useState<RiderLocation[]>([]);
+  const [queueEntries, setQueueEntries] = useState<QueueEntry[]>([]);
+
   const [estCoords, setEstCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [activeToast, setActiveToast] = useState<ChatToast | null>(null);
 
@@ -176,7 +180,6 @@ export default function EstablishmentDashboard() {
     const estDeliveriesToday = allDeliveries.filter(d => isDeliveryForCurrentEst(d, currentEstName, matchingEstIds) && d.date === todayStr);
     setTodayDeliveries(estDeliveriesToday);
 
-    // Seleção de motoboys vinculados ou ativos para exibição imediata
     let riders = allUsers.filter(u => 
       u.role === 'rider' && u.active && (
         u.establishmentId === currentEst?.id ||
@@ -186,7 +189,6 @@ export default function EstablishmentDashboard() {
       )
     );
 
-    // Fallback: Caso nenhum motoboy tenha escala prévia hoje, exibe todos os motoboys ativos no sistema
     if (riders.length === 0) {
       riders = allUsers.filter(u => u.role === 'rider' && u.active);
     }
@@ -195,6 +197,9 @@ export default function EstablishmentDashboard() {
 
     const locations = db.getRiderLocations();
     setRiderLocations(locations);
+
+    const allQueue = db.getQueue();
+    setQueueEntries(allQueue);
   };
 
   useEffect(() => {
@@ -291,7 +296,6 @@ export default function EstablishmentDashboard() {
 
   const serializedAddress = JSON.stringify(establishment?.address || {});
 
-  // Inicialização e montagem única do mapa (sem destruições repetidas)
   useEffect(() => {
     if (!establishment || !mapContainerRef.current) return;
 
@@ -354,15 +358,12 @@ export default function EstablishmentDashboard() {
     };
   }, [establishment?.id, serializedAddress]);
 
-  // Atualização em Tempo Real com tolerância expandida para exibição de motoboys online
   useEffect(() => {
     const currentMap = mapRef.current;
     if (!currentMap) return;
 
     const allUsers = db.getUsers();
     const now = Date.now();
-    
-    // LIMITE DE TEMPO ONLINE COM TOLERÂNCIA: 10 minutos (previne descarte por pequenas diferenças de relógio)
     const ONLINE_THRESHOLD_MS = 10 * 60 * 1000;
 
     const activeRiderIdsOnMap = new Set<string>();
@@ -374,7 +375,6 @@ export default function EstablishmentDashboard() {
       const timeDiff = Math.abs(now - lastUpdateMs);
       const isOnline = lastUpdateMs > 0 && timeDiff < ONLINE_THRESHOLD_MS;
 
-      // 1. Descartar apenas se o motoboy estiver completamente inativo há mais de 10 minutos
       if (!isOnline) {
         if (markersRef.current[loc.riderId]) {
           currentMap.removeLayer(markersRef.current[loc.riderId]);
@@ -383,7 +383,6 @@ export default function EstablishmentDashboard() {
         return;
       }
 
-      // 2. Verificar se o motoboy é um entregador ativo
       const isRiderBelongsToEst = scheduledRiders.some(r => {
         if (r.id === loc.riderId) return true;
         if (r.name.toLowerCase().trim() === loc.riderName.toLowerCase().trim()) return true;
@@ -460,7 +459,6 @@ export default function EstablishmentDashboard() {
       }
     });
 
-    // LIMPEZA FINAL
     Object.keys(markersRef.current).forEach(rId => {
       if (!activeRiderIdsOnMap.has(rId)) {
         currentMap.removeLayer(markersRef.current[rId]);
@@ -502,6 +500,14 @@ export default function EstablishmentDashboard() {
     }
   };
 
+  const todayStr = db.getLocalDateString();
+  const currentEstId = establishment?.id || user?.establishmentId || '';
+
+  // Filtra motoboys aguardando na fila hoje ordenados por horário
+  const activeQueue = queueEntries
+    .filter(q => q.establishmentId === currentEstId && q.date === todayStr && q.status === 'waiting')
+    .sort((a, b) => a.joinedAt.localeCompare(b.joinedAt));
+
   const handleSaveDelivery = (e: React.FormEvent) => {
     e.preventDefault();
     const val = parseFloat(deliveryForm.value);
@@ -510,10 +516,8 @@ export default function EstablishmentDashboard() {
       return;
     }
 
-    const estId = establishment?.id || user?.establishmentId;
-    if (!estId) return;
+    if (!currentEstId) return;
 
-    const todayStr = db.getLocalDateString();
     const activeSchedule = todaySchedules.find(s => s.riderId === deliveryForm.riderId);
     const allDeliveries = db.getDeliveries();
     const nowStr = new Date().toISOString();
@@ -533,7 +537,7 @@ export default function EstablishmentDashboard() {
       const newDelivery: Delivery = {
         id: 'd_' + Date.now(),
         riderId: deliveryForm.riderId,
-        establishmentId: estId,
+        establishmentId: currentEstId,
         date: todayStr,
         time: new Date().toTimeString().slice(0, 5),
         value: val,
@@ -544,6 +548,585 @@ export default function EstablishmentDashboard() {
         updatedAt: nowStr
       };
       db.setDeliveries([...allDeliveries, newDelivery]);
+
+      // Marca o motoboy como "em entrega" na fila de rodízio
+      db.markRiderDelivering(deliveryForm.riderId, currentEstId);
+    }
+
+    setShowDeliveryModal(false);
+    setEditingDelivery(null);
+    setDeliveryForm({ riderId: '', value: '', orderNumber: '', notes: '' });
+    loadData();
+  };
+
+  const<dyad-write path="src/pages/EstablishmentDashboard.tsx" description="Finalização e implementação completa do painel do estabelecimento com fila de entregadores ao vivo, seleção automática do 1º da fila no lançamento de corridas e central de rastreamento">
+"use client";
+
+import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { db, User, Establishment, Schedule, Delivery, RiderLocation, QueueEntry } from '../utils/db';
+import { 
+  Bike, 
+  LogOut, 
+  Plus, 
+  DollarSign, 
+  Users, 
+  Map as MapIcon,
+  X,
+  Maximize2,
+  Minimize2,
+  Navigation,
+  MessageSquare,
+  Clock,
+  CheckCircle,
+  Check,
+  Ban,
+  ListOrdered,
+  UserCheck,
+  Play,
+  ArrowRight
+} from 'lucide-react';
+
+import L from 'leaflet';
+import DeliveryNotesModal from '../components/DeliveryNotesModal';
+import ScheduleChatModal from '../components/ScheduleChatModal';
+import ChatToastBanner, { ChatToast } from '../components/ChatToastBanner';
+import { sendDeviceNotification, playNotificationSound, requestNotificationPermission } from '../utils/notifications';
+import { geocodeAddress } from '../utils/geocoding';
+
+export default function EstablishmentDashboard() {
+  const navigate = useNavigate();
+  const [user, setUser] = useState(() => {
+    const cur = db.getCurrentUser();
+    if (cur) {
+      const full = db.getUsers().find(u => u.email.toLowerCase() === cur.email.toLowerCase());
+      if (full) {
+        db.setCurrentUser(full);
+        return full;
+      }
+    }
+    return cur;
+  });
+  const [establishment, setEstablishment] = useState<Establishment | null>(null);
+  
+  const [scheduledRiders, setScheduledRiders] = useState<User[]>([]);
+  const [todaySchedules, setTodaySchedules] = useState<Schedule[]>([]);
+  const [todayDeliveries, setTodayDeliveries] = useState<Delivery[]>([]);
+  const [riderLocations, setRiderLocations] = useState<RiderLocation[]>([]);
+  const [queueEntries, setQueueEntries] = useState<QueueEntry[]>([]);
+
+  const [estCoords, setEstCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [activeToast, setActiveToast] = useState<ChatToast | null>(null);
+
+  const [isMapExpanded, setIsMapExpanded] = useState(false);
+
+  const prevNotesRef = useRef<Record<string, string>>({});
+  const prevScheduleChatRef = useRef<Record<string, string>>({});
+
+  const [showDeliveryModal, setShowDeliveryModal] = useState(false);
+  const [editingDelivery, setEditingDelivery] = useState<Delivery | null>(null);
+  const [deliveryForm, setDeliveryForm] = useState({
+    riderId: '',
+    value: '',
+    orderNumber: '',
+    notes: ''
+  });
+
+  const [notesDeliveryId, setNotesDeliveryId] = useState<string | null>(null);
+  const [activeScheduleChatId, setActiveScheduleChatId] = useState<string | null>(null);
+
+  const mapContainerRef = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<L.Map | null>(null);
+  const markersRef = useRef<{ [key: string]: L.Marker }>({});
+  
+  const hasSetInitialBoundsRef = useRef(false);
+
+  const handleLogout = () => {
+    db.setCurrentUser(null);
+    navigate('/login');
+  };
+
+  const isScheduleForCurrentEst = (s: Schedule, currentEstName: string, matchingEstIds: string[]) => {
+    if (!currentEstName) return false;
+    if (matchingEstIds.includes(s.establishmentId)) return true;
+    const destEst = db.resolveEstablishment(s.establishmentId);
+    if (destEst) {
+      const destName = destEst.name.toLowerCase().trim();
+      return destName === currentEstName || 
+             destName.includes(currentEstName) || 
+             currentEstName.includes(destName) ||
+             destName.replace(/\s+/g, '') === currentEstName.replace(/\s+/g, '');
+    }
+    return false;
+  };
+
+  const isDeliveryForCurrentEst = (d: Delivery, currentEstName: string, matchingEstIds: string[]) => {
+    if (!currentEstName) return false;
+    if (matchingEstIds.includes(d.establishmentId)) return true;
+    
+    let destEst = db.resolveEstablishment(d.establishmentId);
+    if (!destEst && d.scheduleId) {
+      const sch = db.getSchedules().find(s => s.id === d.scheduleId);
+      if (sch) {
+        destEst = db.resolveEstablishment(sch.establishmentId);
+      }
+    }
+    
+    if (destEst) {
+      const destName = destEst.name.toLowerCase().trim();
+      return destName === currentEstName || 
+             destName.includes(currentEstName) || 
+             currentEstName.includes(destName) ||
+             destName.replace(/\s+/g, '') === currentEstName.replace(/\s+/g, '');
+    }
+    
+    return false;
+  };
+
+  const loadData = () => {
+    const currentUser = db.getCurrentUser();
+    if (!currentUser) return;
+
+    const freshUser = db.getUsers().find(u => u.email.toLowerCase() === currentUser.email.toLowerCase()) || currentUser;
+    let estId = freshUser.establishmentId;
+
+    const allEsts = db.getEstablishments();
+    let currentEst = allEsts.find(e => e.id === estId);
+
+    if (!currentEst) {
+      currentEst = allEsts.find(e => e.email && e.email.toLowerCase() === freshUser.email.toLowerCase());
+    }
+
+    if (!currentEst) {
+      const emailPrefix = freshUser.email.split('@')[0].toLowerCase();
+      if (emailPrefix && emailPrefix !== 'gerente' && emailPrefix !== 'admin') {
+        currentEst = allEsts.find(e => 
+          e.name.toLowerCase().includes(emailPrefix) || 
+          emailPrefix.includes(e.name.toLowerCase().replace(/\s+/g, ''))
+        );
+      }
+    }
+
+    if (!currentEst && freshUser.name) {
+      const cleanName = freshUser.name.replace('Gerente ', '').toLowerCase().trim();
+      if (cleanName && cleanName.length > 2) {
+        currentEst = allEsts.find(e => 
+          e.name.toLowerCase().trim() === cleanName || 
+          e.name.toLowerCase().trim().includes(cleanName) ||
+          cleanName.includes(e.name.toLowerCase().trim())
+        );
+      }
+    }
+
+    if (!currentEst) return;
+    setEstablishment(currentEst);
+
+    const currentEstName = currentEst.name.toLowerCase().trim();
+    const matchingEstIds = allEsts
+      .filter(e => {
+        const name = e.name.toLowerCase().trim();
+        return name === currentEstName || 
+               name.includes(currentEstName) || 
+               currentEstName.includes(name) ||
+               name.replace(/\s+/g, '') === currentEstName.replace(/\s+/g, '');
+      })
+      .map(e => e.id);
+
+    const todayStr = db.getLocalDateString();
+    const allSchedules = db.getSchedules();
+    
+    const estSchedules = allSchedules.filter(s => isScheduleForCurrentEst(s, currentEstName, matchingEstIds) && s.date === todayStr);
+    setTodaySchedules(estSchedules);
+
+    const allUsers = db.getUsers();
+    const allDeliveries = db.getDeliveries();
+    const estDeliveriesToday = allDeliveries.filter(d => isDeliveryForCurrentEst(d, currentEstName, matchingEstIds) && d.date === todayStr);
+    setTodayDeliveries(estDeliveriesToday);
+
+    let riders = allUsers.filter(u => 
+      u.role === 'rider' && u.active && (
+        u.establishmentId === currentEst?.id ||
+        estSchedules.some(s => s.riderId === u.id || db.resolveUser(s.riderId)?.email.toLowerCase() === u.email.toLowerCase()) ||
+        allSchedules.some(s => isScheduleForCurrentEst(s, currentEstName, matchingEstIds) && (s.riderId === u.id || db.resolveUser(s.riderId)?.email.toLowerCase() === u.email.toLowerCase())) ||
+        estDeliveriesToday.some(d => d.riderId === u.id)
+      )
+    );
+
+    if (riders.length === 0) {
+      riders = allUsers.filter(u => u.role === 'rider' && u.active);
+    }
+
+    setScheduledRiders(riders);
+
+    const locations = db.getRiderLocations();
+    setRiderLocations(locations);
+
+    const allQueue = db.getQueue();
+    setQueueEntries(allQueue);
+  };
+
+  useEffect(() => {
+    if (!user || user.role !== 'establishment') {
+      navigate('/login');
+      return;
+    }
+    requestNotificationPermission();
+
+    db.pullFromSupabase().then(() => loadData());
+
+    const interval = setInterval(() => {
+      db.pullFromSupabase().then(() => loadData());
+    }, 1500);
+
+    const handleSyncComplete = () => {
+      loadData();
+    };
+    window.addEventListener('db-sync-complete', handleSyncComplete);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('db-sync-complete', handleSyncComplete);
+    };
+  }, [user, navigate]);
+
+  // Monitor Delivery Notes
+  useEffect(() => {
+    todayDeliveries.forEach(d => {
+      const prevNotes = prevNotesRef.current[d.id];
+      if (prevNotes !== undefined && d.notes && d.notes !== prevNotes) {
+        const prevLines = prevNotes ? prevNotes.split('\n') : [];
+        const currentLines = d.notes.split('\n');
+
+        if (currentLines.length > prevLines.length) {
+          const newLines = currentLines.slice(prevLines.length);
+          newLines.forEach(line => {
+            const isMe = line.includes('- Estabelecimento') || line.includes(`(${user?.name})`);
+            if (!isMe) {
+              const sender = line.includes('- Motoboy') ? 'Motoboy' : 'Cliente';
+              const messageText = line.substring(line.indexOf(']: ') + 3);
+              const title = `Mensagem de ${sender} (Pedido #${d.orderNumber || d.id.slice(-4)})`;
+              
+              sendDeviceNotification(title, `"${messageText}"`);
+              playNotificationSound();
+              setActiveToast({
+                id: 'est_notes_' + Date.now(),
+                title,
+                message: messageText,
+                sender,
+                onClick: () => setNotesDeliveryId(d.id)
+              });
+            }
+          });
+        }
+      }
+      prevNotesRef.current[d.id] = d.notes || '';
+    });
+  }, [todayDeliveries, user]);
+
+  // Monitor Shift Schedules Chat
+  useEffect(() => {
+    todaySchedules.forEach(s => {
+      const prevChat = prevScheduleChatRef.current[s.id];
+      if (prevChat !== undefined && s.chat && s.chat !== prevChat) {
+        const prevLines = prevChat ? prevChat.split('\n') : [];
+        const currentLines = s.chat.split('\n');
+
+        if (currentLines.length > prevLines.length) {
+          const newLines = currentLines.slice(prevLines.length);
+          newLines.forEach(line => {
+            const isMe = line.includes('- Estabelecimento') || line.includes(`(${user?.name})`);
+            if (!isMe) {
+              const rider = db.resolveUser(s.riderId);
+              const messageText = line.substring(line.indexOf(']: ') + 3);
+              const title = `Mensagem no Chat de Turno (${rider?.name || 'Motoboy'})`;
+              
+              sendDeviceNotification(title, `"${messageText}"`);
+              playNotificationSound();
+              setActiveToast({
+                id: 'est_sch_' + Date.now(),
+                title,
+                message: messageText,
+                sender: rider?.name || 'Motoboy',
+                onClick: () => setActiveScheduleChatId(s.id)
+              });
+            }
+          });
+        }
+      }
+      prevScheduleChatRef.current[s.id] = s.chat || '';
+    });
+  }, [todaySchedules, user]);
+
+  const serializedAddress = JSON.stringify(establishment?.address || {});
+
+  useEffect(() => {
+    if (!establishment || !mapContainerRef.current) return;
+
+    if (!document.getElementById('leaflet-css')) {
+      const link = document.createElement('link');
+      link.id = 'leaflet-css';
+      link.rel = 'stylesheet';
+      link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+      document.head.appendChild(link);
+    }
+
+    const defaultLat = -7.2247;
+    const defaultLng = -35.8878;
+
+    const initMap = (lat: number, lng: number) => {
+      if (mapRef.current) return;
+      const mapInstance = L.map(mapContainerRef.current!, {
+        zoomControl: true,
+        attributionControl: false
+      }).setView([lat, lng], 16);
+      mapRef.current = mapInstance;
+
+      L.tileLayer('https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
+        maxZoom: 20
+      }).addTo(mapInstance);
+
+      const estIcon = L.divIcon({
+        html: `<div style="background-color: #4f46e5; color: white; width: 40px; height: 40px; border-radius: 50%; border: 3px solid white; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3); display: flex; align-items: center; justify-content: center;"><svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></div>`,
+        className: 'custom-est-icon',
+        iconSize: [40, 40],
+        iconAnchor: [20, 20]
+      });
+
+      L.marker([lat, lng], { icon: estIcon, zIndexOffset: 500 })
+        .addTo(mapInstance)
+        .bindPopup(`<b>${establishment.name}</b><br/>Sua Loja / Base`);
+
+      setEstCoords({ lat, lng });
+    };
+
+    const geocodeEstablishment = async () => {
+      if (mapRef.current) return;
+      const result = await geocodeAddress(establishment.address);
+      if (result) {
+        initMap(result.lat, result.lng);
+      } else {
+        initMap(defaultLat, defaultLng);
+      }
+    };
+
+    geocodeEstablishment();
+
+    return () => {
+      if (mapRef.current) {
+        mapRef.current.remove();
+        mapRef.current = null;
+        markersRef.current = {};
+        hasSetInitialBoundsRef.current = false;
+      }
+    };
+  }, [establishment?.id, serializedAddress]);
+
+  useEffect(() => {
+    const currentMap = mapRef.current;
+    if (!currentMap) return;
+
+    const allUsers = db.getUsers();
+    const now = Date.now();
+    const ONLINE_THRESHOLD_MS = 10 * 60 * 1000;
+
+    const activeRiderIdsOnMap = new Set<string>();
+
+    riderLocations.forEach(loc => {
+      if (!loc.lat || !loc.lng || isNaN(loc.lat) || isNaN(loc.lng)) return;
+
+      const lastUpdateMs = loc.updatedAt ? new Date(loc.updatedAt).getTime() : 0;
+      const timeDiff = Math.abs(now - lastUpdateMs);
+      const isOnline = lastUpdateMs > 0 && timeDiff < ONLINE_THRESHOLD_MS;
+
+      if (!isOnline) {
+        if (markersRef.current[loc.riderId]) {
+          currentMap.removeLayer(markersRef.current[loc.riderId]);
+          delete markersRef.current[loc.riderId];
+        }
+        return;
+      }
+
+      const isRiderBelongsToEst = scheduledRiders.some(r => {
+        if (r.id === loc.riderId) return true;
+        if (r.name.toLowerCase().trim() === loc.riderName.toLowerCase().trim()) return true;
+        const locUser = allUsers.find(u => u.id === loc.riderId);
+        return locUser && locUser.email.toLowerCase() === r.email.toLowerCase();
+      }) || allUsers.some(u => u.id === loc.riderId && u.role === 'rider' && u.active);
+
+      if (!isRiderBelongsToEst) {
+        if (markersRef.current[loc.riderId]) {
+          currentMap.removeLayer(markersRef.current[loc.riderId]);
+          delete markersRef.current[loc.riderId];
+        }
+        return;
+      }
+
+      activeRiderIdsOnMap.add(loc.riderId);
+
+      const riderName = loc.riderName || 'Entregador';
+      const existingMarker = markersRef.current[loc.riderId];
+
+      if (existingMarker) {
+        existingMarker.setLatLng([loc.lat, loc.lng]);
+      } else {
+        const riderIcon = L.divIcon({
+          html: `
+            <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative;">
+              <div style="
+                background: #0f172a;
+                color: #ffffff;
+                font-size: 11px;
+                font-weight: 800;
+                padding: 3px 9px;
+                border-radius: 8px;
+                box-shadow: 0 4px 10px rgba(0,0,0,0.4);
+                white-space: nowrap;
+                margin-bottom: 4px;
+                border: 1.5px solid #1e293b;
+                display: flex;
+                align-items: center;
+                gap: 5px;
+              ">
+                <span style="width: 7px; height: 7px; border-radius: 50%; background: #10b981;"></span>
+                ${riderName}
+              </div>
+              <div style="
+                background-color: #10b981;
+                color: white;
+                width: 42px;
+                height: 42px;
+                border-radius: 50%;
+                border: 3.5px solid white;
+                box-shadow: 0 10px 20px rgba(0, 0, 0, 0.35);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+              ">
+                <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="18" r="3" /><circle cx="18" cy="18" r="3" /><path d="M18 18v-3l-3-4H9l-3 4v3" /><rect x="8" y="6" width="5" height="5" rx="1" /><path d="M15 11l1.5-4.5H19" /></svg>
+              </div>
+            </div>
+          `,
+          className: 'custom-rider-icon',
+          iconSize: [90, 65],
+          iconAnchor: [45, 55]
+        });
+
+        const marker = L.marker([loc.lat, loc.lng], { 
+          icon: riderIcon,
+          zIndexOffset: 2000
+        })
+          .addTo(currentMap)
+          .bindPopup(`<b>${riderName}</b><br/>Motoboy em Rota`);
+
+        markersRef.current[loc.riderId] = marker;
+      }
+    });
+
+    Object.keys(markersRef.current).forEach(rId => {
+      if (!activeRiderIdsOnMap.has(rId)) {
+        currentMap.removeLayer(markersRef.current[rId]);
+        delete markersRef.current[rId];
+      }
+    });
+
+    if (!hasSetInitialBoundsRef.current && activeRiderIdsOnMap.size > 0) {
+      handleRecenterMap();
+      hasSetInitialBoundsRef.current = true;
+    }
+  }, [scheduledRiders, riderLocations, estCoords, todayDeliveries]);
+
+  const handleRecenterMap = () => {
+    const currentMap = mapRef.current;
+    if (!currentMap) return;
+
+    const now = Date.now();
+    const ONLINE_THRESHOLD_MS = 10 * 60 * 1000;
+
+    const points: L.LatLngExpression[] = [];
+    if (estCoords) points.push([estCoords.lat, estCoords.lng]);
+
+    riderLocations.forEach(loc => {
+      if (!loc.lat || !loc.lng || isNaN(loc.lat) || isNaN(loc.lng)) return;
+      const lastUpdateMs = loc.updatedAt ? new Date(loc.updatedAt).getTime() : 0;
+      const isOnline = lastUpdateMs > 0 && Math.abs(now - lastUpdateMs) < ONLINE_THRESHOLD_MS;
+
+      if (isOnline) {
+        points.push([loc.lat, loc.lng]);
+      }
+    });
+
+    if (points.length >= 2) {
+      const bounds = L.latLngBounds(points);
+      currentMap.fitBounds(bounds, { padding: [60, 60], maxZoom: 16 });
+    } else if (points.length === 1) {
+      currentMap.setView(points[0], 16);
+    }
+  };
+
+  const todayStr = db.getLocalDateString();
+  const currentEstId = establishment?.id || user?.establishmentId || '';
+
+  // Filtra motoboys aguardando na fila hoje ordenados por horário
+  const activeQueue = queueEntries
+    .filter(q => q.establishmentId === currentEstId && q.date === todayStr && q.status === 'waiting')
+    .sort((a, b) => a.joinedAt.localeCompare(b.joinedAt));
+
+  const handleOpenLaunchModal = (riderIdToPreselect?: string) => {
+    if (scheduledRiders.length === 0) {
+      alert('Não há motoboys ativos cadastrados no sistema.');
+      return;
+    }
+
+    const defaultRiderId = riderIdToPreselect || (activeQueue.length > 0 ? activeQueue[0].riderId : scheduledRiders[0].id);
+
+    setEditingDelivery(null);
+    setDeliveryForm({ riderId: defaultRiderId, value: '', orderNumber: '', notes: '' });
+    setShowDeliveryModal(true);
+  };
+
+  const handleSaveDelivery = (e: React.FormEvent) => {
+    e.preventDefault();
+    const val = parseFloat(deliveryForm.value);
+    if (isNaN(val) || val <= 0) {
+      alert('Erro: O valor da corrida deve ser maior que zero.');
+      return;
+    }
+
+    if (!currentEstId) return;
+
+    const activeSchedule = todaySchedules.find(s => s.riderId === deliveryForm.riderId);
+    const allDeliveries = db.getDeliveries();
+    const nowStr = new Date().toISOString();
+
+    if (editingDelivery) {
+      const updated = allDeliveries.map(d => d.id === editingDelivery.id ? {
+        ...d,
+        riderId: deliveryForm.riderId,
+        value: val,
+        orderNumber: deliveryForm.orderNumber.trim() || undefined,
+        notes: deliveryForm.notes.trim() || undefined,
+        scheduleId: activeSchedule?.id || d.scheduleId,
+        updatedAt: nowStr
+      } : d);
+      db.setDeliveries(updated);
+    } else {
+      const newDelivery: Delivery = {
+        id: 'd_' + Date.now(),
+        riderId: deliveryForm.riderId,
+        establishmentId: currentEstId,
+        date: todayStr,
+        time: new Date().toTimeString().slice(0, 5),
+        value: val,
+        status: 'active',
+        scheduleId: activeSchedule?.id,
+        orderNumber: deliveryForm.orderNumber.trim() || undefined,
+        notes: deliveryForm.notes.trim() || undefined,
+        updatedAt: nowStr
+      };
+      db.setDeliveries([...allDeliveries, newDelivery]);
+
+      // Marca o motoboy como "em entrega" na fila de rodízio
+      db.markRiderDelivering(deliveryForm.riderId, currentEstId);
     }
 
     setShowDeliveryModal(false);
@@ -683,22 +1266,96 @@ export default function EstablishmentDashboard() {
             </div>
           </div>
 
+          {/* PAINEL FILA DE ENTREGADORES NO ESTABELECIMENTO */}
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-indigo-100 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+              <div className="flex items-center space-x-2.5">
+                <div className="p-2.5 bg-indigo-600 text-white rounded-xl shadow-sm">
+                  <ListOrdered className="h-5 w-5" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-slate-800">Fila de Saída dos Motoboys</h2>
+                  <p className="text-xs text-slate-500">Ordenados por horário de chegada no estabelecimento</p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => handleOpenLaunchModal()}
+                className="flex items-center justify-center space-x-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-xs font-extrabold transition-all shadow-sm"
+              >
+                <Plus className="h-4 w-4" />
+                <span>Lançar pro 1º da Fila</span>
+              </button>
+            </div>
+
+            {activeQueue.length === 0 ? (
+              <div className="text-center py-8 text-slate-400 text-xs bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                Nenhum entregador aguardando na fila no momento. Quando o motoboy chegar na loja e marcar presença, ele aparecerá aqui.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {activeQueue.map((entry, idx) => {
+                  const riderUser = db.resolveUser(entry.riderId);
+                  const isNext = idx === 0;
+                  const arrivalTime = new Date(entry.joinedAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+                  return (
+                    <div 
+                      key={entry.id} 
+                      className={`p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-all ${
+                        isNext 
+                          ? 'bg-emerald-50 border-emerald-300 shadow-sm' 
+                          : 'bg-white border-slate-200 hover:border-indigo-200'
+                      }`}
+                    >
+                      <div className="flex items-center space-x-3">
+                        <div className={`w-9 h-9 rounded-full flex items-center justify-center font-black text-sm shadow-sm ${
+                          isNext ? 'bg-emerald-600 text-white animate-pulse' : 'bg-slate-800 text-white'
+                        }`}>
+                          {idx + 1}º
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h4 className="font-extrabold text-slate-800 text-sm">{riderUser?.name || 'Motoboy'}</h4>
+                            {isNext && (
+                              <span className="bg-emerald-600 text-white text-[9px] font-black uppercase px-2 py-0.5 rounded-full tracking-wider">
+                                Próximo a sair
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-slate-500 mt-0.5 flex items-center gap-1">
+                            <Clock className="h-3.5 w-3.5 text-slate-400" />
+                            <span>Chegou na loja às <strong>{arrivalTime}</strong></span>
+                          </p>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => handleOpenLaunchModal(entry.riderId)}
+                        className={`px-3.5 py-2 rounded-lg text-xs font-extrabold flex items-center justify-center space-x-1 transition-all ${
+                          isNext 
+                            ? 'bg-emerald-600 text-white hover:bg-emerald-700 shadow' 
+                            : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100'
+                        }`}
+                      >
+                        <span>Chamar p/ Entrega</span>
+                        <ArrowRight className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
           <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
             <div className="flex justify-between items-center">
               <h2 className="text-lg font-bold text-slate-800 flex items-center space-x-2">
                 <Users className="h-5 w-5 text-indigo-600" />
-                <span>Motoboys do Estabelecimento</span>
+                <span>Motoboys Cadastrados no Sistema</span>
               </h2>
               <button
-                onClick={() => {
-                  if (scheduledRiders.length === 0) {
-                    alert('Não há motoboys ativos cadastrados no sistema.');
-                    return;
-                  }
-                  setEditingDelivery(null);
-                  setDeliveryForm({ riderId: scheduledRiders[0].id, value: '', orderNumber: '', notes: '' });
-                  setShowDeliveryModal(true);
-                }}
+                onClick={() => handleOpenLaunchModal()}
                 className="flex items-center space-x-1.5 bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
               >
                 <Plus className="h-4 w-4" />
@@ -708,7 +1365,7 @@ export default function EstablishmentDashboard() {
 
             {scheduledRiders.length === 0 ? (
               <div className="text-center py-8 text-slate-400 text-sm">
-                Nenhum motoboy ativo no momento.
+                Nenum motoboy ativo no momento.
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
