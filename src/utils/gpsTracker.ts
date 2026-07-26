@@ -98,6 +98,7 @@ class HighPrecisionGpsTracker {
   private audioKeepAlive: HTMLAudioElement | null = null;
 
   private lastLocation: GpsLocation | null = null;
+  private deviceCompassHeading: number | null = null;
   private listeners: Set<(state: GpsState) => void> = new Set();
   
   private currentState: GpsState = {
@@ -110,6 +111,7 @@ class HighPrecisionGpsTracker {
   constructor() {
     this.initWebWorker();
     this.setupVisibilityListeners();
+    this.setupGyroscopeListener();
   }
 
   private initWebWorker() {
@@ -125,6 +127,34 @@ class HighPrecisionGpsTracker {
       }
     } catch (e) {
       console.warn('Web Worker de GPS não pôde ser iniciado diretamente:', e);
+    }
+  }
+
+  private setupGyroscopeListener() {
+    const handleOrientation = (e: DeviceOrientationEvent) => {
+      let compass = e.alpha;
+      if ((e as any).webkitCompassHeading !== undefined) {
+        compass = (e as any).webkitCompassHeading;
+      }
+      if (compass !== null && !isNaN(compass)) {
+        this.deviceCompassHeading = Math.round(compass);
+        if (this.currentState.currentLocation) {
+          this.currentState.currentLocation.heading = this.deviceCompassHeading;
+          this.notify();
+        }
+      }
+    };
+
+    if (window.DeviceOrientationEvent) {
+      if (typeof (DeviceOrientationEvent as any).requestPermission === 'function') {
+        (DeviceOrientationEvent as any).requestPermission().then((res: string) => {
+          if (res === 'granted') {
+            window.addEventListener('deviceorientation', handleOrientation, true);
+          }
+        }).catch(() => {});
+      } else {
+        window.addEventListener('deviceorientation', handleOrientation, true);
+      }
     }
   }
 
@@ -174,13 +204,15 @@ class HighPrecisionGpsTracker {
     const now = Date.now();
 
     let speedKmh = pos.coords.speed !== null && pos.coords.speed >= 0 ? Math.round(pos.coords.speed * 3.6) : 0;
-    let heading = pos.coords.heading !== null && !isNaN(pos.coords.heading) ? Math.round(pos.coords.heading) : 0;
+    let heading = pos.coords.heading !== null && !isNaN(pos.coords.heading) && pos.coords.heading >= 0 ? Math.round(pos.coords.heading) : 0;
 
-    if (this.lastLocation) {
+    if (this.deviceCompassHeading !== null) {
+      heading = this.deviceCompassHeading;
+    } else if (this.lastLocation) {
       const distanceM = calculateDistanceMeters(this.lastLocation.lat, this.lastLocation.lng, lat, lng);
-      if (distanceM > 1.5 && (!pos.coords.heading || isNaN(pos.coords.heading))) {
+      if (distanceM > 1.2) {
         heading = Math.round(calculateBearingDegrees(this.lastLocation.lat, this.lastLocation.lng, lat, lng));
-      } else if (distanceM <= 1.5) {
+      } else if (this.lastLocation.heading) {
         heading = this.lastLocation.heading;
       }
     }
@@ -283,7 +315,6 @@ class HighPrecisionGpsTracker {
     try {
       if (!this.audioKeepAlive) {
         const audio = document.createElement('audio');
-        // Áudio contínuo inaudível para habilitar MediaSession no Android/iOS
         audio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==';
         audio.loop = true;
         audio.volume = 0.01;

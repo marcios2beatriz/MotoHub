@@ -324,14 +324,14 @@ export default function RiderNavigationMap({
 
     const heading = activePos.heading || 0;
     
-    // Ícone de seta de navegação Google 3D azul
+    // Ícone de seta de navegação Google 3D azul com rotação suave de giroscópio
     const riderIcon = L.divIcon({
       html: `
         <div style="position: relative; width: 64px; height: 64px; display: flex; align-items: center; justify-content: center;">
           <div style="position: absolute; width: 56px; height: 56px; border-radius: 50%; background: rgba(26, 115, 232, 0.25); border: 2px solid #1a73e8; animation: pulse 2s infinite;"></div>
           <div style="
             transform: rotate(${heading}deg);
-            transition: transform 0.2s ease-out;
+            transition: transform 0.3s cubic-bezier(0.25, 1, 0.5, 1);
             background: #1a73e8;
             color: white;
             width: 46px;
@@ -366,10 +366,13 @@ export default function RiderNavigationMap({
       }).addTo(map);
     }
 
-    if (!initialCenterDoneRef.current || autoFollow) {
+    if (!initialCenterDoneRef.current) {
       map.invalidateSize();
-      map.setView([activePos.lat, activePos.lng], NAV_ZOOM_LEVEL, { animate: true });
+      map.setView([activePos.lat, activePos.lng], NAV_ZOOM_LEVEL);
       initialCenterDoneRef.current = true;
+    } else if (autoFollow) {
+      // Usa panTo para preservar o nível de zoom que o usuário escolheu ao diminuir/aumentar
+      map.panTo([activePos.lat, activePos.lng], { animate: true, duration: 0.8 });
     }
 
     if (isNavigating && routeCoordinates.length > 0) {
@@ -440,7 +443,7 @@ export default function RiderNavigationMap({
     });
   }, [waypoints]);
 
-  // Cálculo da Rota Multi-Parada (Posição -> Parada 1 -> Parada 2 -> Destino Final)
+  // Cálculo da Rota Multi-Parada Respeitando Mão Única e Sentido de Direção
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !activePos) return;
@@ -502,7 +505,12 @@ export default function RiderNavigationMap({
       setLoadingRoute(true);
       try {
         const waypointsString = coordsList.map(c => `${c.lng},${c.lat}`).join(';');
-        const url = `https://router.project-osrm.org/route/v1/driving/${waypointsString}?overview=full&geometries=geojson&steps=true`;
+
+        // Adiciona orientação de rumo (bearings) para forçar o OSRM a não criar rotas na contramão
+        const headings = coordsList.map((_, idx) => idx === 0 && activePos.heading ? `${Math.round(activePos.heading)},45` : '').join(';');
+        const bearingsParam = headings.replace(/;+$/, '').length > 0 ? `&bearings=${headings}` : '';
+
+        const url = `https://router.project-osrm.org/route/v1/driving/${waypointsString}?overview=full&geometries=geojson&steps=true&continue_straight=true${bearingsParam}`;
         
         const response = await fetch(url);
         const data = await response.json();
@@ -565,7 +573,7 @@ export default function RiderNavigationMap({
           setIsOffRouteDetected(false);
 
           if (autoFollow) {
-            map.setView([activePos.lat, activePos.lng], NAV_ZOOM_LEVEL, { animate: true });
+            map.panTo([activePos.lat, activePos.lng], { animate: true });
           }
 
           if (isNavigating && allSteps.length > 0) {
@@ -896,7 +904,7 @@ export default function RiderNavigationMap({
   const handleRecenter = () => {
     if (mapRef.current && activePos) {
       mapRef.current.invalidateSize();
-      mapRef.current.setView([activePos.lat, activePos.lng], NAV_ZOOM_LEVEL, { animate: true });
+      mapRef.current.panTo([activePos.lat, activePos.lng], { animate: true });
       setAutoFollow(true);
     } else {
       gpsTracker.requestManualPermission();
