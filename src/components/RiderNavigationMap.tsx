@@ -34,8 +34,7 @@ import {
   ArrowUp,
   ArrowUpLeft,
   ArrowUpRight,
-  RotateCw,
-  ExternalLink
+  RotateCw
 } from 'lucide-react';
 import L from 'leaflet';
 import { gpsTracker, GpsState, isPointOffRoute } from '../utils/gpsTracker';
@@ -763,25 +762,6 @@ export default function RiderNavigationMap({
     }
   };
 
-  const openInExternalMaps = (provider: 'google' | 'waze') => {
-    if (!activeDestination) return;
-    const addr = activeDestination.addressText;
-    
-    if (provider === 'google') {
-      let url = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(addr)}`;
-      if (destCoords) {
-        url = `https://www.google.com/maps/dir/?api=1&destination=${destCoords.lat},${destCoords.lng}`;
-      }
-      window.open(url, '_blank');
-    } else {
-      let url = `https://waze.com/ul?q=${encodeURIComponent(addr)}&navigate=yes`;
-      if (destCoords) {
-        url = `https://waze.com/ul?ll=${destCoords.lat},${destCoords.lng}&navigate=yes`;
-      }
-      window.open(url, '_blank');
-    }
-  };
-
   const activeStep = steps[currentStepIndex] || {
     instruction: activeDestination ? `Siga em direção a ${activeDestination.name}` : 'Digite ou fale o endereço no Google Maps...',
     distance: 0,
@@ -819,29 +799,8 @@ export default function RiderNavigationMap({
           </div>
         </div>
 
-        {/* BOTOES DE NAVEGAÇÃO E VOZ */}
+        {/* BOTOES DE CONTROLE DO MAPA */}
         <div className="flex items-center space-x-1.5 flex-shrink-0 pl-2">
-          {activeDestination && (
-            <div className="hidden sm:flex items-center space-x-1">
-              <button
-                onClick={() => openInExternalMaps('google')}
-                className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 transition-colors"
-                title="Abrir no Google Maps Oficial (Obras e Trânsito)"
-              >
-                <ExternalLink className="h-3.5 w-3.5" />
-                <span>Google</span>
-              </button>
-              <button
-                onClick={() => openInExternalMaps('waze')}
-                className="px-2.5 py-1.5 bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 transition-colors"
-                title="Abrir no Waze (Interdições ao vivo)"
-              >
-                <ExternalLink className="h-3.5 w-3.5" />
-                <span>Waze</span>
-              </button>
-            </div>
-          )}
-
           <button
             onClick={() => setVoiceEnabled(!voiceEnabled)}
             className={`p-2.5 rounded-xl transition-colors ${
@@ -932,32 +891,13 @@ export default function RiderNavigationMap({
             )}
           </div>
 
-          <div className="flex items-center space-x-2">
-            {activeDestination && (
-              <div className="flex sm:hidden items-center space-x-1">
-                <button
-                  onClick={() => openInExternalMaps('google')}
-                  className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-[10px] font-bold"
-                >
-                  Google
-                </button>
-                <button
-                  onClick={() => openInExternalMaps('waze')}
-                  className="px-2 py-1 bg-cyan-600 hover:bg-cyan-700 text-white rounded text-[10px] font-bold"
-                >
-                  Waze
-                </button>
-              </div>
-            )}
-
-            <button
-              onClick={() => setShowLayerMenu(!showLayerMenu)}
-              className="flex items-center gap-1 bg-slate-800 hover:bg-slate-700 text-slate-200 px-2.5 py-1 rounded-lg font-bold transition-colors"
-            >
-              <Layers className="h-3.5 w-3.5 text-blue-400" />
-              <span>Camadas</span>
-            </button>
-          </div>
+          <button
+            onClick={() => setShowLayerMenu(!showLayerMenu)}
+            className="flex items-center gap-1 bg-slate-800 hover:bg-slate-700 text-slate-200 px-2.5 py-1 rounded-lg font-bold transition-colors"
+          >
+            <Layers className="h-3.5 w-3.5 text-blue-400" />
+            <span>Camadas</span>
+          </button>
         </div>
 
         {showLayerMenu && (
@@ -1091,7 +1031,7 @@ export default function RiderNavigationMap({
         )}
       </div>
 
-      {/* MAPA INTERATIVO DO GOOGLE MAPS */}
+      {/* MAPA INTERATIVO DO GOOGLE MAPS INCORPORADO */}
       <div className="relative flex-1 min-h-[240px]">
         <div ref={mapContainerRef} className="absolute inset-0 z-10 bg-slate-950" />
 

@@ -26,8 +26,7 @@ import {
   CheckCircle2,
   Play,
   RotateCcw,
-  Navigation,
-  ExternalLink
+  Navigation
 } from 'lucide-react';
 import DeliveryNotesModal from '../components/DeliveryNotesModal';
 import CustomerChatModal from '../components/CustomerChatModal';
@@ -436,12 +435,6 @@ export default function RiderDashboard() {
       addressText: addrText
     });
     setActiveTab('navigation');
-  };
-
-  const handleOpenExternalGps = (est: Establishment) => {
-    const fullAddr = `${est.address.street}, ${est.address.number}, ${est.address.neighborhood}, ${est.address.city} - ${est.address.state}`;
-    const url = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(fullAddr)}`;
-    window.open(url, '_blank');
   };
 
   const todayStr = db.getLocalDateString();
@@ -934,24 +927,14 @@ export default function RiderDashboard() {
                           </div>
                         </div>
 
-                        {/* BOTÕES DE GPS DA ESCALA DE HOJE */}
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <button
-                            onClick={() => handleNavigateToEst(est)}
-                            className="bg-emerald-500 hover:bg-emerald-600 text-white px-3 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 shadow-md transition-all"
-                          >
-                            <Compass className="h-4 w-4" />
-                            <span>GPS App</span>
-                          </button>
-                          <button
-                            onClick={() => handleOpenExternalGps(est)}
-                            className="bg-white/20 hover:bg-white/30 text-white px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all"
-                            title="Abrir no Google Maps ou Waze externo"
-                          >
-                            <ExternalLink className="h-3.5 w-3.5" />
-                            <span>Google Maps / Waze</span>
-                          </button>
-                        </div>
+                        {/* BOTÃO NAVEGAR NO GPS INCORPORADO DO APP */}
+                        <button
+                          onClick={() => handleNavigateToEst(est)}
+                          className="bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2.5 rounded-xl text-xs font-black flex items-center justify-center gap-2 shadow-md transition-all w-full sm:w-auto"
+                        >
+                          <Compass className="h-4 w-4" />
+                          <span>Navegar para o Estabelecimento</span>
+                        </button>
                       </div>
                     )}
                   </div>
@@ -1173,28 +1156,18 @@ export default function RiderDashboard() {
 
                           <div className="flex items-center gap-2 flex-wrap self-start sm:self-center">
                             {est && (
-                              <>
-                                <button
-                                  onClick={() => handleNavigateToEst(est)}
-                                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 transition-colors shadow-sm"
-                                  title="Abrir no Mapa Integrado do MotoHub"
-                                >
-                                  <Compass className="h-3.5 w-3.5" />
-                                  <span>GPS App</span>
-                                </button>
-                                <button
-                                  onClick={() => handleOpenExternalGps(est)}
-                                  className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold flex items-center gap-1 transition-colors"
-                                  title="Abrir Rota no Google Maps ou Waze"
-                                >
-                                  <ExternalLink className="h-3.5 w-3.5 text-slate-500" />
-                                  <span>Google/Waze</span>
-                                </button>
-                              </>
+                              <button
+                                onClick={() => handleNavigateToEst(est)}
+                                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black flex items-center gap-1.5 transition-colors shadow-sm"
+                                title="Abrir no Mapa Integrado do MotoHub"
+                              >
+                                <Compass className="h-4 w-4" />
+                                <span>Navegar GPS</span>
+                              </button>
                             )}
                             <button
                               onClick={() => setActiveScheduleChatId(sch.id)}
-                              className="p-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-bold flex items-center gap-1 transition-colors"
+                              className="p-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl text-xs font-bold flex items-center gap-1 transition-colors"
                               title="Chat do Turno"
                             >
                               <MessageSquare className="h-4 w-4" />
