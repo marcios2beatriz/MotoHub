@@ -35,7 +35,10 @@ import {
   Ban,
   CheckCircle,
   FileSpreadsheet,
-  CalendarCheck
+  CalendarCheck,
+  Filter,
+  ArrowUpDown,
+  UserCheck2
 } from 'lucide-react';
 
 import UserModal from '../components/UserModal';
@@ -80,6 +83,14 @@ export default function AdminDashboard() {
   const [roleFilter, setRoleFilter] = useState<'all' | 'admin' | 'rider' | 'establishment'>('all');
   const [requestStatusFilter, setRequestStatusFilter] = useState<'all' | 'pending' | 'contacted'>('all');
 
+  // Filtros e Classificação de Escalas
+  const [schRiderFilter, setSchRiderFilter] = useState<string>('all');
+  const [schEstFilter, setSchEstFilter] = useState<string>('all');
+  const [schShiftFilter, setSchShiftFilter] = useState<string>('all');
+  const [schTimeframeFilter, setSchTimeframeFilter] = useState<'all' | 'today' | 'upcoming' | 'past'>('all');
+  const [schSpecificDate, setSchSpecificDate] = useState<string>('');
+  const [schSortOrder, setSchSortOrder] = useState<'date_desc' | 'date_asc' | 'rider_name' | 'est_name'>('date_desc');
+
   const [visiblePasswords, setVisiblePasswords] = useState<Record<string, boolean>>({});
 
   const [showUserModal, setShowUserModal] = useState(false);
@@ -108,7 +119,6 @@ export default function AdminDashboard() {
   const [weeklyPreview, setWeeklyPreview] = useState<any[]>([]);
   const [weeklyStep, setWeeklyStep] = useState<'form' | 'preview'>('form');
 
-  const [scheduleSearch, setScheduleSearch] = useState('');
   const [riderSchedulesModal, setRiderSchedulesModal] = useState<string | null>(null);
 
   const [modalHistoryEst, setModalHistoryEst] = useState('');
@@ -263,6 +273,19 @@ export default function AdminDashboard() {
   const handleLogout = () => {
     db.setCurrentUser(null);
     navigate('/login');
+  };
+
+  const handleOpenDesignateModal = (preselectedRiderId?: string, preselectedEstId?: string) => {
+    setScheduleForm({
+      riderId: preselectedRiderId || '',
+      establishmentId: preselectedEstId || '',
+      date: db.getLocalDateString(),
+      shift: 'morning',
+      startTime: '08:00',
+      endTime: '12:00'
+    });
+    setScheduleConflictWarning('');
+    setShowScheduleModal(true);
   };
 
   const handleSaveUser = (e: React.FormEvent) => {
@@ -917,10 +940,61 @@ export default function AdminDashboard() {
     return matchesSearch && matchesStatus;
   });
 
+  // Filtragem e Ordenação da Aba de Escalas
+  const todayStr = db.getLocalDateString();
+  const filteredAndSortedSchedules = schedules
+    .filter(s => {
+      const rider = users.find(u => u.id === s.riderId);
+      const est = establishments.find(e => e.id === s.establishmentId);
+
+      // Busca por texto
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        const rName = rider?.name.toLowerCase() || '';
+        const eName = est?.name.toLowerCase() || '';
+        if (!rName.includes(q) && !eName.includes(q)) return false;
+      }
+
+      // Filtro por Motoboy
+      if (schRiderFilter !== 'all' && s.riderId !== schRiderFilter) return false;
+
+      // Filtro por Estabelecimento
+      if (schEstFilter !== 'all' && s.establishmentId !== schEstFilter) return false;
+
+      // Filtro por Turno
+      if (schShiftFilter !== 'all' && s.shift !== schShiftFilter) return false;
+
+      // Filtro por Data Específica
+      if (schSpecificDate && s.date !== schSpecificDate) return false;
+
+      // Filtro por Período Tempo (Hoje, Futuras, Passadas)
+      if (schTimeframeFilter === 'today' && s.date !== todayStr) return false;
+      if (schTimeframeFilter === 'upcoming' && s.date < todayStr) return false;
+      if (schTimeframeFilter === 'past' && s.date >= todayStr) return false;
+
+      return true;
+    })
+    .sort((a, b) => {
+      if (schSortOrder === 'date_asc') {
+        return a.date.localeCompare(b.date) || a.shift.localeCompare(b.shift);
+      }
+      if (schSortOrder === 'rider_name') {
+        const rA = users.find(u => u.id === a.riderId)?.name || '';
+        const rB = users.find(u => u.id === b.riderId)?.name || '';
+        return rA.localeCompare(rB) || b.date.localeCompare(a.date);
+      }
+      if (schSortOrder === 'est_name') {
+        const eA = establishments.find(e => e.id === a.establishmentId)?.name || '';
+        const eB = establishments.find(e => e.id === b.establishmentId)?.name || '';
+        return eA.localeCompare(eB) || b.date.localeCompare(a.date);
+      }
+      // Padrão: Data mais recente primeiro (date_desc)
+      return b.date.localeCompare(a.date) || a.shift.localeCompare(b.shift);
+    });
+
   const pendingRequestsCount = partnerRequests.filter(r => r.status === 'pending').length;
   const pendingDeliveries = deliveries.filter(d => d.status === 'pending');
 
-  const todayStr = db.getLocalDateString();
   const activeDeliveriesToday = deliveries.filter(d => d.date === todayStr && d.status === 'active');
   const totalRevenueToday = activeDeliveriesToday.reduce((sum, d) => sum + d.value, 0);
   const activeRidersCount = users.filter(u => u.role === 'rider' && u.active).length;
@@ -1137,17 +1211,26 @@ export default function AdminDashboard() {
             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <h2 className="text-xl font-bold text-slate-800">Gerenciamento de Usuários</h2>
-                <button
-                  onClick={() => {
-                    setEditingUser(null);
-                    setUserForm({ name: '', cpf: '', phone: '', email: '', role: 'rider', password: '', establishmentId: '', establishmentName: '', zipCode: '', street: '', number: '', neighborhood: '', city: '', state: '' });
-                    setShowUserModal(true);
-                  }}
-                  className="flex items-center justify-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-                >
-                  <Plus className="h-4 w-4" />
-                  <span>Cadastrar Usuário</span>
-                </button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    onClick={() => handleOpenDesignateModal()}
+                    className="flex items-center space-x-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 rounded-lg text-xs font-bold transition-colors shadow-sm"
+                  >
+                    <UserCheck2 className="h-4 w-4" />
+                    <span>Designar Motoboy</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setEditingUser(null);
+                      setUserForm({ name: '', cpf: '', phone: '', email: '', role: 'rider', password: '', establishmentId: '', establishmentName: '', zipCode: '', street: '', number: '', neighborhood: '', city: '', state: '' });
+                      setShowUserModal(true);
+                    }}
+                    className="flex items-center space-x-1.5 bg-indigo-600 hover:bg-indigo-700 text-white px-3.5 py-2 rounded-lg text-xs font-bold transition-colors shadow-sm"
+                  >
+                    <Plus className="h-4 w-4" />
+                    <span>Cadastrar Usuário</span>
+                  </button>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -1221,6 +1304,15 @@ export default function AdminDashboard() {
                           </button>
                         </td>
                         <td className="p-3 text-right space-x-1">
+                          {u.role === 'rider' && u.active && (
+                            <button 
+                              onClick={() => handleOpenDesignateModal(u.id)} 
+                              className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded text-[11px] font-bold" 
+                              title="Designar para Estabelecimento"
+                            >
+                              Designar
+                            </button>
+                          )}
                           {!u.active && (
                             <button onClick={() => handleApproveRider(u.id)} className="p-1 text-emerald-600 hover:bg-emerald-50 rounded" title="Aprovar">
                               <Check className="h-4 w-4" />
@@ -1292,6 +1384,9 @@ export default function AdminDashboard() {
                         </p>
                       )}
                       <div className="pt-2 border-t border-slate-200 flex justify-end space-x-2">
+                        <button onClick={() => handleOpenDesignateModal(undefined, e.id)} className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded text-xs font-bold">
+                          Designar Motoboy
+                        </button>
                         <button onClick={() => {
                           setEditingEst(e);
                           setEstForm({
@@ -1351,22 +1446,26 @@ export default function AdminDashboard() {
             </div>
           )}
 
-          {/* ESCALAS */}
+          {/* ESCALAS (COM REACOMPANHAMENTO COMPLETO DE FILTROS E BOTÃO DESIGNAR MOTOBOY) */}
           {activeTab === 'schedules' && (
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <h2 className="text-xl font-bold text-slate-800">Gerenciamento de Escalas</h2>
-                <div className="flex gap-2">
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+                <div>
+                  <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+                    <Calendar className="h-6 w-6 text-indigo-600" />
+                    <span>Gerenciamento de Escalas de Motoboys</span>
+                  </h2>
+                  <p className="text-xs text-slate-500 mt-0.5">Aloque motoboys para os estabelecimentos por dia e turno</p>
+                </div>
+                
+                {/* BOTÕES DE AÇÃO: DESIGNAR MOTOBOY E ESCALA SEMANAL */}
+                <div className="flex flex-wrap items-center gap-2">
                   <button
-                    onClick={() => {
-                      setScheduleForm({ riderId: '', establishmentId: '', date: db.getLocalDateString(), shift: 'morning', startTime: '08:00', endTime: '12:00' });
-                      setScheduleConflictWarning('');
-                      setShowScheduleModal(true);
-                    }}
-                    className="flex items-center space-x-1 bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded-lg text-xs font-bold"
+                    onClick={() => handleOpenDesignateModal()}
+                    className="flex items-center space-x-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl text-xs font-extrabold transition-all shadow-md hover:shadow-lg"
                   >
-                    <Plus className="h-4 w-4" />
-                    <span>Nova Escala Individual</span>
+                    <UserCheck2 className="h-4 w-4" />
+                    <span>Designar Motoboy</span>
                   </button>
                   <button
                     onClick={() => {
@@ -1374,7 +1473,7 @@ export default function AdminDashboard() {
                       setWeeklyStep('form');
                       setShowWeeklyModal(true);
                     }}
-                    className="flex items-center space-x-1 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg text-xs font-bold"
+                    className="flex items-center space-x-1.5 bg-indigo-600 hover:bg-indigo-700 text-white px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-sm"
                   >
                     <CalendarDays className="h-4 w-4" />
                     <span>Escala Semanal</span>
@@ -1382,30 +1481,188 @@ export default function AdminDashboard() {
                 </div>
               </div>
 
-              <div className="divide-y divide-slate-100">
-                {schedules.map(sch => {
-                  const rider = users.find(u => u.id === sch.riderId);
-                  const est = establishments.find(e => e.id === sch.establishmentId);
-                  return (
-                    <div key={sch.id} className="py-3 flex items-center justify-between">
-                      <div>
-                        <p className="font-bold text-slate-800 text-sm">{rider?.name} — {est?.name}</p>
-                        <p className="text-xs text-slate-400 mt-0.5">
-                          Data: {new Date(sch.date + 'T00:00:00').toLocaleDateString('pt-BR')} • Turno da {getShiftLabel(sch.shift)} ({sch.startTime}-{sch.endTime})
-                        </p>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <button onClick={() => setActiveScheduleChatId(sch.id)} className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded" title="Chat do Turno">
-                          <MessageSquare className="h-4 w-4" />
-                        </button>
-                        <button onClick={() => handleCancelSchedule(sch.id)} className="p-1.5 text-red-500 hover:bg-red-50 rounded" title="Cancelar Escala">
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
+              {/* PAINEL COMPLETO DE FILTROS E CLASSIFICAÇÃO */}
+              <div className="bg-slate-50/80 p-4 rounded-xl border border-slate-200 space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-extrabold uppercase text-slate-600 flex items-center gap-1.5">
+                    <Filter className="h-4 w-4 text-indigo-600" />
+                    <span>Filtros e Visualização das Escalas</span>
+                  </p>
+
+                  {(schRiderFilter !== 'all' || schEstFilter !== 'all' || schShiftFilter !== 'all' || schTimeframeFilter !== 'all' || schSpecificDate || searchQuery) && (
+                    <button
+                      onClick={() => {
+                        setSchRiderFilter('all');
+                        setSchEstFilter('all');
+                        setSchShiftFilter('all');
+                        setSchTimeframeFilter('all');
+                        setSchSpecificDate('');
+                        setSearchQuery('');
+                      }}
+                      className="text-xs font-bold text-indigo-600 hover:underline"
+                    >
+                      Limpar Filtros
+                    </button>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Motoboy</label>
+                    <select
+                      value={schRiderFilter}
+                      onChange={(e) => setSchRiderFilter(e.target.value)}
+                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    >
+                      <option value="all">Todos os Motoboys</option>
+                      {users.filter(u => u.role === 'rider').map(r => (
+                        <option key={r.id} value={r.id}>{r.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Estabelecimento</label>
+                    <select
+                      value={schEstFilter}
+                      onChange={(e) => setSchEstFilter(e.target.value)}
+                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    >
+                      <option value="all">Todos os Estabelecimentos</option>
+                      {establishments.map(e => (
+                        <option key={e.id} value={e.id}>{e.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Turno</label>
+                    <select
+                      value={schShiftFilter}
+                      onChange={(e) => setSchShiftFilter(e.target.value)}
+                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    >
+                      <option value="all">Todos os Turnos</option>
+                      <option value="morning">Manhã</option>
+                      <option value="afternoon">Tarde</option>
+                      <option value="night">Noite</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Período de Data</label>
+                    <select
+                      value={schTimeframeFilter}
+                      onChange={(e) => setSchTimeframeFilter(e.target.value as any)}
+                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500 font-medium"
+                    >
+                      <option value="all">Todas as Datas</option>
+                      <option value="today">Somente Hoje</option>
+                      <option value="upcoming">Escalas Futuras</option>
+                      <option value="past">Concluídas / Passadas</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1 border-t border-slate-200">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Data Específica</label>
+                    <input
+                      type="date"
+                      value={schSpecificDate}
+                      onChange={(e) => setSchSpecificDate(e.target.value)}
+                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 flex items-center gap-1">
+                      <ArrowUpDown className="h-3 w-3 text-indigo-600" />
+                      <span>Classificação / Ordenação</span>
+                    </label>
+                    <select
+                      value={schSortOrder}
+                      onChange={(e) => setSchSortOrder(e.target.value as any)}
+                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500 font-bold text-slate-700"
+                    >
+                      <option value="date_desc">Mais Recentes Primeiro</option>
+                      <option value="date_asc">Mais Antigas Primeiro</option>
+                      <option value="rider_name">Classificar por Nome do Motoboy</option>
+                      <option value="est_name">Classificar por Nome do Estabelecimento</option>
+                    </select>
+                  </div>
+                </div>
               </div>
+
+              {/* CONTADOR DE RESULTADOS */}
+              <div className="flex justify-between items-center px-1 text-xs text-slate-500 font-semibold">
+                <span>{filteredAndSortedSchedules.length} escala(s) encontrada(s)</span>
+              </div>
+
+              {filteredAndSortedSchedules.length === 0 ? (
+                <div className="text-center py-12 text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200 space-y-2">
+                  <Calendar className="h-10 w-10 mx-auto text-slate-300" />
+                  <p className="text-sm font-medium">Nenhuma escala encontrada com os filtros selecionados.</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-slate-100">
+                  {filteredAndSortedSchedules.map(sch => {
+                    const rider = users.find(u => u.id === sch.riderId);
+                    const est = establishments.find(e => e.id === sch.establishmentId);
+                    const isToday = sch.date === todayStr;
+
+                    return (
+                      <div key={sch.id} className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/60 p-2 rounded-xl transition-colors">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            {isToday && (
+                              <span className="bg-emerald-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider">
+                                HOJE
+                              </span>
+                            )}
+                            <p className="font-extrabold text-slate-800 text-sm">
+                              {rider?.name || 'Motoboy'} 
+                              <span className="text-slate-400 font-normal"> em </span> 
+                              <span className="text-indigo-600">{est?.name || 'Estabelecimento'}</span>
+                            </p>
+                          </div>
+                          
+                          <p className="text-xs text-slate-500 flex items-center gap-2 flex-wrap mt-0.5">
+                            <span className="font-semibold text-slate-700">{new Date(sch.date + 'T00:00:00').toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
+                            <span className="text-slate-300">•</span>
+                            <span className={`font-bold ${
+                              sch.shift === 'morning' ? 'text-amber-600' :
+                              sch.shift === 'afternoon' ? 'text-orange-600' : 'text-blue-600'
+                            }`}>
+                              Turno da {getShiftLabel(sch.shift)}
+                            </span>
+                            <span className="text-slate-300">•</span>
+                            <span className="font-mono bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded text-[11px]">{sch.startTime} - {sch.endTime}</span>
+                          </p>
+                        </div>
+
+                        <div className="flex items-center space-x-2 self-end sm:self-center">
+                          <button 
+                            onClick={() => setActiveScheduleChatId(sch.id)} 
+                            className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-bold flex items-center gap-1 transition-colors" 
+                            title="Chat do Turno"
+                          >
+                            <MessageSquare className="h-3.5 w-3.5" />
+                            <span>Chat</span>
+                          </button>
+                          <button 
+                            onClick={() => handleCancelSchedule(sch.id)} 
+                            className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors" 
+                            title="Cancelar Escala"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
 
@@ -1659,16 +1916,7 @@ export default function AdminDashboard() {
         onCancelSchedule={handleCancelSchedule}
         onNewSchedule={(riderId) => {
           setRiderSchedulesModal(null);
-          setScheduleForm({
-            riderId,
-            establishmentId: '',
-            date: db.getLocalDateString(),
-            shift: 'morning',
-            startTime: '08:00',
-            endTime: '12:00'
-          });
-          setScheduleConflictWarning('');
-          setShowScheduleModal(true);
+          handleOpenDesignateModal(riderId);
         }}
         getShiftLabel={getShiftLabel}
       />

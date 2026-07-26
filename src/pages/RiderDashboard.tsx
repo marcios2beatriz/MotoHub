@@ -25,7 +25,8 @@ import {
   ListOrdered,
   CheckCircle2,
   Play,
-  RotateCcw
+  RotateCcw,
+  Navigation
 } from 'lucide-react';
 import DeliveryNotesModal from '../components/DeliveryNotesModal';
 import CustomerChatModal from '../components/CustomerChatModal';
@@ -425,6 +426,15 @@ export default function RiderDashboard() {
       setCopiedId(deliveryId);
       setTimeout(() => setCopiedId(null), 2000);
     });
+  };
+
+  const handleNavigateToEst = (est: Establishment) => {
+    const addrText = `${est.address.street}, ${est.address.number} - ${est.address.neighborhood}, ${est.address.city}/${est.address.state}`;
+    setNavDestination({
+      name: est.name,
+      addressText: addrText
+    });
+    setActiveTab('navigation');
   };
 
   const todayStr = db.getLocalDateString();
@@ -916,6 +926,15 @@ export default function RiderDashboard() {
                             <p>{est.address.neighborhood} • {est.address.city}/{est.address.state}</p>
                           </div>
                         </div>
+
+                        {/* BOTÃO NAVEGAR NO GPS INCORPORADO DO APP */}
+                        <button
+                          onClick={() => handleNavigateToEst(est)}
+                          className="bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2.5 rounded-xl text-xs font-black flex items-center justify-center gap-2 shadow-md transition-all w-full sm:w-auto"
+                        >
+                          <Compass className="h-4 w-4" />
+                          <span>Navegar para o Estabelecimento</span>
+                        </button>
                       </div>
                     )}
                   </div>
@@ -1136,9 +1155,19 @@ export default function RiderDashboard() {
                           </div>
 
                           <div className="flex items-center gap-2 flex-wrap self-start sm:self-center">
+                            {est && (
+                              <button
+                                onClick={() => handleNavigateToEst(est)}
+                                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black flex items-center gap-1.5 transition-colors shadow-sm"
+                                title="Abrir no Mapa Integrado do MotoHub"
+                              >
+                                <Compass className="h-4 w-4" />
+                                <span>Navegar GPS</span>
+                              </button>
+                            )}
                             <button
                               onClick={() => setActiveScheduleChatId(sch.id)}
-                              className="p-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-bold flex items-center gap-1 transition-colors"
+                              className="p-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl text-xs font-bold flex items-center gap-1 transition-colors"
                               title="Chat do Turno"
                             >
                               <MessageSquare className="h-4 w-4" />

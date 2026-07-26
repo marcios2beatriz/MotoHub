@@ -799,7 +799,7 @@ export default function RiderNavigationMap({
           </div>
         </div>
 
-        {/* BOTOES DE NAVEGAÇÃO E VOZ */}
+        {/* BOTOES DE CONTROLE DO MAPA */}
         <div className="flex items-center space-x-1.5 flex-shrink-0 pl-2">
           <button
             onClick={() => setVoiceEnabled(!voiceEnabled)}
@@ -1031,7 +1031,7 @@ export default function RiderNavigationMap({
         )}
       </div>
 
-      {/* MAPA INTERATIVO DO GOOGLE MAPS */}
+      {/* MAPA INTERATIVO DO GOOGLE MAPS INCORPORADO */}
       <div className="relative flex-1 min-h-[240px]">
         <div ref={mapContainerRef} className="absolute inset-0 z-10 bg-slate-950" />
 
