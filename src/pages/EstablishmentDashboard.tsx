@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { db, User, Establishment, Schedule, Delivery, RiderLocation } from '../utils/db';
+import { db, User, Establishment, Schedule, Delivery, RiderLocation, QueueEntry } from '../utils/db';
 import { 
   Bike, 
   LogOut, 
@@ -19,7 +19,8 @@ import {
   CheckCircle,
   Check,
   Ban,
-  Layers
+  ListOrdered,
+  ArrowRight
 } from 'lucide-react';
 
 import L from 'leaflet';
@@ -48,6 +49,8 @@ export default function EstablishmentDashboard() {
   const [todaySchedules, setTodaySchedules] = useState<Schedule[]>([]);
   const [todayDeliveries, setTodayDeliveries] = useState<Delivery[]>([]);
   const [riderLocations, setRiderLocations] = useState<RiderLocation[]>([]);
+  const [queueEntries, setQueueEntries] = useState<QueueEntry[]>([]);
+
   const [estCoords, setEstCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [activeToast, setActiveToast] = useState<ChatToast | null>(null);
 
@@ -176,7 +179,6 @@ export default function EstablishmentDashboard() {
     const estDeliveriesToday = allDeliveries.filter(d => isDeliveryForCurrentEst(d, currentEstName, matchingEstIds) && d.date === todayStr);
     setTodayDeliveries(estDeliveriesToday);
 
-    // Seleção de motoboys vinculados ou ativos para exibição imediata
     let riders = allUsers.filter(u => 
       u.role === 'rider' && u.active && (
         u.establishmentId === currentEst?.id ||
@@ -186,7 +188,6 @@ export default function EstablishmentDashboard() {
       )
     );
 
-    // Fallback: Caso nenhum motoboy tenha escala prévia hoje, exibe todos os motoboys ativos no sistema
     if (riders.length === 0) {
       riders = allUsers.filter(u => u.role === 'rider' && u.active);
     }
@@ -195,6 +196,9 @@ export default function EstablishmentDashboard() {
 
     const locations = db.getRiderLocations();
     setRiderLocations(locations);
+
+    const allQueue = db.getQueue();
+    setQueueEntries(allQueue);
   };
 
   useEffect(() => {
@@ -291,7 +295,6 @@ export default function EstablishmentDashboard() {
 
   const serializedAddress = JSON.stringify(establishment?.address || {});
 
-  // Inicialização e montagem única do mapa (sem destruições repetidas)
   useEffect(() => {
     if (!establishment || !mapContainerRef.current) return;
 
@@ -354,15 +357,12 @@ export default function EstablishmentDashboard() {
     };
   }, [establishment?.id, serializedAddress]);
 
-  // Atualização em Tempo Real com tolerância expandida para exibição de motoboys online
   useEffect(() => {
     const currentMap = mapRef.current;
     if (!currentMap) return;
 
     const allUsers = db.getUsers();
     const now = Date.now();
-    
-    // LIMITE DE TEMPO ONLINE COM TOLERÂNCIA: 10 minutos (previne descarte por pequenas diferenças de relógio)
     const ONLINE_THRESHOLD_MS = 10 * 60 * 1000;
 
     const activeRiderIdsOnMap = new Set<string>();
@@ -374,7 +374,6 @@ export default function EstablishmentDashboard() {
       const timeDiff = Math.abs(now - lastUpdateMs);
       const isOnline = lastUpdateMs > 0 && timeDiff < ONLINE_THRESHOLD_MS;
 
-      // 1. Descartar apenas se o motoboy estiver completamente inativo há mais de 10 minutos
       if (!isOnline) {
         if (markersRef.current[loc.riderId]) {
           currentMap.removeLayer(markersRef.current[loc.riderId]);
@@ -383,7 +382,6 @@ export default function EstablishmentDashboard() {
         return;
       }
 
-      // 2. Verificar se o motoboy é um entregador ativo
       const isRiderBelongsToEst = scheduledRiders.some(r => {
         if (r.id === loc.riderId) return true;
         if (r.name.toLowerCase().trim() === loc.riderName.toLowerCase().trim()) return true;
@@ -460,7 +458,6 @@ export default function EstablishmentDashboard() {
       }
     });
 
-    // LIMPEZA FINAL
     Object.keys(markersRef.current).forEach(rId => {
       if (!activeRiderIdsOnMap.has(rId)) {
         currentMap.removeLayer(markersRef.current[rId]);
@@ -502,6 +499,27 @@ export default function EstablishmentDashboard() {
     }
   };
 
+  const todayStr = db.getLocalDateString();
+  const currentEstId = establishment?.id || user?.establishmentId || '';
+
+  // Filtra motoboys aguardando na fila hoje ordenados por horário
+  const activeQueue = queueEntries
+    .filter(q => q.establishmentId === currentEstId && q.date === todayStr && q.status === 'waiting')
+    .sort((a, b) => a.joinedAt.localeCompare(b.joinedAt));
+
+  const handleOpenLaunchModal = (riderIdToPreselect?: string) => {
+    if (scheduledRiders.length === 0) {
+      alert('Não há motoboys ativos cadastrados no sistema.');
+      return;
+    }
+
+    const defaultRiderId = riderIdToPreselect || (activeQueue.length > 0 ? activeQueue[0].riderId : scheduledRiders[0].id);
+
+    setEditingDelivery(null);
+    setDeliveryForm({ riderId: defaultRiderId, value: '', orderNumber: '', notes: '' });
+    setShowDeliveryModal(true);
+  };
+
   const handleSaveDelivery = (e: React.FormEvent) => {
     e.preventDefault();
     const val = parseFloat(deliveryForm.value);
@@ -510,10 +528,8 @@ export default function EstablishmentDashboard() {
       return;
     }
 
-    const estId = establishment?.id || user?.establishmentId;
-    if (!estId) return;
+    if (!currentEstId) return;
 
-    const todayStr = db.getLocalDateString();
     const activeSchedule = todaySchedules.find(s => s.riderId === deliveryForm.riderId);
     const allDeliveries = db.getDeliveries();
     const nowStr = new Date().toISOString();
@@ -533,7 +549,7 @@ export default function EstablishmentDashboard() {
       const newDelivery: Delivery = {
         id: 'd_' + Date.now(),
         riderId: deliveryForm.riderId,
-        establishmentId: estId,
+        establishmentId: currentEstId,
         date: todayStr,
         time: new Date().toTimeString().slice(0, 5),
         value: val,
@@ -544,6 +560,9 @@ export default function EstablishmentDashboard() {
         updatedAt: nowStr
       };
       db.setDeliveries([...allDeliveries, newDelivery]);
+
+      // Marca o motoboy como "em entrega" na fila de rodízio
+      db.markRiderDelivering(deliveryForm.riderId, currentEstId);
     }
 
     setShowDeliveryModal(false);
@@ -683,22 +702,96 @@ export default function EstablishmentDashboard() {
             </div>
           </div>
 
+          {/* PAINEL FILA DE ENTREGADORES NO ESTABELECIMENTO */}
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-indigo-100 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+              <div className="flex items-center space-x-2.5">
+                <div className="p-2.5 bg-indigo-600 text-white rounded-xl shadow-sm">
+                  <ListOrdered className="h-5 w-5" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-slate-800">Fila de Saída dos Motoboys</h2>
+                  <p className="text-xs text-slate-500">Ordenados por horário de chegada no estabelecimento</p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => handleOpenLaunchModal()}
+                className="flex items-center justify-center space-x-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-xs font-extrabold transition-all shadow-sm"
+              >
+                <Plus className="h-4 w-4" />
+                <span>Lançar pro 1º da Fila</span>
+              </button>
+            </div>
+
+            {activeQueue.length === 0 ? (
+              <div className="text-center py-8 text-slate-400 text-xs bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                Nenhum entregador aguardando na fila no momento. Quando o motoboy chegar na loja e marcar presença, ele aparecerá aqui.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {activeQueue.map((entry, idx) => {
+                  const riderUser = db.resolveUser(entry.riderId);
+                  const isNext = idx === 0;
+                  const arrivalTime = new Date(entry.joinedAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+                  return (
+                    <div 
+                      key={entry.id} 
+                      className={`p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-all ${
+                        isNext 
+                          ? 'bg-emerald-50 border-emerald-300 shadow-sm' 
+                          : 'bg-white border-slate-200 hover:border-indigo-200'
+                      }`}
+                    >
+                      <div className="flex items-center space-x-3">
+                        <div className={`w-9 h-9 rounded-full flex items-center justify-center font-black text-sm shadow-sm ${
+                          isNext ? 'bg-emerald-600 text-white animate-pulse' : 'bg-slate-800 text-white'
+                        }`}>
+                          {idx + 1}º
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h4 className="font-extrabold text-slate-800 text-sm">{riderUser?.name || 'Motoboy'}</h4>
+                            {isNext && (
+                              <span className="bg-emerald-600 text-white text-[9px] font-black uppercase px-2 py-0.5 rounded-full tracking-wider">
+                                Próximo a sair
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-slate-500 mt-0.5 flex items-center gap-1">
+                            <Clock className="h-3.5 w-3.5 text-slate-400" />
+                            <span>Chegou na loja às <strong>{arrivalTime}</strong></span>
+                          </p>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => handleOpenLaunchModal(entry.riderId)}
+                        className={`px-3.5 py-2 rounded-lg text-xs font-extrabold flex items-center justify-center space-x-1 transition-all ${
+                          isNext 
+                            ? 'bg-emerald-600 text-white hover:bg-emerald-700 shadow' 
+                            : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100'
+                        }`}
+                      >
+                        <span>Chamar p/ Entrega</span>
+                        <ArrowRight className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
           <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
             <div className="flex justify-between items-center">
               <h2 className="text-lg font-bold text-slate-800 flex items-center space-x-2">
                 <Users className="h-5 w-5 text-indigo-600" />
-                <span>Motoboys do Estabelecimento</span>
+                <span>Motoboys Cadastrados no Sistema</span>
               </h2>
               <button
-                onClick={() => {
-                  if (scheduledRiders.length === 0) {
-                    alert('Não há motoboys ativos cadastrados no sistema.');
-                    return;
-                  }
-                  setEditingDelivery(null);
-                  setDeliveryForm({ riderId: scheduledRiders[0].id, value: '', orderNumber: '', notes: '' });
-                  setShowDeliveryModal(true);
-                }}
+                onClick={() => handleOpenLaunchModal()}
                 className="flex items-center space-x-1.5 bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
               >
                 <Plus className="h-4 w-4" />
@@ -708,7 +801,7 @@ export default function EstablishmentDashboard() {
 
             {scheduledRiders.length === 0 ? (
               <div className="text-center py-8 text-slate-400 text-sm">
-                Nenhum motoboy ativo no momento.
+                Nenum motoboy ativo no momento.
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
