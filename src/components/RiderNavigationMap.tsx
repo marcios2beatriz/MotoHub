@@ -24,7 +24,7 @@ import {
 } from 'lucide-react';
 import L from 'leaflet';
 import { gpsTracker, GpsState, isPointOffRoute } from '../utils/gpsTracker';
-import { searchFreeTextAddress } from '../utils/geocoding';
+import { searchFreeTextAddress, parseAddressQuery, GeocodedAddress } from '../utils/geocoding';
 import { computeRoute, RouteResult } from '../utils/googleRoutes';
 
 interface RiderNavigationMapProps {
@@ -47,6 +47,7 @@ interface PendingConfirmation {
   isApproximate?: boolean;
   locationType?: string;
   exactNumberMatched?: boolean;
+  exactStreetMatched?: boolean;
   requestedNumber?: string | null;
   unconfirmedReason?: string;
   placeId?: string;
@@ -352,7 +353,7 @@ export default function RiderNavigationMap({
     }
   }, [activePos?.lat, activePos?.lng, activePos?.heading, autoFollow, isNavigating, routeCoordinates, isPinAdjustmentMode, pendingConfirmation]);
 
-  // CÁLCULO DE ROTA OFICIAL VIA GOOGLE ROUTES API V2 (TWO_WHEELER)
+  // CÁLCULO DE ROTA OFICIAL VIA GOOGLE ROUTES API V2
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !activePos || !destCoords) return;
@@ -474,12 +475,18 @@ export default function RiderNavigationMap({
         isApproximate: geocodeResult.isApproximate,
         locationType: geocodeResult.locationType,
         exactNumberMatched: geocodeResult.exactNumberMatched,
+        exactStreetMatched: geocodeResult.exactStreetMatched,
         requestedNumber: geocodeResult.requestedNumber,
         unconfirmedReason: geocodeResult.unconfirmedReason,
         placeId: geocodeResult.placeId
       });
     } else {
-      setNotFoundAlert("Não encontramos este endereço automaticamente na base do Google Maps. Posicione o pino manualmente no mapa.");
+      const parsed = parseAddressQuery(originalQuery);
+      const errorMsg = parsed.street
+        ? `Não encontramos a rua '${parsed.street}' cadastrada no Google Maps. Posicione o pino no mapa.`
+        : "Endereço não encontrado na base do Google Maps. Posicione o pino no mapa.";
+
+      setNotFoundAlert(errorMsg);
       handleEnablePinAdjustment();
     }
   };
@@ -520,6 +527,7 @@ export default function RiderNavigationMap({
         lng: result.lng,
         isApproximate: false,
         exactNumberMatched: true,
+        exactStreetMatched: true,
         placeId: result.placeId
       });
     } else {
@@ -536,6 +544,7 @@ export default function RiderNavigationMap({
           isApproximate: geocodeRes.isApproximate,
           locationType: geocodeRes.locationType,
           exactNumberMatched: geocodeRes.exactNumberMatched,
+          exactStreetMatched: geocodeRes.exactStreetMatched,
           requestedNumber: geocodeRes.requestedNumber,
           unconfirmedReason: geocodeRes.unconfirmedReason,
           placeId: geocodeRes.placeId || result.placeId
@@ -564,6 +573,7 @@ export default function RiderNavigationMap({
         lat: tempAdjustedCoords.lat,
         lng: tempAdjustedCoords.lng,
         exactNumberMatched: true,
+        exactStreetMatched: true,
         locationType: 'ROOFTOP'
       });
     }
@@ -743,7 +753,7 @@ export default function RiderNavigationMap({
           <div className="relative flex-1 flex items-center">
             <input
               type="text"
-              placeholder="Digite o endereço exato (ex: Rua Vereador Alberto Agra, Serrotão) e pressione ENTER..."
+              placeholder="Digite o endereço exato (ex: Vereador Alberto Agra, 260) e pressione ENTER..."
               value={searchQuery}
               onChange={(e) => handleSearchInput(e.target.value)}
               className="w-full text-white placeholder-slate-400 text-xs sm:text-sm pl-9 pr-10 py-2.5 rounded-xl border bg-slate-800 border-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
