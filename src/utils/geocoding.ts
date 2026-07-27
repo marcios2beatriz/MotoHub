@@ -5,6 +5,7 @@ export interface GeocodedAddress {
   lng: number;
   formattedAddress?: string;
   placeId?: string;
+  isApproximate?: boolean;
 }
 
 export async function geocodeAddress(address: {
@@ -35,9 +36,23 @@ export async function geocodeAddress(address: {
 
   if (!street && !zipCode) return null;
 
-  const fullQuery = `${street} ${number}, ${neighborhood}, ${city} - ${state}, Brasil`.replace(/\s+/g, ' ').trim();
+  const fullQuery = street.toLowerCase().includes('campina grande') 
+    ? street 
+    : `${street} ${number}, ${neighborhood}, ${city} - ${state}, Brasil`.replace(/\s+/g, ' ').trim();
 
-  // 1. Busca no Esri ArcGIS World Geocoding (Extremamente preciso para números e condomínios)
+  return searchFreeTextAddress(fullQuery);
+}
+
+// Busca Livre por Texto (Geocoding API + Text Search Multi-Provider)
+export async function searchFreeTextAddress(originalQuery: string): Promise<GeocodedAddress | null> {
+  const query = originalQuery.trim();
+  if (!query) return null;
+
+  const fullQuery = query.toLowerCase().includes('campina grande') || query.toLowerCase().includes('pb')
+    ? query
+    : `${query}, Campina Grande - PB, Brasil`;
+
+  // ETAPA 1: Esri ArcGIS World Geocoding
   try {
     const esriUrl = `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?singleLine=${encodeURIComponent(fullQuery)}&f=json&maxLocations=1`;
     const esriRes = await fetch(esriUrl);
@@ -45,68 +60,50 @@ export async function geocodeAddress(address: {
     if (esriData && esriData.candidates && esriData.candidates.length > 0) {
       const candidate = esriData.candidates[0];
       const loc = candidate.location;
+      const score = candidate.score || 100;
       return { 
         lat: loc.y, 
         lng: loc.x, 
-        formattedAddress: candidate.address || fullQuery 
+        formattedAddress: candidate.address || fullQuery,
+        isApproximate: score < 80
       };
     }
   } catch (e) {}
 
-  // 2. Busca via Photon API (Suporta locais comerciais, vias e condomínios)
-  if (street) {
-    try {
-      const photonQuery = `${street} ${number}, ${city}`.replace(/\s+/g, ' ').trim();
-      const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(photonQuery)}&limit=1`);
-      const data = await res.json();
-      if (data && data.features && data.features.length > 0) {
-        const coords = data.features[0].geometry.coordinates;
-        return { 
-          lat: coords[1], 
-          lng: coords[0],
-          formattedAddress: data.features[0].properties.name || fullQuery
-        };
-      }
-    } catch (e) {}
-  }
+  // ETAPA 2: Photon API (Komoot / OpenStreetMap)
+  try {
+    const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(fullQuery)}&limit=1`);
+    const data = await res.json();
+    if (data && data.features && data.features.length > 0) {
+      const feat = data.features[0];
+      const coords = feat.geometry.coordinates;
+      const props = feat.properties;
+      const formatted = [props.name, props.street, props.housenumber, props.city || 'Campina Grande', props.state || 'PB']
+        .filter(Boolean)
+        .join(', ');
 
-  // 3. Geocodificação via OpenStreetMap Nominatim
-  if (street) {
-    try {
-      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(fullQuery)}&limit=1`);
-      const data = await res.json();
-      if (data && data.length > 0) {
-        return { 
-          lat: parseFloat(data[0].lat), 
-          lng: parseFloat(data[0].lon),
-          formattedAddress: data[0].display_name
-        };
-      }
-    } catch (e) {}
-  }
-
-  // 4. Geocodificação por CEP via ViaCEP + Nominatim
-  if (zipCode) {
-    const cleanCep = zipCode.replace(/\D/g, '');
-    if (cleanCep.length === 8) {
-      try {
-        const res = await fetch(`https://viacep.com.br/ws/${cleanCep}/json/`);
-        const cepData = await res.json();
-        if (cepData && !cepData.erro) {
-          const cepQuery = `${cepData.logradouro} ${number}, ${cepData.bairro}, ${cepData.localidade} - ${cepData.uf}, Brasil`;
-          const resNom = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(cepQuery)}&limit=1`);
-          const nomData = await resNom.json();
-          if (nomData && nomData.length > 0) {
-            return { 
-              lat: parseFloat(nomData[0].lat), 
-              lng: parseFloat(nomData[0].lon),
-              formattedAddress: nomData[0].display_name
-            };
-          }
-        }
-      } catch (e) {}
+      return { 
+        lat: coords[1], 
+        lng: coords[0],
+        formattedAddress: formatted || fullQuery,
+        isApproximate: false
+      };
     }
-  }
+  } catch (e) {}
+
+  // ETAPA 3: OpenStreetMap Nominatim
+  try {
+    const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(fullQuery)}&limit=1`);
+    const data = await res.json();
+    if (data && data.length > 0) {
+      return { 
+        lat: parseFloat(data[0].lat), 
+        lng: parseFloat(data[0].lon),
+        formattedAddress: data[0].display_name,
+        isApproximate: data[0].type === 'administrative' || data[0].type === 'city'
+      };
+    }
+  } catch (e) {}
 
   return null;
 }
