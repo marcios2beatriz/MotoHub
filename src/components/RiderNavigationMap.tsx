@@ -7,41 +7,27 @@ import {
   Maximize2, 
   Minimize2, 
   RotateCcw, 
-  Compass, 
   Clock, 
   X, 
   Search,
   Volume2, 
   VolumeX,
-  Plus,
-  Minus,
-  Layers,
   Play,
   Square,
-  LocateFixed,
-  CompassIcon,
   Loader2,
-  Home,
   Check,
-  Building2,
-  Store,
   ShieldCheck,
-  CornerUpLeft,
-  CornerUpRight,
   ArrowUp,
-  ArrowUpLeft,
-  ArrowUpRight,
-  RotateCw,
-  ListOrdered,
-  Trash2,
-  CheckCircle2,
-  Navigation2,
   Hand,
-  AlertCircle
+  AlertCircle,
+  CompassIcon,
+  LocateFixed,
+  Plus,
+  Minus
 } from 'lucide-react';
 import L from 'leaflet';
 import { gpsTracker, GpsState, isPointOffRoute } from '../utils/gpsTracker';
-import { searchFreeTextAddress } from '../utils/geocoding';
+import { searchFreeTextAddress, GeocodedAddress } from '../utils/geocoding';
 
 interface RiderNavigationMapProps {
   currentLocation: { lat: number; lng: number } | null;
@@ -55,43 +41,14 @@ interface RiderNavigationMapProps {
   defaultFullscreen?: boolean;
 }
 
-interface Waypoint {
-  id: string;
-  name: string;
-  addressText: string;
-  lat: number;
-  lng: number;
-  completed?: boolean;
-}
-
-interface RouteStep {
-  instruction: string;
-  distance: number;
-  duration: number;
-  modifier?: string;
-  type?: string;
-}
-
-interface CustomSearchResult {
-  id: string;
-  title: string;
-  subtitle: string;
-  fullAddress: string;
-  lat: number;
-  lng: number;
-  type: 'poi' | 'street' | 'condo';
-  source?: 'esri' | 'photon' | 'osm';
-}
-
 interface PendingConfirmation {
   name: string;
   addressText: string;
   lat: number;
   lng: number;
   isApproximate?: boolean;
+  placeId?: string;
 }
-
-type MapProviderType = 'google_roadmap' | 'google_satellite' | 'google_terrain';
 
 export default function RiderNavigationMap({ 
   currentLocation: externalLocation, 
@@ -107,7 +64,6 @@ export default function RiderNavigationMap({
   const riderMarkerRef = useRef<L.Marker | null>(null);
   const destMarkerRef = useRef<L.Marker | null>(null);
   const pendingMarkerRef = useRef<L.Marker | null>(null);
-  const waypointMarkersRef = useRef<Record<string, L.Marker>>({});
   const routePolylineRef = useRef<L.Polyline | null>(null);
   const initialCenterDoneRef = useRef(false);
   const lastFetchedRouteKeyRef = useRef<string>('');
@@ -131,14 +87,17 @@ export default function RiderNavigationMap({
   const [pendingConfirmation, setPendingConfirmation] = useState<PendingConfirmation | null>(null);
   const [notFoundAlert, setNotFoundAlert] = useState<string | null>(null);
 
-  const [waypoints, setWaypoints] = useState<Waypoint[]>([]);
-
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<CustomSearchResult[]>([]);
+  const [searchResults, setSearchResults] = useState<Array<{
+    id: string;
+    title: string;
+    subtitle: string;
+    fullAddress: string;
+    lat?: number;
+    lng?: number;
+    placeId?: string;
+  }>>([]);
   const [isSearching, setIsSearching] = useState(false);
-
-  const [selectedStreetResult, setSelectedStreetResult] = useState<CustomSearchResult | null>(null);
-  const [houseNumberInput, setHouseNumberInput] = useState('');
 
   // Modo de ajuste manual do pino no mapa
   const [isPinAdjustmentMode, setIsPinAdjustmentMode] = useState(false);
@@ -147,14 +106,10 @@ export default function RiderNavigationMap({
   const [isFullscreen, setIsFullscreen] = useState(defaultFullscreen);
   const [autoFollow, setAutoFollow] = useState(true);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
-  const [mapType, setMapType] = useState<MapProviderType>('google_roadmap');
-  const [showTraffic, setShowTraffic] = useState(true);
 
   const [isNavigating, setIsNavigating] = useState(false);
   const [isOffRouteDetected, setIsOffRouteDetected] = useState(false);
 
-  const [steps, setSteps] = useState<RouteStep[]>([]);
-  const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [routeCoordinates, setRouteCoordinates] = useState<[number, number][]>([]);
   const [routeInfo, setRouteInfo] = useState<{
     distanceKm: string;
@@ -256,7 +211,17 @@ export default function RiderNavigationMap({
     });
 
     mapRef.current = mapInstance;
-    updateMapTileLayer('google_roadmap', true);
+
+    const tileLayer = L.tileLayer('https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', { maxZoom: 20 });
+    tileLayer.addTo(mapInstance);
+    tileLayerRef.current = tileLayer;
+
+    const trafficLayer = L.tileLayer('https://mt1.google.com/vt/lyrs=m@121,traffic&x={x}&y={y}&z={z}', {
+      maxZoom: 20,
+      opacity: 0.75
+    });
+    trafficLayer.addTo(mapInstance);
+    trafficLayerRef.current = trafficLayer;
 
     setTimeout(() => {
       if (mapRef.current) {
@@ -274,42 +239,6 @@ export default function RiderNavigationMap({
       }
     };
   }, []);
-
-  const updateMapTileLayer = (provider: MapProviderType, traffic: boolean) => {
-    const map = mapRef.current;
-    if (!map) return;
-
-    if (tileLayerRef.current) {
-      map.removeLayer(tileLayerRef.current);
-    }
-    if (trafficLayerRef.current) {
-      map.removeLayer(trafficLayerRef.current);
-      trafficLayerRef.current = null;
-    }
-
-    let tileUrl = 'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}';
-    if (provider === 'google_satellite') {
-      tileUrl = 'https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}';
-    } else if (provider === 'google_terrain') {
-      tileUrl = 'https://mt1.google.com/vt/lyrs=p&x={x}&y={y}&z={z}';
-    }
-
-    const newLayer = L.tileLayer(tileUrl, { maxZoom: 20 });
-    newLayer.addTo(map);
-    tileLayerRef.current = newLayer;
-
-    if (traffic) {
-      const trafficLayer = L.tileLayer('https://mt1.google.com/vt/lyrs=m@121,traffic&x={x}&y={y}&z={z}', {
-        maxZoom: 20,
-        opacity: 0.75
-      });
-      trafficLayer.addTo(map);
-      trafficLayerRef.current = trafficLayer;
-    }
-
-    setMapType(provider);
-    setShowTraffic(traffic);
-  };
 
   // Marcador de Pré-Visualização / Confirmação
   useEffect(() => {
@@ -540,24 +469,27 @@ export default function RiderNavigationMap({
     if (!originalQuery) return;
 
     setSearchResults([]);
-    setSelectedStreetResult(null);
     setIsSearching(true);
     setNotFoundAlert(null);
 
+    // Etapas 2 e 3: Tentar Geocoding API + Text Search mantendo originalQuery
     const geocodeResult = await searchFreeTextAddress(originalQuery);
 
     setIsSearching(false);
 
     if (geocodeResult) {
+      // Mostrar confirmação prévia no mapa sem iniciar a navegação automaticamente
       setPendingConfirmation({
         name: originalQuery,
         addressText: geocodeResult.formattedAddress || originalQuery,
         lat: geocodeResult.lat,
         lng: geocodeResult.lng,
-        isApproximate: geocodeResult.isApproximate
+        isApproximate: geocodeResult.isApproximate,
+        placeId: geocodeResult.placeId
       });
     } else {
-      setNotFoundAlert("Não encontramos esse endereço automaticamente. Você pode marcar a localização manualmente no mapa.");
+      // Se não encontrar, abre automaticamente o modo de seleção manual
+      setNotFoundAlert("Não encontramos este endereço automaticamente. Posicione o pino manualmente no mapa.");
       handleEnablePinAdjustment();
     }
   };
@@ -579,27 +511,44 @@ export default function RiderNavigationMap({
     setSearchQuery('');
   };
 
-  const handleSelectSearchResult = (result: CustomSearchResult, isAddAsWaypoint = false) => {
-    if (isAddAsWaypoint) {
-      const newWp: Waypoint = {
-        id: 'wp_' + Date.now(),
-        name: result.title,
-        addressText: result.fullAddress,
-        lat: result.lat,
-        lng: result.lng
-      };
-      setWaypoints(prev => [...prev, newWp]);
-      setSearchResults([]);
-      setSearchQuery('');
-    } else {
+  const handleSelectSearchResult = async (result: {
+    id: string;
+    title: string;
+    subtitle: string;
+    fullAddress: string;
+    lat?: number;
+    lng?: number;
+    placeId?: string;
+  }) => {
+    setSearchResults([]);
+
+    if (result.lat && result.lng) {
       setPendingConfirmation({
         name: result.title,
         addressText: result.fullAddress,
         lat: result.lat,
         lng: result.lng,
-        isApproximate: false
+        isApproximate: false,
+        placeId: result.placeId
       });
-      setSearchResults([]);
+    } else {
+      setIsSearching(true);
+      const geocodeRes = await searchFreeTextAddress(result.fullAddress);
+      setIsSearching(false);
+
+      if (geocodeRes) {
+        setPendingConfirmation({
+          name: result.title,
+          addressText: geocodeRes.formattedAddress || result.fullAddress,
+          lat: geocodeRes.lat,
+          lng: geocodeRes.lng,
+          isApproximate: geocodeRes.isApproximate,
+          placeId: geocodeRes.placeId || result.placeId
+        });
+      } else {
+        setNotFoundAlert("Local não geocodificado. Posicione o pino no mapa.");
+        handleEnablePinAdjustment();
+      }
     }
   };
 
@@ -641,16 +590,45 @@ export default function RiderNavigationMap({
           const lat = activePos ? activePos.lat : -7.2247;
           const lng = activePos ? activePos.lng : -35.8878;
 
+          // Autocomplete Google Maps via JS SDK se injetado
+          if (typeof window !== 'undefined' && (window as any).google?.maps?.places?.AutocompleteService) {
+            const service = new (window as any).google.maps.places.AutocompleteService();
+            service.getPlacePredictions({
+              input: rawText,
+              componentRestrictions: { country: 'br' }
+            }, (predictions: any[], status: string) => {
+              if (status === 'OK' && predictions && predictions.length > 0) {
+                const mapped = predictions.map(p => ({
+                  id: p.place_id,
+                  title: p.structured_formatting?.main_text || p.description.split(',')[0],
+                  subtitle: p.structured_formatting?.secondary_text || p.description,
+                  fullAddress: p.description,
+                  placeId: p.place_id
+                }));
+                setSearchResults(mapped);
+                setIsSearching(false);
+                return;
+              }
+            });
+          }
+
+          // Consultas aos serviços secundários de suporte
           const esriQuery = rawText.toLowerCase().includes('campina grande') 
             ? rawText 
             : `${rawText}, Campina Grande - PB`;
           const esriUrl = `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?singleLine=${encodeURIComponent(esriQuery)}&f=json&maxLocations=5&location=${lng},${lat}`;
 
-          const [esriRes] = await Promise.all([
-            fetch(esriUrl).then(r => r.json()).catch(() => null)
-          ]);
+          const esriRes = await fetch(esriUrl).then(r => r.json()).catch(() => null);
 
-          const combined: CustomSearchResult[] = [];
+          const combined: Array<{
+            id: string;
+            title: string;
+            subtitle: string;
+            fullAddress: string;
+            lat?: number;
+            lng?: number;
+            placeId?: string;
+          }> = [];
           const seenKeys = new Set<string>();
 
           if (esriRes && esriRes.candidates) {
@@ -672,9 +650,7 @@ export default function RiderNavigationMap({
                   subtitle: subtitle || 'Campina Grande - PB',
                   fullAddress: fullAddr,
                   lat: loc.y,
-                  lng: loc.x,
-                  type: 'street',
-                  source: 'esri'
+                  lng: loc.x
                 });
               }
             });
@@ -682,7 +658,7 @@ export default function RiderNavigationMap({
 
           setSearchResults(combined);
         } catch (err) {
-          console.warn('Erro na busca de locais:', err);
+          console.warn('Erro no Autocomplete:', err);
         } finally {
           setIsSearching(false);
         }
@@ -693,11 +669,7 @@ export default function RiderNavigationMap({
     }
   };
 
-  const activeStep = steps[currentStepIndex] || {
-    instruction: activeDestination ? `Siga em direção a ${activeDestination.name}` : 'Digite qualquer endereço e pressione ENTER...',
-    distance: 0,
-    duration: 0
-  };
+  const activeStepInstruction = activeDestination ? `Siga em direção a ${activeDestination.name}` : 'Digite o endereço completo e pressione ENTER...';
 
   return (
     <div className={`flex flex-col bg-slate-950 text-white overflow-hidden shadow-2xl transition-all font-sans ${
@@ -714,18 +686,13 @@ export default function RiderNavigationMap({
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 flex-wrap">
-              {activeStep.distance > 0 && (
-                <span className="text-sm font-black text-emerald-200">
-                  em {activeStep.distance}m
-                </span>
-              )}
               <span className="bg-emerald-950/80 text-emerald-300 text-[9px] font-black uppercase px-2 py-0.5 rounded-full tracking-wider flex items-center gap-1">
                 <ShieldCheck className="h-3 w-3 text-emerald-400" />
-                Mão Única OK
+                Google Maps GPS
               </span>
             </div>
             <h2 className="text-sm sm:text-base font-extrabold truncate leading-snug mt-0.5">
-              {activeStep.instruction}
+              {activeStepInstruction}
             </h2>
           </div>
         </div>
@@ -783,7 +750,7 @@ export default function RiderNavigationMap({
         <div className="bg-amber-500 text-slate-950 px-4 py-2.5 z-40 flex items-center justify-between font-bold text-xs shadow-lg">
           <div className="flex items-center gap-2">
             <Hand className="h-5 w-5 text-slate-950 animate-bounce" />
-            <span>Arraste o mapa até a porta/entrega e confirme</span>
+            <span>Arraste o mapa até o imóvel correto e confirme</span>
           </div>
           <div className="flex items-center gap-2">
             <button onClick={() => setIsPinAdjustmentMode(false)} className="bg-slate-900 text-white px-3 py-1.5 rounded-lg text-xs">
@@ -796,13 +763,13 @@ export default function RiderNavigationMap({
         </div>
       )}
 
-      {/* FORMULÁRIO DE BUSCA COM SUPORTE A ENTER E BOTÃO 🔍 */}
+      {/* FORMULÁRIO DE BUSCA LIVRE (ENTER / 🔍 LIBERADOS SEM OBRIGAR SUGESTÃO) */}
       <div className="bg-slate-900 border-b border-slate-800 p-2.5 z-20 relative flex-shrink-0 space-y-2">
         <form onSubmit={handleExecuteDirectSearch} className="relative flex items-center gap-1.5">
           <div className="relative flex-1 flex items-center">
             <input
               type="text"
-              placeholder="Digite qualquer endereço e pressione ENTER..."
+              placeholder="Digite o endereço exato e pressione ENTER..."
               value={searchQuery}
               onChange={(e) => handleSearchInput(e.target.value)}
               className="w-full text-white placeholder-slate-400 text-xs sm:text-sm pl-9 pr-10 py-2.5 rounded-xl border bg-slate-800 border-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
@@ -832,12 +799,12 @@ export default function RiderNavigationMap({
           </button>
         </form>
 
-        {/* SUGESTÕES DO AUTOCOMPLETE (OPCIONAL) */}
+        {/* SUGESTÕES OPCIONAIS DO AUTOCOMPLETE */}
         {searchResults.length > 0 && (
           <div className="absolute left-2 right-2 top-full mt-1 bg-slate-900 rounded-2xl border border-slate-700 shadow-2xl z-50 overflow-hidden divide-y divide-slate-800 max-h-64 overflow-y-auto">
             <div className="bg-slate-950 px-3 py-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between">
-              <span>Sugestões Automáticas</span>
-              <span className="text-blue-400">Pressione ENTER para pesquisar livremente</span>
+              <span>Sugestões Google Autocomplete</span>
+              <span className="text-blue-400">Ou pressione ENTER para o texto digitado</span>
             </div>
             {searchResults.map((res) => (
               <div 
@@ -886,7 +853,7 @@ export default function RiderNavigationMap({
                 </div>
                 <div>
                   <h4 className="text-xs font-black text-amber-400 uppercase tracking-wider">
-                    {pendingConfirmation.isApproximate ? "Encontramos uma localização aproximada" : "É este o endereço?"}
+                    {pendingConfirmation.isApproximate ? "Localização aproximada encontrada" : "É este o endereço?"}
                   </h4>
                   <p className="text-sm font-bold text-white mt-0.5">{pendingConfirmation.name}</p>
                   <p className="text-[10px] text-slate-400 truncate max-w-[260px]">{pendingConfirmation.addressText}</p>
