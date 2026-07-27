@@ -36,7 +36,7 @@ export function calculateDistanceMeters(lat1: number, lon1: number, lat2: number
   return R * c;
 }
 
-// Cálculo da direção/bearing em graus (0-360) onde 0° = Norte, 90° = Leste, 180° = Sul, 270° = Oeste
+// Cálculo da direção/bearing em graus (0-360)
 export function calculateBearingDegrees(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const φ1 = lat1 * (Math.PI / 180);
   const φ2 = lat2 * (Math.PI / 180);
@@ -138,7 +138,6 @@ class HighPrecisionGpsTracker {
       }
       if (compass !== null && !isNaN(compass)) {
         this.deviceCompassHeading = Math.round(compass);
-        // Atualiza apenas se parado
         if (this.currentState.currentLocation && this.currentState.currentLocation.speedKmh < 2) {
           this.currentState.currentLocation.heading = this.deviceCompassHeading;
           this.notify();
@@ -199,10 +198,15 @@ class HighPrecisionGpsTracker {
   }
 
   private handleSuccess(pos: GeolocationPosition) {
-    const lat = pos.coords.latitude;
-    const lng = pos.coords.longitude;
+    let lat = pos.coords.latitude;
+    let lng = pos.coords.longitude;
     const accuracy = pos.coords.accuracy || 10;
     const now = Date.now();
+
+    // Descarte leituras absurdamente imprecisas (> 150m) para evitar saltos irreais
+    if (accuracy > 150 && this.lastLocation) {
+      return;
+    }
 
     const speedKmh = pos.coords.speed !== null && pos.coords.speed >= 0 ? Math.round(pos.coords.speed * 3.6) : 0;
     
@@ -211,9 +215,25 @@ class HighPrecisionGpsTracker {
 
     if (this.lastLocation) {
       distanceMoved = calculateDistanceMeters(this.lastLocation.lat, this.lastLocation.lng, lat, lng);
+
+      // Descartar saltos impossíveis (> 300m em menos de 2 segundos) causados por falha de torre de celular
+      const timeDiffSec = (now - this.lastLocation.timestamp) / 1000;
+      if (timeDiffSec > 0 && (distanceMoved / timeDiffSec) > 50) { // > 180 km/h salto instantâneo
+        return;
+      }
+
+      // Filtro de Média Móvel Suavizada (Exponential Smoothing) para mitigar micro-oscilações
+      if (distanceMoved < 3) {
+        lat = this.lastLocation.lat;
+        lng = this.lastLocation.lng;
+      } else {
+        const smoothingFactor = 0.75;
+        lat = this.lastLocation.lat * (1 - smoothingFactor) + lat * smoothingFactor;
+        lng = this.lastLocation.lng * (1 - smoothingFactor) + lng * smoothingFactor;
+      }
     }
 
-    // Se estiver em movimento (> 2 km/h ou deslocou mais de 2 metros): prioriza SEMPRE a trajetória do movimento GPS
+    // Cálculo do Rumo / Direção
     if (speedKmh >= 2 || distanceMoved > 2) {
       if (pos.coords.heading !== null && !isNaN(pos.coords.heading) && pos.coords.heading >= 0) {
         heading = Math.round(pos.coords.heading);
@@ -223,7 +243,6 @@ class HighPrecisionGpsTracker {
         heading = this.lastLocation.heading;
       }
     } else {
-      // Parado: utiliza a bússola magnética/giroscópio do dispositivo (ou preserva a última direção conhecida)
       if (this.deviceCompassHeading !== null) {
         heading = this.deviceCompassHeading;
       } else if (this.lastLocation?.heading) {

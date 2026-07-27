@@ -37,7 +37,8 @@ import {
   ListOrdered,
   Trash2,
   CheckCircle2,
-  Navigation2
+  Navigation2,
+  Hand
 } from 'lucide-react';
 import L from 'leaflet';
 import { gpsTracker, GpsState, isPointOffRoute } from '../utils/gpsTracker';
@@ -117,7 +118,6 @@ export default function RiderNavigationMap({
     lng?: number;
   } | null>(initialDestination);
 
-  // Lista de pontos de parada intermediários
   const [waypoints, setWaypoints] = useState<Waypoint[]>([]);
   const [showWaypointsPanel, setShowWaypointsPanel] = useState(false);
 
@@ -128,6 +128,10 @@ export default function RiderNavigationMap({
 
   const [selectedStreetResult, setSelectedStreetResult] = useState<CustomSearchResult | null>(null);
   const [houseNumberInput, setHouseNumberInput] = useState('');
+
+  // Modo de ajuste manual do pino no mapa
+  const [isPinAdjustmentMode, setIsPinAdjustmentMode] = useState(false);
+  const [tempAdjustedCoords, setTempAdjustedCoords] = useState<{ lat: number; lng: number } | null>(null);
 
   const [isFullscreen, setIsFullscreen] = useState(defaultFullscreen);
   const [autoFollow, setAutoFollow] = useState(true);
@@ -262,6 +266,13 @@ export default function RiderNavigationMap({
       setAutoFollow(false);
     });
 
+    mapInstance.on('move', () => {
+      if (isPinAdjustmentMode) {
+        const center = mapInstance.getCenter();
+        setTempAdjustedCoords({ lat: center.lat, lng: center.lng });
+      }
+    });
+
     mapRef.current = mapInstance;
     updateMapTileLayer('google_roadmap', true);
 
@@ -324,7 +335,6 @@ export default function RiderNavigationMap({
 
     const heading = activePos.heading || 0;
     
-    // Ícone de seta de navegação Google 3D azul com rotação suave
     const riderIcon = L.divIcon({
       html: `
         <div style="position: relative; width: 64px; height: 64px; display: flex; align-items: center; justify-content: center;">
@@ -370,7 +380,7 @@ export default function RiderNavigationMap({
       map.invalidateSize();
       map.setView([activePos.lat, activePos.lng], NAV_ZOOM_LEVEL);
       initialCenterDoneRef.current = true;
-    } else if (autoFollow) {
+    } else if (autoFollow && !isPinAdjustmentMode) {
       map.panTo([activePos.lat, activePos.lng], { animate: true, duration: 0.8 });
     }
 
@@ -381,9 +391,9 @@ export default function RiderNavigationMap({
         speakInstruction('Você saiu da rota. Recalculando trajeto no sentido correto...');
       }
     }
-  }, [activePos?.lat, activePos?.lng, activePos?.heading, autoFollow, isNavigating, routeCoordinates]);
+  }, [activePos?.lat, activePos?.lng, activePos?.heading, autoFollow, isNavigating, routeCoordinates, isPinAdjustmentMode]);
 
-  // Atualização dos Marcadores de Parada no Mapa
+  // Atualização das marcadores de paradas no mapa
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -440,7 +450,7 @@ export default function RiderNavigationMap({
     });
   }, [waypoints]);
 
-  // Cálculo da Rota com Paradas Respeitando Rigorosamente o Sentido Único das Vias (Sem Contramão)
+  // Cálculo da Rota com Paradas Respeitando o Sentido Único das Vias
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !activePos) return;
@@ -501,8 +511,6 @@ export default function RiderNavigationMap({
       try {
         const waypointsString = coordsList.map(c => `${c.lng},${c.lat}`).join(';');
 
-        // Monte o parâmetro de bearings rigoroso para impedir rotas na contramão:
-        // O primeiro ponto (posição do motoboy) utiliza a direção de deslocamento/giroscópio com tolerância restrita de 45 graus.
         const bearingsArray = coordsList.map((_, idx) => {
           if (idx === 0) {
             const h = Math.round(activePos.heading || 0);
@@ -511,8 +519,6 @@ export default function RiderNavigationMap({
           return '';
         });
         const bearingsParam = `&bearings=${bearingsArray.join(';')}`;
-
-        // Limita o raio de busca do OSRM no ponto inicial para 25m para não estalar na rua paralela/oposta
         const radiusesArray = coordsList.map((_, idx) => idx === 0 ? '25' : '');
         const radiusesParam = `&radiuses=${radiusesArray.join(';')}`;
 
@@ -521,7 +527,6 @@ export default function RiderNavigationMap({
         let response = await fetch(url);
         let data = await response.json();
 
-        // Fallback caso a tolerância estrita de raio seja incapaz de achar segmento em vias secundárias
         if (data.code !== 'Ok' || !data.routes || data.routes.length === 0) {
           const fallbackUrl = `https://router.project-osrm.org/route/v1/driving/${waypointsString}?overview=full&geometries=geojson&steps=true&continue_straight=true`;
           response = await fetch(fallbackUrl);
@@ -539,7 +544,7 @@ export default function RiderNavigationMap({
             routePolylineRef.current.setLatLngs(coords);
           } else {
             routePolylineRef.current = L.polyline(coords, {
-              color: '#1a73e8', // Azul oficial do Google Maps
+              color: '#1a73e8',
               weight: 8,
               opacity: 0.95,
               lineCap: 'round',
@@ -585,7 +590,7 @@ export default function RiderNavigationMap({
 
           setIsOffRouteDetected(false);
 
-          if (autoFollow) {
+          if (autoFollow && !isPinAdjustmentMode) {
             map.panTo([activePos.lat, activePos.lng], { animate: true });
           }
 
@@ -889,6 +894,29 @@ export default function RiderNavigationMap({
     setSearchQuery('');
   };
 
+  const handleEnablePinAdjustment = () => {
+    if (mapRef.current) {
+      const center = mapRef.current.getCenter();
+      setTempAdjustedCoords({ lat: center.lat, lng: center.lng });
+    }
+    setIsPinAdjustmentMode(true);
+    setAutoFollow(false);
+  };
+
+  const handleConfirmPinAdjustment = () => {
+    if (tempAdjustedCoords) {
+      lastFetchedRouteKeyRef.current = '';
+      setDestCoords(tempAdjustedCoords);
+      setActiveDestination(prev => ({
+        name: prev?.name || 'Local Selecionado Manualmente',
+        addressText: `Ponto confirmado no mapa (${tempAdjustedCoords.lat.toFixed(5)}, ${tempAdjustedCoords.lng.toFixed(5)})`,
+        lat: tempAdjustedCoords.lat,
+        lng: tempAdjustedCoords.lng
+      }));
+    }
+    setIsPinAdjustmentMode(false);
+  };
+
   const handleRemoveWaypoint = (id: string) => {
     setWaypoints(prev => prev.filter(w => w.id !== id));
     lastFetchedRouteKeyRef.current = '';
@@ -937,7 +965,7 @@ export default function RiderNavigationMap({
         : 'relative h-[600px] sm:h-[680px] w-full rounded-2xl border border-slate-800'
     }`}>
       
-      {/* HEADER GOOGLE MAPS - VERDE GOOGLE NAVEGAÇÃO (#137333) */}
+      {/* HEADER NAVEGAÇÃO VERDE GOOGLE (#137333) */}
       <div className="bg-[#137333] text-white px-4 py-3 z-30 shadow-lg flex items-center justify-between relative border-b border-emerald-800 flex-shrink-0">
         <div className="flex items-center space-x-3 min-w-0 flex-1">
           <div className="p-2.5 bg-black/20 rounded-2xl text-white flex-shrink-0 border border-white/20">
@@ -969,6 +997,16 @@ export default function RiderNavigationMap({
 
         {/* BOTOES DE CONTROLE DO MAPA */}
         <div className="flex items-center space-x-1.5 flex-shrink-0 pl-2">
+          <button
+            onClick={handleEnablePinAdjustment}
+            className={`p-2.5 rounded-xl transition-colors flex items-center gap-1 text-xs font-bold ${
+              isPinAdjustmentMode ? 'bg-amber-500 text-slate-950' : 'bg-emerald-900 text-emerald-200 hover:bg-emerald-800'
+            }`}
+            title="Ajustar Ponto no Mapa Manualmente"
+          >
+            <Hand className="h-5 w-5" />
+          </button>
+
           <button
             onClick={() => setShowWaypointsPanel(!showWaypointsPanel)}
             className={`p-2.5 rounded-xl transition-colors flex items-center gap-1 text-xs font-bold ${
@@ -1013,6 +1051,30 @@ export default function RiderNavigationMap({
           )}
         </div>
       </div>
+
+      {/* PAINEL MODO AJUSTE MANUAL DE PINO */}
+      {isPinAdjustmentMode && (
+        <div className="bg-amber-500 text-slate-950 px-4 py-2.5 z-40 flex items-center justify-between font-bold text-xs shadow-lg">
+          <div className="flex items-center gap-2">
+            <Hand className="h-5 w-5 text-slate-950 animate-bounce" />
+            <span>Mova o mapa para posicionar a entrega no ponto exato</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setIsPinAdjustmentMode(false)}
+              className="bg-slate-900 text-white px-3 py-1.5 rounded-lg text-xs hover:bg-slate-800"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={handleConfirmPinAdjustment}
+              className="bg-emerald-700 text-white px-3.5 py-1.5 rounded-lg text-xs font-black hover:bg-emerald-800 shadow"
+            >
+              Confirmar Local
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* PAINEL FLUTUANTE DE PARADAS INTERMEDIÁRIAS */}
       {showWaypointsPanel && (
@@ -1289,9 +1351,24 @@ export default function RiderNavigationMap({
         )}
       </div>
 
-      {/* MAPA INTERATIVO DO GOOGLE MAPS INCORPORADO */}
+      {/* MAPA INTERATIVO */}
       <div className="relative flex-1 min-h-[240px]">
         <div ref={mapContainerRef} className="absolute inset-0 z-10 bg-slate-950" />
+
+        {/* MIRA FIXA PARA MODO DE AJUSTE DE PINO MANUAL */}
+        {isPinAdjustmentMode && (
+          <div className="absolute inset-0 z-20 pointer-events-none flex items-center justify-center">
+            <div className="relative flex flex-col items-center justify-center">
+              <div className="w-10 h-10 border-2 border-amber-400 rounded-full animate-ping absolute" />
+              <div className="p-3 bg-red-600 text-white rounded-full shadow-2xl border-2 border-white z-10">
+                <MapPin className="h-7 w-7" />
+              </div>
+              <div className="bg-slate-900 text-amber-300 text-[10px] font-black px-2 py-0.5 rounded-full mt-1 border border-amber-400 shadow-md">
+                POSIÇÃO DO PINO
+              </div>
+            </div>
+          </div>
+        )}
 
         {!activePos && (
           <div className="absolute inset-0 z-30 bg-slate-950/85 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center space-y-3">
@@ -1324,7 +1401,7 @@ export default function RiderNavigationMap({
           </div>
         )}
 
-        {/* BOTÃO RECENTRALIZAR CAMERA GOOGLE MAPS */}
+        {/* BOTÃO RECENTRALIZAR CAMERA */}
         <div className="absolute bottom-5 right-4 z-20 flex flex-col space-y-2">
           <button
             onClick={() => {
@@ -1369,7 +1446,7 @@ export default function RiderNavigationMap({
         )}
       </div>
 
-      {/* CARD INFERIOR ESTILO GOOGLE MAPS MOBILE (ETA, DISTÂNCIA E INICIAR) */}
+      {/* CARD INFERIOR (ETA, DISTÂNCIA E INICIAR) */}
       <div className="bg-slate-900 border-t border-slate-800 p-3 z-20 space-y-3 flex-shrink-0">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3 min-w-0">
