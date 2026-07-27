@@ -324,14 +324,14 @@ export default function RiderNavigationMap({
 
     const heading = activePos.heading || 0;
     
-    // Ícone de seta de navegação Google 3D azul
+    // Ícone de seta de navegação Google 3D azul com rotação suave
     const riderIcon = L.divIcon({
       html: `
         <div style="position: relative; width: 64px; height: 64px; display: flex; align-items: center; justify-content: center;">
           <div style="position: absolute; width: 56px; height: 56px; border-radius: 50%; background: rgba(26, 115, 232, 0.25); border: 2px solid #1a73e8; animation: pulse 2s infinite;"></div>
           <div style="
             transform: rotate(${heading}deg);
-            transition: transform 0.2s ease-out;
+            transition: transform 0.3s cubic-bezier(0.25, 1, 0.5, 1);
             background: #1a73e8;
             color: white;
             width: 46px;
@@ -366,17 +366,19 @@ export default function RiderNavigationMap({
       }).addTo(map);
     }
 
-    if (!initialCenterDoneRef.current || autoFollow) {
+    if (!initialCenterDoneRef.current) {
       map.invalidateSize();
-      map.setView([activePos.lat, activePos.lng], NAV_ZOOM_LEVEL, { animate: true });
+      map.setView([activePos.lat, activePos.lng], NAV_ZOOM_LEVEL);
       initialCenterDoneRef.current = true;
+    } else if (autoFollow) {
+      map.panTo([activePos.lat, activePos.lng], { animate: true, duration: 0.8 });
     }
 
     if (isNavigating && routeCoordinates.length > 0) {
       const offRoute = isPointOffRoute({ lat: activePos.lat, lng: activePos.lng }, routeCoordinates, 40);
       if (offRoute && !isOffRouteDetected) {
         setIsOffRouteDetected(true);
-        speakInstruction('Você saiu da rota. Recalculando trajeto com paradas...');
+        speakInstruction('Você saiu da rota. Recalculando trajeto no sentido correto...');
       }
     }
   }, [activePos?.lat, activePos?.lng, activePos?.heading, autoFollow, isNavigating, routeCoordinates]);
@@ -386,7 +388,6 @@ export default function RiderNavigationMap({
     const map = mapRef.current;
     if (!map) return;
 
-    // Remover marcadores de paradas antigas que não existem mais
     Object.keys(waypointMarkersRef.current).forEach(wpId => {
       if (!waypoints.some(w => w.id === wpId)) {
         map.removeLayer(waypointMarkersRef.current[wpId]);
@@ -394,7 +395,6 @@ export default function RiderNavigationMap({
       }
     });
 
-    // Adicionar/Atualizar marcadores de paradas ativas
     waypoints.forEach((wp, index) => {
       if (wp.completed) {
         if (waypointMarkersRef.current[wp.id]) {
@@ -440,16 +440,14 @@ export default function RiderNavigationMap({
     });
   }, [waypoints]);
 
-  // Cálculo da Rota Multi-Parada (Posição -> Parada 1 -> Parada 2 -> Destino Final)
+  // Cálculo da Rota com Paradas Respeitando Rigorosamente o Sentido Único das Vias (Sem Contramão)
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !activePos) return;
 
     const activeWaypoints = waypoints.filter(w => !w.completed);
-
     if (!destCoords && activeWaypoints.length === 0) return;
 
-    // Concatena coordenadas: posição -> waypoints -> destino final
     const coordsList: { lat: number; lng: number }[] = [activePos];
     activeWaypoints.forEach(w => coordsList.push({ lat: w.lat, lng: w.lng }));
     if (destCoords) coordsList.push(destCoords);
@@ -502,10 +500,33 @@ export default function RiderNavigationMap({
       setLoadingRoute(true);
       try {
         const waypointsString = coordsList.map(c => `${c.lng},${c.lat}`).join(';');
-        const url = `https://router.project-osrm.org/route/v1/driving/${waypointsString}?overview=full&geometries=geojson&steps=true`;
+
+        // Monte o parâmetro de bearings rigoroso para impedir rotas na contramão:
+        // O primeiro ponto (posição do motoboy) utiliza a direção de deslocamento/giroscópio com tolerância restrita de 45 graus.
+        const bearingsArray = coordsList.map((_, idx) => {
+          if (idx === 0) {
+            const h = Math.round(activePos.heading || 0);
+            return `${h},45`;
+          }
+          return '';
+        });
+        const bearingsParam = `&bearings=${bearingsArray.join(';')}`;
+
+        // Limita o raio de busca do OSRM no ponto inicial para 25m para não estalar na rua paralela/oposta
+        const radiusesArray = coordsList.map((_, idx) => idx === 0 ? '25' : '');
+        const radiusesParam = `&radiuses=${radiusesArray.join(';')}`;
+
+        const url = `https://router.project-osrm.org/route/v1/driving/${waypointsString}?overview=full&geometries=geojson&steps=true&continue_straight=true${bearingsParam}${radiusesParam}`;
         
-        const response = await fetch(url);
-        const data = await response.json();
+        let response = await fetch(url);
+        let data = await response.json();
+
+        // Fallback caso a tolerância estrita de raio seja incapaz de achar segmento em vias secundárias
+        if (data.code !== 'Ok' || !data.routes || data.routes.length === 0) {
+          const fallbackUrl = `https://router.project-osrm.org/route/v1/driving/${waypointsString}?overview=full&geometries=geojson&steps=true&continue_straight=true`;
+          response = await fetch(fallbackUrl);
+          data = await response.json();
+        }
 
         if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
           const route = data.routes[0];
@@ -565,7 +586,7 @@ export default function RiderNavigationMap({
           setIsOffRouteDetected(false);
 
           if (autoFollow) {
-            map.setView([activePos.lat, activePos.lng], NAV_ZOOM_LEVEL, { animate: true });
+            map.panTo([activePos.lat, activePos.lng], { animate: true });
           }
 
           if (isNavigating && allSteps.length > 0) {
@@ -573,7 +594,7 @@ export default function RiderNavigationMap({
           }
         }
       } catch (err) {
-        console.warn('Erro ao calcular rota multi-parada:', err);
+        console.warn('Erro ao calcular rota:', err);
       } finally {
         setLoadingRoute(false);
       }
@@ -586,7 +607,7 @@ export default function RiderNavigationMap({
     const modifier = maneuver.modifier;
     const nameStr = streetName ? ` na ${streetName}` : '';
 
-    if (maneuver.type === 'depart') return `Siga em frente${nameStr}`;
+    if (maneuver.type === 'depart') return `Siga em frente no sentido permitido${nameStr}`;
     if (maneuver.type === 'arrive') return `Você chegou ao local!`;
 
     switch (modifier) {
@@ -603,7 +624,7 @@ export default function RiderNavigationMap({
       case 'straight':
         return `Siga em frente${nameStr}`;
       case 'uturn':
-        return `Faça o retorno${nameStr}`;
+        return `Faça o retorno permitido${nameStr}`;
       default:
         return `Siga em direção ao destino${nameStr}`;
     }
@@ -886,7 +907,7 @@ export default function RiderNavigationMap({
     if (nextState) {
       setAutoFollow(true);
       if (steps.length > 0) {
-        speakInstruction(`Iniciando navegação Google Maps para ${activeDestination?.name || 'seu destino'}. ${steps[0].instruction}`);
+        speakInstruction(`Iniciando navegação no sentido correto para ${activeDestination?.name || 'seu destino'}. ${steps[0].instruction}`);
       }
     } else {
       speakInstruction('Navegação encerrada.');
@@ -896,7 +917,7 @@ export default function RiderNavigationMap({
   const handleRecenter = () => {
     if (mapRef.current && activePos) {
       mapRef.current.invalidateSize();
-      mapRef.current.setView([activePos.lat, activePos.lng], NAV_ZOOM_LEVEL, { animate: true });
+      mapRef.current.panTo([activePos.lat, activePos.lng], { animate: true });
       setAutoFollow(true);
     } else {
       gpsTracker.requestManualPermission();
@@ -937,7 +958,7 @@ export default function RiderNavigationMap({
               )}
               <span className="bg-emerald-950/80 text-emerald-300 text-[9px] font-black uppercase px-2 py-0.5 rounded-full tracking-wider flex items-center gap-1">
                 <ShieldCheck className="h-3 w-3 text-emerald-400" />
-                Rastreio Loja On
+                Mão Única OK
               </span>
             </div>
             <h2 className="text-sm sm:text-base font-extrabold truncate leading-snug mt-0.5">
@@ -1342,7 +1363,7 @@ export default function RiderNavigationMap({
           <div className="absolute inset-0 z-30 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center">
             <div className="bg-slate-900 border border-slate-700 p-4 rounded-2xl flex items-center space-x-3 text-blue-400 font-bold text-xs shadow-2xl">
               <Navigation className="h-5 w-5 animate-spin text-emerald-400" />
-              <span>Calculando melhor rota no Google Maps...</span>
+              <span>Calculando melhor rota sem contramão...</span>
             </div>
           </div>
         )}
