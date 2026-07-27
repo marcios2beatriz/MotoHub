@@ -25,8 +25,6 @@ import {
   Check,
   Building2,
   Store,
-  Mic,
-  MicOff,
   ShieldCheck,
   CornerUpLeft,
   CornerUpRight,
@@ -38,10 +36,12 @@ import {
   Trash2,
   CheckCircle2,
   Navigation2,
-  Hand
+  Hand,
+  AlertCircle
 } from 'lucide-react';
 import L from 'leaflet';
 import { gpsTracker, GpsState, isPointOffRoute } from '../utils/gpsTracker';
+import { searchFreeTextAddress } from '../utils/geocoding';
 
 interface RiderNavigationMapProps {
   currentLocation: { lat: number; lng: number } | null;
@@ -83,6 +83,14 @@ interface CustomSearchResult {
   source?: 'esri' | 'photon' | 'osm';
 }
 
+interface PendingConfirmation {
+  name: string;
+  addressText: string;
+  lat: number;
+  lng: number;
+  isApproximate?: boolean;
+}
+
 type MapProviderType = 'google_roadmap' | 'google_satellite' | 'google_terrain';
 
 export default function RiderNavigationMap({ 
@@ -98,6 +106,7 @@ export default function RiderNavigationMap({
 
   const riderMarkerRef = useRef<L.Marker | null>(null);
   const destMarkerRef = useRef<L.Marker | null>(null);
+  const pendingMarkerRef = useRef<L.Marker | null>(null);
   const waypointMarkersRef = useRef<Record<string, L.Marker>>({});
   const routePolylineRef = useRef<L.Polyline | null>(null);
   const initialCenterDoneRef = useRef(false);
@@ -118,13 +127,15 @@ export default function RiderNavigationMap({
     lng?: number;
   } | null>(initialDestination);
 
+  // Confirmação Prévia "É este o endereço?"
+  const [pendingConfirmation, setPendingConfirmation] = useState<PendingConfirmation | null>(null);
+  const [notFoundAlert, setNotFoundAlert] = useState<string | null>(null);
+
   const [waypoints, setWaypoints] = useState<Waypoint[]>([]);
-  const [showWaypointsPanel, setShowWaypointsPanel] = useState(false);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<CustomSearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
-  const [isListeningVoice, setIsListeningVoice] = useState(false);
 
   const [selectedStreetResult, setSelectedStreetResult] = useState<CustomSearchResult | null>(null);
   const [houseNumberInput, setHouseNumberInput] = useState('');
@@ -138,7 +149,6 @@ export default function RiderNavigationMap({
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [mapType, setMapType] = useState<MapProviderType>('google_roadmap');
   const [showTraffic, setShowTraffic] = useState(true);
-  const [showLayerMenu, setShowLayerMenu] = useState(false);
 
   const [isNavigating, setIsNavigating] = useState(false);
   const [isOffRouteDetected, setIsOffRouteDetected] = useState(false);
@@ -204,37 +214,9 @@ export default function RiderNavigationMap({
 
     const geocode = async () => {
       setLoadingRoute(true);
-      let foundLat: number | null = null;
-      let foundLng: number | null = null;
-
-      try {
-        const fullQuery = activeDestination.addressText.toLowerCase().includes('campina grande') 
-          ? activeDestination.addressText 
-          : `${activeDestination.addressText}, Campina Grande - PB, Brasil`;
-
-        const esriUrl = `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?singleLine=${encodeURIComponent(fullQuery)}&f=json&maxLocations=1`;
-        const esriRes = await fetch(esriUrl);
-        const esriData = await esriRes.json();
-        if (esriData && esriData.candidates && esriData.candidates.length > 0) {
-          const loc = esriData.candidates[0].location;
-          foundLat = loc.y;
-          foundLng = loc.x;
-        }
-
-        if (!foundLat || !foundLng) {
-          const res = await fetch(
-            `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(fullQuery)}&limit=1`
-          );
-          const data = await res.json();
-          if (data && data.length > 0) {
-            foundLat = parseFloat(data[0].lat);
-            foundLng = parseFloat(data[0].lon);
-          }
-        }
-      } catch (e) {}
-
-      if (foundLat && foundLng) {
-        setDestCoords({ lat: foundLat, lng: foundLng });
+      const res = await searchFreeTextAddress(activeDestination.addressText);
+      if (res) {
+        setDestCoords({ lat: res.lat, lng: res.lng });
       } else {
         setLoadingRoute(false);
       }
@@ -329,6 +311,57 @@ export default function RiderNavigationMap({
     setShowTraffic(traffic);
   };
 
+  // Marcador de Pré-Visualização / Confirmação
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    if (pendingConfirmation) {
+      const pendingIcon = L.divIcon({
+        html: `
+          <div style="
+            background: #f59e0b;
+            color: white;
+            width: 46px;
+            height: 46px;
+            border-radius: 50%;
+            border: 4px solid white;
+            box-shadow: 0 6px 20px rgba(245, 158, 11, 0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            animation: bounce 1s infinite;
+          ">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"></path>
+              <circle cx="12" cy="10" r="3"></circle>
+            </svg>
+          </div>
+        `,
+        className: 'custom-pending-icon',
+        iconSize: [46, 46],
+        iconAnchor: [23, 23]
+      });
+
+      if (pendingMarkerRef.current) {
+        pendingMarkerRef.current.setLatLng([pendingConfirmation.lat, pendingConfirmation.lng]);
+      } else {
+        pendingMarkerRef.current = L.marker([pendingConfirmation.lat, pendingConfirmation.lng], {
+          icon: pendingIcon,
+          zIndexOffset: 3500
+        }).addTo(map);
+      }
+
+      map.panTo([pendingConfirmation.lat, pendingConfirmation.lng], { animate: true });
+      setAutoFollow(false);
+    } else {
+      if (pendingMarkerRef.current) {
+        map.removeLayer(pendingMarkerRef.current);
+        pendingMarkerRef.current = null;
+      }
+    }
+  }, [pendingConfirmation]);
+
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !activePos) return;
@@ -380,7 +413,7 @@ export default function RiderNavigationMap({
       map.invalidateSize();
       map.setView([activePos.lat, activePos.lng], NAV_ZOOM_LEVEL);
       initialCenterDoneRef.current = true;
-    } else if (autoFollow && !isPinAdjustmentMode) {
+    } else if (autoFollow && !isPinAdjustmentMode && !pendingConfirmation) {
       map.panTo([activePos.lat, activePos.lng], { animate: true, duration: 0.8 });
     }
 
@@ -391,147 +424,62 @@ export default function RiderNavigationMap({
         speakInstruction('Você saiu da rota. Recalculando trajeto no sentido correto...');
       }
     }
-  }, [activePos?.lat, activePos?.lng, activePos?.heading, autoFollow, isNavigating, routeCoordinates, isPinAdjustmentMode]);
+  }, [activePos?.lat, activePos?.lng, activePos?.heading, autoFollow, isNavigating, routeCoordinates, isPinAdjustmentMode, pendingConfirmation]);
 
-  // Atualização das marcadores de paradas no mapa
+  // Cálculo de Rota
   useEffect(() => {
     const map = mapRef.current;
-    if (!map) return;
+    if (!map || !activePos || !destCoords) return;
 
-    Object.keys(waypointMarkersRef.current).forEach(wpId => {
-      if (!waypoints.some(w => w.id === wpId)) {
-        map.removeLayer(waypointMarkersRef.current[wpId]);
-        delete waypointMarkersRef.current[wpId];
-      }
-    });
-
-    waypoints.forEach((wp, index) => {
-      if (wp.completed) {
-        if (waypointMarkersRef.current[wp.id]) {
-          map.removeLayer(waypointMarkersRef.current[wp.id]);
-          delete waypointMarkersRef.current[wp.id];
-        }
-        return;
-      }
-
-      const wpIcon = L.divIcon({
-        html: `
-          <div style="
-            background: #f59e0b;
-            color: white;
-            width: 38px;
-            height: 38px;
-            border-radius: 50%;
-            border: 3px solid white;
-            box-shadow: 0 4px 12px rgba(245, 158, 11, 0.8);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: 900;
-            font-size: 13px;
-          ">
-            P${index + 1}
-          </div>
-        `,
-        className: 'custom-waypoint-google-nav-icon',
-        iconSize: [38, 38],
-        iconAnchor: [19, 19]
-      });
-
-      if (waypointMarkersRef.current[wp.id]) {
-        waypointMarkersRef.current[wp.id].setLatLng([wp.lat, wp.lng]);
-      } else {
-        const marker = L.marker([wp.lat, wp.lng], {
-          icon: wpIcon,
-          zIndexOffset: 2500
-        }).addTo(map).bindPopup(`<b>Parada ${index + 1}:</b> ${wp.name}`);
-        waypointMarkersRef.current[wp.id] = marker;
-      }
-    });
-  }, [waypoints]);
-
-  // Cálculo da Rota com Paradas Respeitando o Sentido Único das Vias
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !activePos) return;
-
-    const activeWaypoints = waypoints.filter(w => !w.completed);
-    if (!destCoords && activeWaypoints.length === 0) return;
-
-    const coordsList: { lat: number; lng: number }[] = [activePos];
-    activeWaypoints.forEach(w => coordsList.push({ lat: w.lat, lng: w.lng }));
-    if (destCoords) coordsList.push(destCoords);
-
-    if (coordsList.length < 2) return;
-
+    const coordsList: { lat: number; lng: number }[] = [activePos, destCoords];
     const routeKey = coordsList.map(c => `${c.lat.toFixed(4)},${c.lng.toFixed(4)}`).join(';');
     
     if (lastFetchedRouteKeyRef.current === routeKey && !isOffRouteDetected && routeCoordinates.length > 0) {
       return;
     }
 
-    if (destCoords) {
-      const destIcon = L.divIcon({
-        html: `
-          <div style="
-            background: #ea4335;
-            color: white;
-            width: 44px;
-            height: 44px;
-            border-radius: 50%;
-            border: 3.5px solid white;
-            box-shadow: 0 4px 15px rgba(234,67,53,0.8);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-          ">
-            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"></path>
-              <circle cx="12" cy="10" r="3"></circle>
-            </svg>
-          </div>
-        `,
-        className: 'custom-dest-google-nav-icon',
-        iconSize: [44, 44],
-        iconAnchor: [22, 22]
-      });
+    const destIcon = L.divIcon({
+      html: `
+        <div style="
+          background: #ea4335;
+          color: white;
+          width: 44px;
+          height: 44px;
+          border-radius: 50%;
+          border: 3.5px solid white;
+          box-shadow: 0 4px 15px rgba(234,67,53,0.8);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        ">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"></path>
+            <circle cx="12" cy="10" r="3"></circle>
+          </svg>
+        </div>
+      `,
+      className: 'custom-dest-google-nav-icon',
+      iconSize: [44, 44],
+      iconAnchor: [22, 22]
+    });
 
-      if (destMarkerRef.current) {
-        destMarkerRef.current.setLatLng([destCoords.lat, destCoords.lng]);
-      } else {
-        destMarkerRef.current = L.marker([destCoords.lat, destCoords.lng], { 
-          icon: destIcon,
-          zIndexOffset: 2000
-        }).addTo(map);
-      }
+    if (destMarkerRef.current) {
+      destMarkerRef.current.setLatLng([destCoords.lat, destCoords.lng]);
+    } else {
+      destMarkerRef.current = L.marker([destCoords.lat, destCoords.lng], { 
+        icon: destIcon,
+        zIndexOffset: 2000
+      }).addTo(map);
     }
 
-    const fetchMultiStopRoute = async () => {
+    const fetchRoute = async () => {
       setLoadingRoute(true);
       try {
-        const waypointsString = coordsList.map(c => `${c.lng},${c.lat}`).join(';');
-
-        const bearingsArray = coordsList.map((_, idx) => {
-          if (idx === 0) {
-            const h = Math.round(activePos.heading || 0);
-            return `${h},45`;
-          }
-          return '';
-        });
-        const bearingsParam = `&bearings=${bearingsArray.join(';')}`;
-        const radiusesArray = coordsList.map((_, idx) => idx === 0 ? '25' : '');
-        const radiusesParam = `&radiuses=${radiusesArray.join(';')}`;
-
-        const url = `https://router.project-osrm.org/route/v1/driving/${waypointsString}?overview=full&geometries=geojson&steps=true&continue_straight=true${bearingsParam}${radiusesParam}`;
+        const waypointsString = `${activePos.lng},${activePos.lat};${destCoords.lng},${destCoords.lat}`;
+        const url = `https://router.project-osrm.org/route/v1/driving/${waypointsString}?overview=full&geometries=geojson&steps=true&continue_straight=true`;
         
-        let response = await fetch(url);
-        let data = await response.json();
-
-        if (data.code !== 'Ok' || !data.routes || data.routes.length === 0) {
-          const fallbackUrl = `https://router.project-osrm.org/route/v1/driving/${waypointsString}?overview=full&geometries=geojson&steps=true&continue_straight=true`;
-          response = await fetch(fallbackUrl);
-          data = await response.json();
-        }
+        const response = await fetch(url);
+        const data = await response.json();
 
         if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
           const route = data.routes[0];
@@ -552,32 +500,6 @@ export default function RiderNavigationMap({
             }).addTo(map);
           }
 
-          let allSteps: RouteStep[] = [];
-          route.legs.forEach((leg: any, legIndex: number) => {
-            const isLastLeg = legIndex === route.legs.length - 1;
-            const legSteps = leg.steps.map((step: any) => ({
-              instruction: formatOsmInstruction(step.maneuver, step.name),
-              distance: Math.round(step.distance),
-              duration: Math.round(step.duration),
-              modifier: step.maneuver?.modifier,
-              type: step.maneuver?.type
-            }));
-
-            if (!isLastLeg && activeWaypoints[legIndex]) {
-              legSteps.push({
-                instruction: `Chegando na Parada ${legIndex + 1}: ${activeWaypoints[legIndex].name}`,
-                distance: 0,
-                duration: 0,
-                type: 'arrive'
-              });
-            }
-
-            allSteps = [...allSteps, ...legSteps];
-          });
-
-          setSteps(allSteps);
-          setCurrentStepIndex(0);
-
           const durationMinutes = Math.ceil(route.duration / 60);
           const etaDate = new Date(Date.now() + durationMinutes * 60000);
           const etaTimeString = etaDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
@@ -589,14 +511,6 @@ export default function RiderNavigationMap({
           });
 
           setIsOffRouteDetected(false);
-
-          if (autoFollow && !isPinAdjustmentMode) {
-            map.panTo([activePos.lat, activePos.lng], { animate: true });
-          }
-
-          if (isNavigating && allSteps.length > 0) {
-            speakInstruction(`Siga a rota. ${allSteps[0].instruction}`);
-          }
         }
       } catch (err) {
         console.warn('Erro ao calcular rota:', err);
@@ -605,84 +519,114 @@ export default function RiderNavigationMap({
       }
     };
 
-    fetchMultiStopRoute();
-  }, [destCoords?.lat, destCoords?.lng, waypoints, isOffRouteDetected]);
+    fetchRoute();
+  }, [destCoords?.lat, destCoords?.lng, isOffRouteDetected]);
 
-  const formatOsmInstruction = (maneuver: any, streetName: string) => {
-    const modifier = maneuver.modifier;
-    const nameStr = streetName ? ` na ${streetName}` : '';
-
-    if (maneuver.type === 'depart') return `Siga em frente no sentido permitido${nameStr}`;
-    if (maneuver.type === 'arrive') return `Você chegou ao local!`;
-
-    switch (modifier) {
-      case 'left':
-      case 'sharp left':
-        return `Vire à esquerda${nameStr}`;
-      case 'slight left':
-        return `Mantenha-se à esquerda${nameStr}`;
-      case 'right':
-      case 'sharp right':
-        return `Vire à direita${nameStr}`;
-      case 'slight right':
-        return `Mantenha-se à direita${nameStr}`;
-      case 'straight':
-        return `Siga em frente${nameStr}`;
-      case 'uturn':
-        return `Faça o retorno permitido${nameStr}`;
-      default:
-        return `Siga em direção ao destino${nameStr}`;
+  const handleRecenter = () => {
+    if (mapRef.current && activePos) {
+      mapRef.current.invalidateSize();
+      mapRef.current.panTo([activePos.lat, activePos.lng], { animate: true });
+      setAutoFollow(true);
+    } else {
+      gpsTracker.requestManualPermission();
     }
   };
 
-  const getManeuverIcon = (step: RouteStep) => {
-    const modifier = step.modifier;
-    const type = step.type;
+  // EXECUÇÃO DO ENTER OU BOTÃO 🔍 SEM SELEÇÃO OBRIGATÓRIA DE AUTOCOMPLETE
+  const handleExecuteDirectSearch = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
 
-    if (type === 'arrive') return <MapPin className="h-8 w-8 text-white" />;
-    if (modifier === 'left' || modifier === 'sharp left') return <CornerUpLeft className="h-8 w-8 text-white" />;
-    if (modifier === 'slight left') return <ArrowUpLeft className="h-8 w-8 text-white" />;
-    if (modifier === 'right' || modifier === 'sharp right') return <CornerUpRight className="h-8 w-8 text-white" />;
-    if (modifier === 'slight right') return <ArrowUpRight className="h-8 w-8 text-white" />;
-    if (modifier === 'uturn') return <RotateCw className="h-8 w-8 text-white" />;
+    const originalQuery = searchQuery.trim();
+    if (!originalQuery) return;
 
-    return <ArrowUp className="h-8 w-8 text-white" />;
+    setSearchResults([]);
+    setSelectedStreetResult(null);
+    setIsSearching(true);
+    setNotFoundAlert(null);
+
+    const geocodeResult = await searchFreeTextAddress(originalQuery);
+
+    setIsSearching(false);
+
+    if (geocodeResult) {
+      setPendingConfirmation({
+        name: originalQuery,
+        addressText: geocodeResult.formattedAddress || originalQuery,
+        lat: geocodeResult.lat,
+        lng: geocodeResult.lng,
+        isApproximate: geocodeResult.isApproximate
+      });
+    } else {
+      setNotFoundAlert("Não encontramos esse endereço automaticamente. Você pode marcar a localização manualmente no mapa.");
+      handleEnablePinAdjustment();
+    }
   };
 
-  const handleStartVoiceSearch = () => {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      alert('Pesquisa por voz não suportada neste navegador.');
-      return;
-    }
+  const handleConfirmLocation = () => {
+    if (!pendingConfirmation) return;
 
-    try {
-      const recognition = new SpeechRecognition();
-      recognition.lang = 'pt-BR';
-      recognition.interimResults = false;
-      recognition.maxAlternatives = 1;
+    lastFetchedRouteKeyRef.current = '';
+    setDestCoords({ lat: pendingConfirmation.lat, lng: pendingConfirmation.lng });
+    setActiveDestination({
+      name: pendingConfirmation.name,
+      addressText: pendingConfirmation.addressText,
+      lat: pendingConfirmation.lat,
+      lng: pendingConfirmation.lng
+    });
 
-      setIsListeningVoice(true);
+    setPendingConfirmation(null);
+    setAutoFollow(true);
+    setSearchQuery('');
+  };
 
-      recognition.onresult = (event: any) => {
-        const spokenText = event.results[0][0].transcript;
-        if (spokenText) {
-          handleSearchInput(spokenText);
-        }
-        setIsListeningVoice(false);
+  const handleSelectSearchResult = (result: CustomSearchResult, isAddAsWaypoint = false) => {
+    if (isAddAsWaypoint) {
+      const newWp: Waypoint = {
+        id: 'wp_' + Date.now(),
+        name: result.title,
+        addressText: result.fullAddress,
+        lat: result.lat,
+        lng: result.lng
       };
-
-      recognition.onerror = () => setIsListeningVoice(false);
-      recognition.onend = () => setIsListeningVoice(false);
-
-      recognition.start();
-    } catch (e) {
-      setIsListeningVoice(false);
+      setWaypoints(prev => [...prev, newWp]);
+      setSearchResults([]);
+      setSearchQuery('');
+    } else {
+      setPendingConfirmation({
+        name: result.title,
+        addressText: result.fullAddress,
+        lat: result.lat,
+        lng: result.lng,
+        isApproximate: false
+      });
+      setSearchResults([]);
     }
+  };
+
+  const handleEnablePinAdjustment = () => {
+    if (mapRef.current) {
+      const center = mapRef.current.getCenter();
+      setTempAdjustedCoords({ lat: center.lat, lng: center.lng });
+    }
+    setIsPinAdjustmentMode(true);
+    setAutoFollow(false);
+  };
+
+  const handleConfirmPinAdjustment = () => {
+    if (tempAdjustedCoords) {
+      setPendingConfirmation({
+        name: 'Local Confirmado Manualmente',
+        addressText: `Coordenadas: ${tempAdjustedCoords.lat.toFixed(5)}, ${tempAdjustedCoords.lng.toFixed(5)}`,
+        lat: tempAdjustedCoords.lat,
+        lng: tempAdjustedCoords.lng
+      });
+    }
+    setIsPinAdjustmentMode(false);
   };
 
   const handleSearchInput = (value: string) => {
     setSearchQuery(value);
+    setNotFoundAlert(null);
     
     if (searchTimeoutRef.current) {
       clearTimeout(searchTimeoutRef.current);
@@ -700,13 +644,10 @@ export default function RiderNavigationMap({
           const esriQuery = rawText.toLowerCase().includes('campina grande') 
             ? rawText 
             : `${rawText}, Campina Grande - PB`;
-          const esriUrl = `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?singleLine=${encodeURIComponent(esriQuery)}&f=json&maxLocations=6&location=${lng},${lat}`;
+          const esriUrl = `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?singleLine=${encodeURIComponent(esriQuery)}&f=json&maxLocations=5&location=${lng},${lat}`;
 
-          const photonUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(rawText)}&lat=${lat}&lon=${lng}&limit=6`;
-
-          const [esriRes, photonRes] = await Promise.all([
-            fetch(esriUrl).then(r => r.json()).catch(() => null),
-            fetch(photonUrl).then(r => r.json()).catch(() => null)
+          const [esriRes] = await Promise.all([
+            fetch(esriUrl).then(r => r.json()).catch(() => null)
           ]);
 
           const combined: CustomSearchResult[] = [];
@@ -723,14 +664,6 @@ export default function RiderNavigationMap({
               const title = parts[0] ? parts[0].trim() : 'Endereço';
               const subtitle = parts.slice(1).join(',').trim();
 
-              let type: 'poi' | 'street' | 'condo' = 'street';
-              const lower = fullAddr.toLowerCase();
-              if (lower.includes('condom') || lower.includes('residencial') || lower.includes('edificio') || lower.includes('torre')) {
-                type = 'condo';
-              } else if (cand.attributes && (cand.attributes.Type === 'POI' || cand.attributes.Type === 'Establishment')) {
-                type = 'poi';
-              }
-
               if (!seenKeys.has(key)) {
                 seenKeys.add(key);
                 combined.push({
@@ -740,52 +673,8 @@ export default function RiderNavigationMap({
                   fullAddress: fullAddr,
                   lat: loc.y,
                   lng: loc.x,
-                  type,
+                  type: 'street',
                   source: 'esri'
-                });
-              }
-            });
-          }
-
-          if (photonRes && photonRes.features) {
-            photonRes.features.forEach((feat: any) => {
-              const props = feat.properties;
-              const coords = feat.geometry.coordinates;
-              if (!coords || coords.length < 2) return;
-
-              const title = props.name || props.street || 'Local';
-              const district = props.district || props.suburb || props.neighbourhood || '';
-              const city = props.city || props.town || 'Campina Grande';
-              const state = props.state || 'PB';
-
-              let subtitleParts = [];
-              if (props.housenumber) subtitleParts.push(`Nº ${props.housenumber}`);
-              if (props.street && props.street !== title) subtitleParts.push(props.street);
-              if (district) subtitleParts.push(district);
-              if (city) subtitleParts.push(`${city}/${state}`);
-
-              const subtitle = subtitleParts.join(' • ') || `${city}/${state}`;
-              const key = `${coords[1].toFixed(4)},${coords[0].toFixed(4)}`;
-
-              let type: 'poi' | 'street' | 'condo' = 'poi';
-              const lowerTitle = title.toLowerCase();
-              if (lowerTitle.includes('condom') || lowerTitle.includes('residencial') || lowerTitle.includes('edificio')) {
-                type = 'condo';
-              } else if (props.osm_key === 'highway' || lowerTitle.startsWith('rua') || lowerTitle.startsWith('av')) {
-                type = 'street';
-              }
-
-              if (!seenKeys.has(key)) {
-                seenKeys.add(key);
-                combined.push({
-                  id: 'photon_' + Math.random(),
-                  title,
-                  subtitle,
-                  fullAddress: `${title}, ${subtitle}`,
-                  lat: coords[1],
-                  lng: coords[0],
-                  type,
-                  source: 'photon'
                 });
               }
             });
@@ -804,156 +693,8 @@ export default function RiderNavigationMap({
     }
   };
 
-  const handleSelectSearchResult = (result: CustomSearchResult, isAddAsWaypoint = false) => {
-    const hasNumberInTitle = /\d+/.test(result.title) || /\d+/.test(searchQuery);
-
-    if (result.type === 'street' && !hasNumberInTitle && result.source !== 'esri') {
-      setSelectedStreetResult(result);
-      setHouseNumberInput('');
-      setSearchResults([]);
-    } else {
-      if (isAddAsWaypoint) {
-        const newWp: Waypoint = {
-          id: 'wp_' + Date.now(),
-          name: result.title,
-          addressText: result.fullAddress,
-          lat: result.lat,
-          lng: result.lng
-        };
-        setWaypoints(prev => [...prev, newWp]);
-        setShowWaypointsPanel(true);
-      } else {
-        lastFetchedRouteKeyRef.current = '';
-        setActiveDestination({
-          name: result.title,
-          addressText: result.fullAddress,
-          lat: result.lat,
-          lng: result.lng
-        });
-      }
-
-      setAutoFollow(true);
-      setSearchResults([]);
-      setSearchQuery('');
-    }
-  };
-
-  const handleConfirmAddressWithNumber = async (numberOverride?: string, isAddAsWaypoint = false) => {
-    if (!selectedStreetResult) return;
-
-    const num = numberOverride !== undefined ? numberOverride : houseNumberInput.trim();
-    const streetTitle = selectedStreetResult.title;
-
-    const title = num ? `${streetTitle}, Nº ${num}` : streetTitle;
-    const fullAddress = num ? `${streetTitle}, ${num} - ${selectedStreetResult.subtitle}` : selectedStreetResult.fullAddress;
-
-    let finalLat = selectedStreetResult.lat;
-    let finalLng = selectedStreetResult.lng;
-
-    if (num) {
-      setLoadingRoute(true);
-      try {
-        const queryWithNum = `${streetTitle}, ${num}, Campina Grande - PB, Brasil`;
-        const esriUrl = `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?singleLine=${encodeURIComponent(queryWithNum)}&f=json&maxLocations=1`;
-        const esriRes = await fetch(esriUrl);
-        const esriData = await esriRes.json();
-        if (esriData && esriData.candidates && esriData.candidates.length > 0) {
-          const loc = esriData.candidates[0].location;
-          finalLat = loc.y;
-          finalLng = loc.x;
-        }
-      } catch (err) {
-        console.warn('Erro geocodificando número exato:', err);
-      } finally {
-        setLoadingRoute(false);
-      }
-    }
-
-    if (isAddAsWaypoint) {
-      const newWp: Waypoint = {
-        id: 'wp_' + Date.now(),
-        name: title,
-        addressText: fullAddress,
-        lat: finalLat,
-        lng: finalLng
-      };
-      setWaypoints(prev => [...prev, newWp]);
-      setShowWaypointsPanel(true);
-    } else {
-      lastFetchedRouteKeyRef.current = '';
-      setActiveDestination({
-        name: title,
-        addressText: fullAddress,
-        lat: finalLat,
-        lng: finalLng
-      });
-    }
-
-    setAutoFollow(true);
-    setSelectedStreetResult(null);
-    setSearchQuery('');
-  };
-
-  const handleEnablePinAdjustment = () => {
-    if (mapRef.current) {
-      const center = mapRef.current.getCenter();
-      setTempAdjustedCoords({ lat: center.lat, lng: center.lng });
-    }
-    setIsPinAdjustmentMode(true);
-    setAutoFollow(false);
-  };
-
-  const handleConfirmPinAdjustment = () => {
-    if (tempAdjustedCoords) {
-      lastFetchedRouteKeyRef.current = '';
-      setDestCoords(tempAdjustedCoords);
-      setActiveDestination(prev => ({
-        name: prev?.name || 'Local Selecionado Manualmente',
-        addressText: `Ponto confirmado no mapa (${tempAdjustedCoords.lat.toFixed(5)}, ${tempAdjustedCoords.lng.toFixed(5)})`,
-        lat: tempAdjustedCoords.lat,
-        lng: tempAdjustedCoords.lng
-      }));
-    }
-    setIsPinAdjustmentMode(false);
-  };
-
-  const handleRemoveWaypoint = (id: string) => {
-    setWaypoints(prev => prev.filter(w => w.id !== id));
-    lastFetchedRouteKeyRef.current = '';
-  };
-
-  const handleToggleWaypointCompleted = (id: string) => {
-    setWaypoints(prev => prev.map(w => w.id === id ? { ...w, completed: !w.completed } : w));
-    lastFetchedRouteKeyRef.current = '';
-  };
-
-  const toggleNavigationMode = () => {
-    const nextState = !isNavigating;
-    setIsNavigating(nextState);
-    gpsTracker.setNavigating(nextState);
-
-    if (nextState) {
-      setAutoFollow(true);
-      if (steps.length > 0) {
-        speakInstruction(`Iniciando navegação no sentido correto para ${activeDestination?.name || 'seu destino'}. ${steps[0].instruction}`);
-      }
-    } else {
-      speakInstruction('Navegação encerrada.');
-    }
-  };
-
-  const handleRecenter = () => {
-    if (mapRef.current && activePos) {
-      mapRef.current.invalidateSize();
-      mapRef.current.panTo([activePos.lat, activePos.lng], { animate: true });
-      setAutoFollow(true);
-    } else {
-      gpsTracker.requestManualPermission();
-    }
-  };
-
   const activeStep = steps[currentStepIndex] || {
-    instruction: activeDestination ? `Siga em direção a ${activeDestination.name}` : 'Digite ou fale o endereço no Google Maps...',
+    instruction: activeDestination ? `Siga em direção a ${activeDestination.name}` : 'Digite qualquer endereço e pressione ENTER...',
     distance: 0,
     duration: 0
   };
@@ -965,23 +706,17 @@ export default function RiderNavigationMap({
         : 'relative h-[600px] sm:h-[680px] w-full rounded-2xl border border-slate-800'
     }`}>
       
-      {/* HEADER NAVEGAÇÃO VERDE GOOGLE (#137333) */}
+      {/* HEADER NAVEGAÇÃO GOOGLE MAPS (#137333) */}
       <div className="bg-[#137333] text-white px-4 py-3 z-30 shadow-lg flex items-center justify-between relative border-b border-emerald-800 flex-shrink-0">
         <div className="flex items-center space-x-3 min-w-0 flex-1">
           <div className="p-2.5 bg-black/20 rounded-2xl text-white flex-shrink-0 border border-white/20">
-            {getManeuverIcon(activeStep)}
+            <ArrowUp className="h-8 w-8 text-white" />
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 flex-wrap">
               {activeStep.distance > 0 && (
                 <span className="text-sm font-black text-emerald-200">
                   em {activeStep.distance}m
-                </span>
-              )}
-              {waypoints.filter(w => !w.completed).length > 0 && (
-                <span className="bg-amber-500 text-slate-950 text-[9px] font-black uppercase px-2 py-0.5 rounded-full tracking-wider flex items-center gap-1">
-                  <ListOrdered className="h-3 w-3" />
-                  {waypoints.filter(w => !w.completed).length} Parada(s)
                 </span>
               )}
               <span className="bg-emerald-950/80 text-emerald-300 text-[9px] font-black uppercase px-2 py-0.5 rounded-full tracking-wider flex items-center gap-1">
@@ -995,7 +730,6 @@ export default function RiderNavigationMap({
           </div>
         </div>
 
-        {/* BOTOES DE CONTROLE DO MAPA */}
         <div className="flex items-center space-x-1.5 flex-shrink-0 pl-2">
           <button
             onClick={handleEnablePinAdjustment}
@@ -1008,343 +742,119 @@ export default function RiderNavigationMap({
           </button>
 
           <button
-            onClick={() => setShowWaypointsPanel(!showWaypointsPanel)}
-            className={`p-2.5 rounded-xl transition-colors flex items-center gap-1 text-xs font-bold ${
-              waypoints.length > 0 ? 'bg-amber-500 text-slate-950' : 'bg-emerald-900 text-emerald-200'
-            }`}
-            title="Ver Paradas"
-          >
-            <ListOrdered className="h-5 w-5" />
-            {waypoints.length > 0 && <span>{waypoints.length}</span>}
-          </button>
-
-          <button
             onClick={() => setVoiceEnabled(!voiceEnabled)}
             className={`p-2.5 rounded-xl transition-colors ${
               voiceEnabled ? 'bg-emerald-600 text-white shadow-inner' : 'bg-emerald-950 text-emerald-400'
             }`}
-            title={voiceEnabled ? 'Voz Google Ativa' : 'Voz Mutada'}
           >
             {voiceEnabled ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}
           </button>
 
           <button
-            onClick={() => {
-              setIsFullscreen(!isFullscreen);
-              setTimeout(() => {
-                if (mapRef.current) mapRef.current.invalidateSize();
-              }, 200);
-            }}
+            onClick={() => setIsFullscreen(!isFullscreen)}
             className="p-2.5 hover:bg-white/10 rounded-xl transition-colors text-emerald-100"
-            title={isFullscreen ? 'Sair da Tela Cheia' : 'Tela Cheia'}
           >
             {isFullscreen ? <Minimize2 className="h-5 w-5" /> : <Maximize2 className="h-5 w-5" />}
           </button>
 
           {onClose && (
-            <button
-              onClick={onClose}
-              className="p-2.5 hover:bg-red-500/20 text-red-200 hover:text-white rounded-xl transition-colors"
-            >
+            <button onClick={onClose} className="p-2.5 hover:bg-red-500/20 text-red-200 rounded-xl">
               <X className="h-5 w-5" />
             </button>
           )}
         </div>
       </div>
 
-      {/* PAINEL MODO AJUSTE MANUAL DE PINO */}
+      {/* BANNER ALERTA DE ENDEREÇO NÃO ENCONTRADO AUTOMATICAMENTE */}
+      {notFoundAlert && (
+        <div className="bg-amber-500 text-slate-950 px-4 py-2.5 z-40 flex items-center justify-between text-xs font-bold shadow-md">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="h-5 w-5 flex-shrink-0" />
+            <span>{notFoundAlert}</span>
+          </div>
+          <button onClick={() => setNotFoundAlert(null)} className="p-1 hover:bg-black/10 rounded">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
+      {/* MODO DE AJUSTE MANUAL DE PINO */}
       {isPinAdjustmentMode && (
         <div className="bg-amber-500 text-slate-950 px-4 py-2.5 z-40 flex items-center justify-between font-bold text-xs shadow-lg">
           <div className="flex items-center gap-2">
             <Hand className="h-5 w-5 text-slate-950 animate-bounce" />
-            <span>Mova o mapa para posicionar a entrega no ponto exato</span>
+            <span>Arraste o mapa até a porta/entrega e confirme</span>
           </div>
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => setIsPinAdjustmentMode(false)}
-              className="bg-slate-900 text-white px-3 py-1.5 rounded-lg text-xs hover:bg-slate-800"
-            >
+            <button onClick={() => setIsPinAdjustmentMode(false)} className="bg-slate-900 text-white px-3 py-1.5 rounded-lg text-xs">
               Cancelar
             </button>
-            <button
-              onClick={handleConfirmPinAdjustment}
-              className="bg-emerald-700 text-white px-3.5 py-1.5 rounded-lg text-xs font-black hover:bg-emerald-800 shadow"
-            >
+            <button onClick={handleConfirmPinAdjustment} className="bg-emerald-700 text-white px-3.5 py-1.5 rounded-lg text-xs font-black shadow">
               Confirmar Local
             </button>
           </div>
         </div>
       )}
 
-      {/* PAINEL FLUTUANTE DE PARADAS INTERMEDIÁRIAS */}
-      {showWaypointsPanel && (
-        <div className="bg-slate-900 border-b border-amber-500/30 p-3 z-30 space-y-2 max-h-48 overflow-y-auto">
-          <div className="flex items-center justify-between text-xs font-extrabold text-amber-400 uppercase tracking-wider">
-            <span className="flex items-center gap-1">
-              <ListOrdered className="h-4 w-4" /> Paradas no Trajeto ({waypoints.length})
-            </span>
-            <button onClick={() => setShowWaypointsPanel(false)} className="text-slate-400 hover:text-white">
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-
-          {waypoints.length === 0 ? (
-            <p className="text-xs text-slate-400 text-center py-2">
-              Nenhuma parada adicionada. Busque um local e clique em "Adicionar Parada".
-            </p>
-          ) : (
-            <div className="space-y-1.5">
-              {waypoints.map((wp, index) => (
-                <div key={wp.id} className={`p-2 rounded-xl flex items-center justify-between gap-2 border ${
-                  wp.completed ? 'bg-slate-950 border-slate-800 opacity-50' : 'bg-slate-800 border-slate-700'
-                }`}>
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="w-6 h-6 rounded-full bg-amber-500 text-slate-950 font-black text-xs flex items-center justify-center flex-shrink-0">
-                      P{index + 1}
-                    </span>
-                    <div className="min-w-0">
-                      <p className={`text-xs font-bold truncate ${wp.completed ? 'line-through text-slate-500' : 'text-white'}`}>
-                        {wp.name}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-1 flex-shrink-0">
-                    <button
-                      onClick={() => handleToggleWaypointCompleted(wp.id)}
-                      className={`p-1.5 rounded-lg text-xs font-bold ${
-                        wp.completed ? 'bg-slate-700 text-slate-400' : 'bg-emerald-600 text-white'
-                      }`}
-                      title={wp.completed ? 'Reabrir Parada' : 'Marcar como Concluída'}
-                    >
-                      <CheckCircle2 className="h-4 w-4" />
-                    </button>
-                    <button
-                      onClick={() => handleRemoveWaypoint(wp.id)}
-                      className="p-1.5 bg-red-950/80 text-red-300 hover:text-white rounded-lg"
-                      title="Excluir Parada"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* SEARCH BAR ESTILO GOOGLE MAPS MOBILE */}
+      {/* FORMULÁRIO DE BUSCA COM SUPORTE A ENTER E BOTÃO 🔍 */}
       <div className="bg-slate-900 border-b border-slate-800 p-2.5 z-20 relative flex-shrink-0 space-y-2">
-        <div className="relative flex items-center">
-          <input
-            type="text"
-            placeholder={isListeningVoice ? "Fale o endereço agora..." : "Buscar parada, loja ou condomínio..."}
-            value={searchQuery}
-            onChange={(e) => handleSearchInput(e.target.value)}
-            className={`w-full text-white placeholder-slate-400 text-xs sm:text-sm pl-9 pr-20 py-2.5 rounded-xl border focus:outline-none transition-all shadow-inner ${
-              isListeningVoice 
-                ? 'bg-red-950/80 border-red-500 focus:ring-red-500 animate-pulse' 
-                : 'bg-slate-800 border-slate-700 focus:ring-1 focus:ring-blue-500'
-            }`}
-          />
-          <Search className="h-4 w-4 text-slate-400 absolute left-3 pointer-events-none" />
+        <form onSubmit={handleExecuteDirectSearch} className="relative flex items-center gap-1.5">
+          <div className="relative flex-1 flex items-center">
+            <input
+              type="text"
+              placeholder="Digite qualquer endereço e pressione ENTER..."
+              value={searchQuery}
+              onChange={(e) => handleSearchInput(e.target.value)}
+              className="w-full text-white placeholder-slate-400 text-xs sm:text-sm pl-9 pr-10 py-2.5 rounded-xl border bg-slate-800 border-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            />
+            <Search className="h-4 w-4 text-slate-400 absolute left-3 pointer-events-none" />
 
-          <div className="absolute right-2 flex items-center gap-1">
-            {isSearching && (
-              <Loader2 className="h-4 w-4 text-blue-400 animate-spin mr-1" />
-            )}
-            
-            {!isSearching && searchQuery && (
+            {searchQuery && (
               <button
+                type="button"
                 onClick={() => { setSearchQuery(''); setSearchResults([]); }}
-                className="text-slate-400 hover:text-white p-1"
+                className="text-slate-400 hover:text-white absolute right-3 p-1"
               >
                 <X className="h-4 w-4" />
               </button>
             )}
-
-            <button
-              type="button"
-              onClick={handleStartVoiceSearch}
-              className={`p-2 rounded-lg text-xs font-bold flex items-center gap-1 transition-colors ${
-                isListeningVoice 
-                  ? 'bg-red-600 text-white animate-bounce' 
-                  : 'bg-slate-700 hover:bg-blue-600 text-slate-200'
-              }`}
-              title="Pesquisar por voz"
-            >
-              {isListeningVoice ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-            </button>
-          </div>
-        </div>
-
-        <div className="flex items-center justify-between px-1 text-[11px] text-slate-400">
-          <div className="flex items-center gap-1.5">
-            <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="font-extrabold text-slate-200">Google Maps HD</span>
-            {activePos && (
-              <span className="text-slate-500">
-                (±{activePos.accuracy}m)
-              </span>
-            )}
           </div>
 
+          {/* BOTÃO PESQUISAR 🔍 */}
           <button
-            onClick={() => setShowLayerMenu(!showLayerMenu)}
-            className="flex items-center gap-1 bg-slate-800 hover:bg-slate-700 text-slate-200 px-2.5 py-1 rounded-lg font-bold transition-colors"
+            type="submit"
+            disabled={isSearching || !searchQuery.trim()}
+            className="bg-blue-600 hover:bg-blue-700 disabled:bg-slate-800 text-white px-3.5 py-2.5 rounded-xl text-xs font-bold flex items-center gap-1 transition-all shadow-md flex-shrink-0"
+            title="Pesquisar Endereço (ENTER)"
           >
-            <Layers className="h-3.5 w-3.5 text-blue-400" />
-            <span>Camadas</span>
+            {isSearching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+            <span className="hidden sm:inline">Pesquisar</span>
           </button>
-        </div>
+        </form>
 
-        {showLayerMenu && (
-          <div className="absolute right-2 top-full mt-1 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-2 z-50 space-y-1.5 min-w-[190px]">
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-2">Tipo de Mapa Google</p>
-            <button
-              onClick={() => { updateMapTileLayer('google_roadmap', showTraffic); setShowLayerMenu(false); }}
-              className={`w-full text-left px-3 py-2 rounded-lg text-xs font-bold flex items-center justify-between ${mapType === 'google_roadmap' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800 text-slate-300'}`}
-            >
-              <span>Google Vetorial</span>
-            </button>
-            <button
-              onClick={() => { updateMapTileLayer('google_satellite', showTraffic); setShowLayerMenu(false); }}
-              className={`w-full text-left px-3 py-2 rounded-lg text-xs font-bold flex items-center justify-between ${mapType === 'google_satellite' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800 text-slate-300'}`}
-            >
-              <span>Google Satélite</span>
-            </button>
-            <button
-              onClick={() => { updateMapTileLayer('google_terrain', showTraffic); setShowLayerMenu(false); }}
-              className={`w-full text-left px-3 py-2 rounded-lg text-xs font-bold flex items-center justify-between ${mapType === 'google_terrain' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800 text-slate-300'}`}
-            >
-              <span>Google Terreno</span>
-            </button>
-            
-            <div className="border-t border-slate-800 my-1 pt-1">
-              <button
-                onClick={() => { updateMapTileLayer(mapType, !showTraffic); setShowLayerMenu(false); }}
-                className={`w-full text-left px-3 py-2 rounded-lg text-xs font-bold flex items-center justify-between ${showTraffic ? 'bg-emerald-600 text-white' : 'hover:bg-slate-800 text-slate-300'}`}
-              >
-                <span>Trânsito em Tempo Real</span>
-                {showTraffic && <span className="text-[9px] bg-emerald-800 px-1.5 py-0.5 rounded uppercase font-black">ON</span>}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {selectedStreetResult && (
-          <div className="absolute left-2 right-2 top-full mt-1 bg-slate-900 border-2 border-blue-500 rounded-2xl p-4 shadow-2xl z-50">
-            <div className="flex justify-between items-start mb-2">
-              <div className="flex items-center gap-2.5">
-                <div className="p-2 bg-blue-600 text-white rounded-xl">
-                  <Home className="h-5 w-5" />
-                </div>
-                <div>
-                  <p className="text-xs font-black text-white">{selectedStreetResult.title}</p>
-                  <p className="text-[10px] text-slate-400 truncate max-w-[200px]">
-                    {selectedStreetResult.subtitle}
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => setSelectedStreetResult(null)}
-                className="text-slate-400 hover:text-white p-1"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                handleConfirmAddressWithNumber(undefined, false);
-              }}
-              className="space-y-3"
-            >
-              <div>
-                <label className="block text-[10px] font-bold text-blue-300 uppercase tracking-wider mb-1">
-                  Qual o número do imóvel/residência?
-                </label>
-                <input
-                  type="text"
-                  autoFocus
-                  placeholder="Ex: 882, 10B, S/N..."
-                  value={houseNumberInput}
-                  onChange={(e) => setHouseNumberInput(e.target.value)}
-                  className="w-full bg-slate-800 text-white placeholder-slate-500 text-xs px-3 py-2.5 rounded-xl border border-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="submit"
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold py-2.5 rounded-xl transition-colors flex items-center justify-center gap-1 shadow-md"
-                >
-                  <Check className="h-4 w-4" />
-                  <span>Destino Final</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleConfirmAddressWithNumber(undefined, true)}
-                  className="bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-bold py-2.5 rounded-xl transition-colors flex items-center justify-center gap-1 shadow-md"
-                >
-                  <Plus className="h-4 w-4" />
-                  <span>Add como Parada</span>
-                </button>
-              </div>
-            </form>
-          </div>
-        )}
-
-        {!selectedStreetResult && searchResults.length > 0 && (
+        {/* SUGESTÕES DO AUTOCOMPLETE (OPCIONAL) */}
+        {searchResults.length > 0 && (
           <div className="absolute left-2 right-2 top-full mt-1 bg-slate-900 rounded-2xl border border-slate-700 shadow-2xl z-50 overflow-hidden divide-y divide-slate-800 max-h-64 overflow-y-auto">
             <div className="bg-slate-950 px-3 py-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between">
-              <span>Locais sugeridos Google</span>
-              <span>{searchResults.length} encontrado(s)</span>
+              <span>Sugestões Automáticas</span>
+              <span className="text-blue-400">Pressione ENTER para pesquisar livremente</span>
             </div>
             {searchResults.map((res) => (
-              <div key={res.id} className="p-2.5 hover:bg-blue-950/60 transition-colors flex items-center justify-between gap-2 group">
-                <div 
-                  onClick={() => handleSelectSearchResult(res, false)}
-                  className="flex items-start space-x-2.5 cursor-pointer min-w-0 flex-1"
-                >
-                  <div className={`p-2 rounded-xl text-white transition-colors mt-0.5 flex-shrink-0 ${
-                    res.type === 'condo' ? 'bg-amber-600' :
-                    res.type === 'poi' ? 'bg-blue-600' : 'bg-slate-800 text-emerald-400'
-                  }`}>
-                    {res.type === 'condo' ? <Building2 className="h-4 w-4" /> :
-                     res.type === 'poi' ? <Store className="h-4 w-4" /> :
-                     <MapPin className="h-4 w-4" />}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs font-bold text-white truncate group-hover:text-blue-200">
-                      {res.title}
-                    </p>
-                    <p className="text-[10px] text-slate-400 truncate mt-0.5">
-                      {res.subtitle}
-                    </p>
+              <div 
+                key={res.id} 
+                onClick={() => handleSelectSearchResult(res)}
+                className="p-3 hover:bg-blue-950/60 transition-colors cursor-pointer flex items-center justify-between group"
+              >
+                <div className="flex items-center space-x-2.5 min-w-0">
+                  <MapPin className="h-4 w-4 text-emerald-400 flex-shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-white truncate group-hover:text-blue-200">{res.title}</p>
+                    <p className="text-[10px] text-slate-400 truncate">{res.subtitle}</p>
                   </div>
                 </div>
-
-                <div className="flex items-center gap-1 flex-shrink-0">
-                  <button
-                    onClick={() => handleSelectSearchResult(res, true)}
-                    className="p-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black rounded-lg text-[10px] flex items-center gap-0.5"
-                    title="Adicionar como Parada"
-                  >
-                    <Plus className="h-3.5 w-3.5" />
-                    <span>Parada</span>
-                  </button>
-                  <button
-                    onClick={() => handleSelectSearchResult(res, false)}
-                    className="p-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg text-[10px] flex items-center gap-0.5"
-                    title="Definir como Destino Final"
-                  >
-                    <Navigation2 className="h-3.5 w-3.5" />
-                    <span>Destino</span>
-                  </button>
-                </div>
+                <span className="text-[10px] bg-blue-600/30 text-blue-300 font-bold px-2 py-1 rounded-lg flex-shrink-0">
+                  Selecionar
+                </span>
               </div>
             ))}
           </div>
@@ -1355,7 +865,6 @@ export default function RiderNavigationMap({
       <div className="relative flex-1 min-h-[240px]">
         <div ref={mapContainerRef} className="absolute inset-0 z-10 bg-slate-950" />
 
-        {/* MIRA FIXA PARA MODO DE AJUSTE DE PINO MANUAL */}
         {isPinAdjustmentMode && (
           <div className="absolute inset-0 z-20 pointer-events-none flex items-center justify-center">
             <div className="relative flex flex-col items-center justify-center">
@@ -1363,90 +872,69 @@ export default function RiderNavigationMap({
               <div className="p-3 bg-red-600 text-white rounded-full shadow-2xl border-2 border-white z-10">
                 <MapPin className="h-7 w-7" />
               </div>
-              <div className="bg-slate-900 text-amber-300 text-[10px] font-black px-2 py-0.5 rounded-full mt-1 border border-amber-400 shadow-md">
-                POSIÇÃO DO PINO
+            </div>
+          </div>
+        )}
+
+        {/* CARD DE CONFIRMAÇÃO PRÉVIA: "É ESTE O ENDEREÇO?" */}
+        {pendingConfirmation && (
+          <div className="absolute bottom-4 left-4 right-4 z-40 bg-slate-900 border-2 border-amber-500 rounded-2xl p-4 shadow-2xl space-y-3 animate-bounce-short">
+            <div className="flex items-start justify-between">
+              <div className="flex items-center space-x-2.5">
+                <div className="p-2 bg-amber-500 text-slate-950 rounded-xl font-black">
+                  <MapPin className="h-5 w-5" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-black text-amber-400 uppercase tracking-wider">
+                    {pendingConfirmation.isApproximate ? "Encontramos uma localização aproximada" : "É este o endereço?"}
+                  </h4>
+                  <p className="text-sm font-bold text-white mt-0.5">{pendingConfirmation.name}</p>
+                  <p className="text-[10px] text-slate-400 truncate max-w-[260px]">{pendingConfirmation.addressText}</p>
+                  <p className="text-[9px] text-slate-500 font-mono mt-0.5">
+                    Coordenadas: {pendingConfirmation.lat.toFixed(5)}, {pendingConfirmation.lng.toFixed(5)}
+                  </p>
+                </div>
               </div>
+
+              <button onClick={() => setPendingConfirmation(null)} className="text-slate-400 hover:text-white p-1">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-800">
+              <button
+                onClick={handleConfirmLocation}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold py-2.5 rounded-xl transition-all shadow-md flex items-center justify-center gap-1.5"
+              >
+                <Check className="h-4 w-4" />
+                <span>CONFIRMAR LOCALIZAÇÃO</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  const targetLat = pendingConfirmation.lat;
+                  const targetLng = pendingConfirmation.lng;
+                  setPendingConfirmation(null);
+                  if (mapRef.current) mapRef.current.setView([targetLat, targetLng], 18);
+                  handleEnablePinAdjustment();
+                }}
+                className="bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-extrabold py-2.5 rounded-xl transition-all shadow-md flex items-center justify-center gap-1.5"
+              >
+                <Hand className="h-4 w-4" />
+                <span>AJUSTAR NO MAPA</span>
+              </button>
             </div>
           </div>
         )}
 
-        {!activePos && (
-          <div className="absolute inset-0 z-30 bg-slate-950/85 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center space-y-3">
-            <div className="p-4 bg-blue-600/20 text-blue-400 rounded-full animate-bounce">
-              <CompassIcon className="h-10 w-10" />
-            </div>
-            <h3 className="text-base font-bold text-white">Localizando seu dispositivo...</h3>
-            <p className="text-xs text-slate-400 max-w-xs leading-relaxed">
-              Garanta que o GPS do seu smartphone esteja ativo.
-            </p>
-            <button
-              onClick={() => gpsTracker.requestManualPermission()}
-              className="mt-2 bg-blue-600 hover:bg-blue-700 text-white font-bold px-5 py-2.5 rounded-xl text-xs flex items-center space-x-2 shadow-lg transition-all"
-            >
-              <LocateFixed className="h-4 w-4" />
-              <span>Conectar GPS Agora</span>
-            </button>
-          </div>
-        )}
-
-        {/* VELOCÍMETRO GOOGLE MAPS EM TEMPO REAL */}
-        {activePos && (
-          <div className="absolute bottom-5 left-4 z-20 bg-slate-900/90 border border-slate-700 p-2.5 rounded-2xl shadow-2xl backdrop-blur-md flex flex-col items-center justify-center min-w-[65px]">
-            <span className={`text-2xl font-black leading-none ${
-              (activePos.speedKmh || 0) > 60 ? 'text-red-400' : 'text-emerald-400'
-            }`}>
-              {activePos.speedKmh || 0}
-            </span>
-            <span className="text-[8px] font-extrabold uppercase text-slate-400 tracking-wider mt-0.5">km/h</span>
-          </div>
-        )}
-
-        {/* BOTÃO RECENTRALIZAR CAMERA */}
         <div className="absolute bottom-5 right-4 z-20 flex flex-col space-y-2">
-          <button
-            onClick={() => {
-              if (mapRef.current) mapRef.current.zoomIn();
-            }}
-            className="p-2.5 bg-slate-900/90 hover:bg-slate-800 text-white rounded-xl shadow-lg border border-slate-700 transition-all flex items-center justify-center"
-            title="Aumentar Zoom"
-          >
-            <Plus className="h-4 w-4" />
-          </button>
-          
-          <button
-            onClick={() => {
-              if (mapRef.current) mapRef.current.zoomOut();
-            }}
-            className="p-2.5 bg-slate-900/90 hover:bg-slate-800 text-white rounded-xl shadow-lg border border-slate-700 transition-all flex items-center justify-center"
-            title="Diminuir Zoom"
-          >
-            <Minus className="h-4 w-4" />
-          </button>
-
-          <button
-            onClick={handleRecenter}
-            className={`p-3 rounded-2xl shadow-xl border transition-all flex items-center justify-center ${
-              autoFollow 
-                ? 'bg-blue-600 text-white border-blue-500' 
-                : 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-500 animate-pulse'
-            }`}
-            title="Recentralizar na minha localização"
-          >
+          <button onClick={handleRecenter} className="p-3 bg-blue-600 text-white rounded-2xl shadow-xl">
             <RotateCcw className="h-5 w-5" />
           </button>
         </div>
-
-        {loadingRoute && (
-          <div className="absolute inset-0 z-30 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center">
-            <div className="bg-slate-900 border border-slate-700 p-4 rounded-2xl flex items-center space-x-3 text-blue-400 font-bold text-xs shadow-2xl">
-              <Navigation className="h-5 w-5 animate-spin text-emerald-400" />
-              <span>Calculando melhor rota sem contramão...</span>
-            </div>
-          </div>
-        )}
       </div>
 
-      {/* CARD INFERIOR (ETA, DISTÂNCIA E INICIAR) */}
+      {/* CARD INFERIOR (ESTATÍSTICAS DA ROTA) */}
       <div className="bg-slate-900 border-t border-slate-800 p-3 z-20 space-y-3 flex-shrink-0">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3 min-w-0">
@@ -1463,52 +951,25 @@ export default function RiderNavigationMap({
                 </span>
               </div>
               <p className="text-[11px] text-slate-400 truncate">
-                Chegada estimada: <strong className="text-white font-bold">{routeInfo?.etaTimeString || '--:--'}</strong>
+                ETA: <strong className="text-white font-bold">{routeInfo?.etaTimeString || '--:--'}</strong>
               </p>
             </div>
           </div>
 
           <button
-            onClick={toggleNavigationMode}
+            onClick={() => {
+              const nextState = !isNavigating;
+              setIsNavigating(nextState);
+              gpsTracker.setNavigating(nextState);
+            }}
             className={`px-5 py-3 rounded-2xl font-black text-xs sm:text-sm flex items-center gap-2 shadow-lg transition-all ${
-              isNavigating 
-                ? 'bg-red-600 hover:bg-red-700 text-white animate-pulse' 
-                : 'bg-[#1a73e8] hover:bg-blue-700 text-white'
+              isNavigating ? 'bg-red-600 text-white animate-pulse' : 'bg-[#1a73e8] text-white'
             }`}
           >
             {isNavigating ? <Square className="h-4 w-4 fill-current" /> : <Play className="h-4 w-4 fill-current" />}
-            <span>{isNavigating ? 'Encerrar' : 'INICIAR'}</span>
+            <span>{isNavigating ? 'Encerrar' : 'INICIAR NAVEGAÇÃO'}</span>
           </button>
         </div>
-
-        {activeDestination && (
-          <div className="flex items-center justify-between bg-slate-800/80 p-2.5 rounded-xl border border-slate-700/60">
-            <div className="flex items-center space-x-2.5 min-w-0">
-              <div className="p-1.5 bg-red-500/20 text-red-400 rounded-lg flex-shrink-0">
-                <MapPin className="h-4 w-4" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-xs font-extrabold text-white truncate">{activeDestination.name}</p>
-                <p className="text-[10px] text-slate-400 truncate">{activeDestination.addressText}</p>
-              </div>
-            </div>
-            <button
-              onClick={() => {
-                setActiveDestination(null);
-                setSteps([]);
-                setRouteInfo(null);
-                lastFetchedRouteKeyRef.current = '';
-                if (routePolylineRef.current) {
-                  routePolylineRef.current.remove();
-                  routePolylineRef.current = null;
-                }
-              }}
-              className="text-[10px] text-slate-400 hover:text-red-400 font-bold px-2 py-1 rounded-lg hover:bg-slate-700/80 transition-colors flex-shrink-0"
-            >
-              Remover
-            </button>
-          </div>
-        )}
       </div>
     </div>
   );
