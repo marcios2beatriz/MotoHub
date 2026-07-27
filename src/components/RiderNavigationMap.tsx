@@ -25,8 +25,6 @@ import {
   Check,
   Building2,
   Store,
-  Mic,
-  MicOff,
   ShieldCheck,
   CornerUpLeft,
   CornerUpRight,
@@ -104,7 +102,7 @@ export default function RiderNavigationMap({
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const tileLayerRef = useRef<L.TileLayer | null>(null);
-  trafficLayerRef = useRef<L.TileLayer | null>(null);
+  const trafficLayerRef = useRef<L.TileLayer | null>(null);
 
   const riderMarkerRef = useRef<L.Marker | null>(null);
   const destMarkerRef = useRef<L.Marker | null>(null);
@@ -134,12 +132,10 @@ export default function RiderNavigationMap({
   const [notFoundAlert, setNotFoundAlert] = useState<string | null>(null);
 
   const [waypoints, setWaypoints] = useState<Waypoint[]>([]);
-  const [showWaypointsPanel, setShowWaypointsPanel] = useState(false);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<CustomSearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
-  const [isListeningVoice, setIsListeningVoice] = useState(false);
 
   const [selectedStreetResult, setSelectedStreetResult] = useState<CustomSearchResult | null>(null);
   const [houseNumberInput, setHouseNumberInput] = useState('');
@@ -153,7 +149,6 @@ export default function RiderNavigationMap({
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [mapType, setMapType] = useState<MapProviderType>('google_roadmap');
   const [showTraffic, setShowTraffic] = useState(true);
-  const [showLayerMenu, setShowLayerMenu] = useState(false);
 
   const [isNavigating, setIsNavigating] = useState(false);
   const [isOffRouteDetected, setIsOffRouteDetected] = useState(false);
@@ -431,6 +426,112 @@ export default function RiderNavigationMap({
     }
   }, [activePos?.lat, activePos?.lng, activePos?.heading, autoFollow, isNavigating, routeCoordinates, isPinAdjustmentMode, pendingConfirmation]);
 
+  // Cálculo de Rota
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !activePos || !destCoords) return;
+
+    const coordsList: { lat: number; lng: number }[] = [activePos, destCoords];
+    const routeKey = coordsList.map(c => `${c.lat.toFixed(4)},${c.lng.toFixed(4)}`).join(';');
+    
+    if (lastFetchedRouteKeyRef.current === routeKey && !isOffRouteDetected && routeCoordinates.length > 0) {
+      return;
+    }
+
+    const destIcon = L.divIcon({
+      html: `
+        <div style="
+          background: #ea4335;
+          color: white;
+          width: 44px;
+          height: 44px;
+          border-radius: 50%;
+          border: 3.5px solid white;
+          box-shadow: 0 4px 15px rgba(234,67,53,0.8);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        ">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"></path>
+            <circle cx="12" cy="10" r="3"></circle>
+          </svg>
+        </div>
+      `,
+      className: 'custom-dest-google-nav-icon',
+      iconSize: [44, 44],
+      iconAnchor: [22, 22]
+    });
+
+    if (destMarkerRef.current) {
+      destMarkerRef.current.setLatLng([destCoords.lat, destCoords.lng]);
+    } else {
+      destMarkerRef.current = L.marker([destCoords.lat, destCoords.lng], { 
+        icon: destIcon,
+        zIndexOffset: 2000
+      }).addTo(map);
+    }
+
+    const fetchRoute = async () => {
+      setLoadingRoute(true);
+      try {
+        const waypointsString = `${activePos.lng},${activePos.lat};${destCoords.lng},${destCoords.lat}`;
+        const url = `https://router.project-osrm.org/route/v1/driving/${waypointsString}?overview=full&geometries=geojson&steps=true&continue_straight=true`;
+        
+        const response = await fetch(url);
+        const data = await response.json();
+
+        if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
+          const route = data.routes[0];
+          const coords = route.geometry.coordinates.map((c: [number, number]) => [c[1], c[0]] as [number, number]);
+
+          setRouteCoordinates(coords);
+          lastFetchedRouteKeyRef.current = routeKey;
+
+          if (routePolylineRef.current) {
+            routePolylineRef.current.setLatLngs(coords);
+          } else {
+            routePolylineRef.current = L.polyline(coords, {
+              color: '#1a73e8',
+              weight: 8,
+              opacity: 0.95,
+              lineCap: 'round',
+              lineJoin: 'round'
+            }).addTo(map);
+          }
+
+          const durationMinutes = Math.ceil(route.duration / 60);
+          const etaDate = new Date(Date.now() + durationMinutes * 60000);
+          const etaTimeString = etaDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+          setRouteInfo({
+            distanceKm: (route.distance / 1000).toFixed(1),
+            durationMin: durationMinutes,
+            etaTimeString
+          });
+
+          setIsOffRouteDetected(false);
+        }
+      } catch (err) {
+        console.warn('Erro ao calcular rota:', err);
+      } finally {
+        setLoadingRoute(false);
+      }
+    };
+
+    fetchRoute();
+  }, [destCoords?.lat, destCoords?.lng, isOffRouteDetected]);
+
+  const handleRecenter = () => {
+    if (mapRef.current && activePos) {
+      mapRef.current.invalidateSize();
+      mapRef.current.panTo([activePos.lat, activePos.lng], { animate: true });
+      setAutoFollow(true);
+    } else {
+      gpsTracker.requestManualPermission();
+    }
+  };
+
   // EXECUÇÃO DO ENTER OU BOTÃO 🔍 SEM SELEÇÃO OBRIGATÓRIA DE AUTOCOMPLETE
   const handleExecuteDirectSearch = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -443,13 +544,11 @@ export default function RiderNavigationMap({
     setIsSearching(true);
     setNotFoundAlert(null);
 
-    // Etapas 2 e 3: Tentar Geocoding API + Text Search
     const geocodeResult = await searchFreeTextAddress(originalQuery);
 
     setIsSearching(false);
 
     if (geocodeResult) {
-      // Etapa 4: Se encontrar uma localização -> Mostrar confirmação prévia no mapa
       setPendingConfirmation({
         name: originalQuery,
         addressText: geocodeResult.formattedAddress || originalQuery,
@@ -458,7 +557,6 @@ export default function RiderNavigationMap({
         isApproximate: geocodeResult.isApproximate
       });
     } else {
-      // Etapa 5: Se não encontrar -> Notificar e abrir modo de seleção manual
       setNotFoundAlert("Não encontramos esse endereço automaticamente. Você pode marcar a localização manualmente no mapa.");
       handleEnablePinAdjustment();
     }
@@ -491,7 +589,6 @@ export default function RiderNavigationMap({
         lng: result.lng
       };
       setWaypoints(prev => [...prev, newWp]);
-      setShowWaypointsPanel(true);
       setSearchResults([]);
       setSearchQuery('');
     } else {
@@ -504,51 +601,6 @@ export default function RiderNavigationMap({
       });
       setSearchResults([]);
     }
-  };
-
-  const handleConfirmAddressWithNumber = async (numberOverride?: string, isAddAsWaypoint = false) => {
-    if (!selectedStreetResult) return;
-
-    const num = numberOverride !== undefined ? numberOverride : houseNumberInput.trim();
-    const streetTitle = selectedStreetResult.title;
-
-    const title = num ? `${streetTitle}, Nº ${num}` : streetTitle;
-    const fullAddress = num ? `${streetTitle}, ${num} - ${selectedStreetResult.subtitle}` : selectedStreetResult.fullAddress;
-
-    let finalLat = selectedStreetResult.lat;
-    let finalLng = selectedStreetResult.lng;
-
-    if (num) {
-      setLoadingRoute(true);
-      const res = await searchFreeTextAddress(`${streetTitle}, ${num}, Campina Grande - PB`);
-      if (res) {
-        finalLat = res.lat;
-        finalLng = res.lng;
-      }
-      setLoadingRoute(false);
-    }
-
-    if (isAddAsWaypoint) {
-      const newWp: Waypoint = {
-        id: 'wp_' + Date.now(),
-        name: title,
-        addressText: fullAddress,
-        lat: finalLat,
-        lng: finalLng
-      };
-      setWaypoints(prev => [...prev, newWp]);
-      setShowWaypointsPanel(true);
-    } else {
-      setPendingConfirmation({
-        name: title,
-        addressText: fullAddress,
-        lat: finalLat,
-        lng: finalLng
-      });
-    }
-
-    setSelectedStreetResult(null);
-    setSearchQuery('');
   };
 
   const handleEnablePinAdjustment = () => {
@@ -594,11 +646,8 @@ export default function RiderNavigationMap({
             : `${rawText}, Campina Grande - PB`;
           const esriUrl = `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?singleLine=${encodeURIComponent(esriQuery)}&f=json&maxLocations=5&location=${lng},${lat}`;
 
-          const photonUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(rawText)}&lat=${lat}&lon=${lng}&limit=5`;
-
-          const [esriRes, photonRes] = await Promise.all([
-            fetch(esriUrl).then(r => r.json()).catch(() => null),
-            fetch(photonUrl).then(r => r.json()).catch(() => null)
+          const [esriRes] = await Promise.all([
+            fetch(esriUrl).then(r => r.json()).catch(() => null)
           ]);
 
           const combined: CustomSearchResult[] = [];
