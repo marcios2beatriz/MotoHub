@@ -36,7 +36,7 @@ export function calculateDistanceMeters(lat1: number, lon1: number, lat2: number
   return R * c;
 }
 
-// Cálculo da direção/bearing em graus (0-360)
+// Cálculo da direção/bearing em graus (0-360) onde 0° = Norte, 90° = Leste, 180° = Sul, 270° = Oeste
 export function calculateBearingDegrees(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const φ1 = lat1 * (Math.PI / 180);
   const φ2 = lat2 * (Math.PI / 180);
@@ -138,7 +138,8 @@ class HighPrecisionGpsTracker {
       }
       if (compass !== null && !isNaN(compass)) {
         this.deviceCompassHeading = Math.round(compass);
-        if (this.currentState.currentLocation) {
+        // Atualiza apenas se parado
+        if (this.currentState.currentLocation && this.currentState.currentLocation.speedKmh < 2) {
           this.currentState.currentLocation.heading = this.deviceCompassHeading;
           this.notify();
         }
@@ -203,16 +204,29 @@ class HighPrecisionGpsTracker {
     const accuracy = pos.coords.accuracy || 10;
     const now = Date.now();
 
-    let speedKmh = pos.coords.speed !== null && pos.coords.speed >= 0 ? Math.round(pos.coords.speed * 3.6) : 0;
-    let heading = pos.coords.heading !== null && !isNaN(pos.coords.heading) && pos.coords.heading >= 0 ? Math.round(pos.coords.heading) : 0;
+    const speedKmh = pos.coords.speed !== null && pos.coords.speed >= 0 ? Math.round(pos.coords.speed * 3.6) : 0;
+    
+    let heading = 0;
+    let distanceMoved = 0;
 
-    if (this.deviceCompassHeading !== null) {
-      heading = this.deviceCompassHeading;
-    } else if (this.lastLocation) {
-      const distanceM = calculateDistanceMeters(this.lastLocation.lat, this.lastLocation.lng, lat, lng);
-      if (distanceM > 1.2) {
+    if (this.lastLocation) {
+      distanceMoved = calculateDistanceMeters(this.lastLocation.lat, this.lastLocation.lng, lat, lng);
+    }
+
+    // Se estiver em movimento (> 2 km/h ou deslocou mais de 2 metros): prioriza SEMPRE a trajetória do movimento GPS
+    if (speedKmh >= 2 || distanceMoved > 2) {
+      if (pos.coords.heading !== null && !isNaN(pos.coords.heading) && pos.coords.heading >= 0) {
+        heading = Math.round(pos.coords.heading);
+      } else if (this.lastLocation && distanceMoved > 1) {
         heading = Math.round(calculateBearingDegrees(this.lastLocation.lat, this.lastLocation.lng, lat, lng));
-      } else if (this.lastLocation.heading) {
+      } else if (this.lastLocation?.heading) {
+        heading = this.lastLocation.heading;
+      }
+    } else {
+      // Parado: utiliza a bússola magnética/giroscópio do dispositivo (ou preserva a última direção conhecida)
+      if (this.deviceCompassHeading !== null) {
+        heading = this.deviceCompassHeading;
+      } else if (this.lastLocation?.heading) {
         heading = this.lastLocation.heading;
       }
     }
