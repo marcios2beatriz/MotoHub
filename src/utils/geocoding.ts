@@ -26,15 +26,14 @@ const getGoogleApiKey = (): string | null => {
   return import.meta.env.VITE_GOOGLE_MAPS_API_KEY || null;
 };
 
-// Auxiliar para extrair número da residência digitado pelo usuário no originalQuery
+// Extrai o número residencial do originalQuery
 export function extractRequestedNumber(query: string): string | null {
   if (!query) return null;
-  // Procura por padrão ", 123" ou "nº 123" ou " 123 " ou " 123,"
   const match = query.match(/(?:n[ºº°]\s*|,\s*|\s+)(\d{1,5})(?:\s*[,-]|\s+|$)/i);
   return match && match[1] ? match[1].trim() : null;
 }
 
-// Extrai componentes do endereço da resposta do Google
+// Extrai componentes estruturados da resposta do Google
 export function parseAddressComponents(components: any[] = []) {
   const result = {
     streetNumber: '',
@@ -67,7 +66,7 @@ export function parseAddressComponents(components: any[] = []) {
   return result;
 }
 
-// Rankeia os candidatos retornados pelo Google Geocoding para não escolher blindly results[0]
+// Sistema de Pontuação e Ranking dos Candidatos do Google Geocoding
 function rankAndSelectBestCandidate(results: any[], originalQuery: string): {
   selected: any;
   exactNumberMatched: boolean;
@@ -92,7 +91,7 @@ function rankAndSelectBestCandidate(results: any[], originalQuery: string): {
     const components = parseAddressComponents(item.address_components || []);
     let numberMatched = false;
 
-    // 1. Pontuação de precisão de localização do Google
+    // 1. Pontuação do Tipo de Localização
     if (locType === 'ROOFTOP') {
       score += 100;
     } else if (locType === 'RANGE_INTERPOLATED') {
@@ -100,22 +99,22 @@ function rankAndSelectBestCandidate(results: any[], originalQuery: string): {
     } else if (locType === 'GEOMETRIC_CENTER') {
       score += 40;
     } else {
-      score += 10; // APPROXIMATE
+      score += 10;
     }
 
-    // 2. Pontuação de correspondência do número residencial
+    // 2. Pontuação do Número Residencial
     if (requestedNum) {
       if (components.streetNumber && components.streetNumber.trim() === requestedNum.trim()) {
-        score += 150; // Correspondência exata do número
+        score += 150;
         numberMatched = true;
       } else if (components.streetNumber) {
-        score -= 40; // Número diferente retornado
+        score -= 40;
       } else {
-        score -= 20; // Sem número no componente
+        score -= 20;
       }
     }
 
-    // 3. Correspondência de logradouro
+    // 3. Correspondência de Logradouro
     if (components.route && originalQuery.toLowerCase().includes(components.route.toLowerCase().replace('rua', '').replace('avenida', '').trim())) {
       score += 30;
     }
@@ -138,11 +137,11 @@ function rankAndSelectBestCandidate(results: any[], originalQuery: string): {
 
       if (requestedNum && !numberMatched) {
         if (locType === 'GEOMETRIC_CENTER') {
-          bestUnconfirmedReason = `O Google localizou a rua, mas exibiu o centro da via (número ${requestedNum} não confirmado no mapa do Google).`;
+          bestUnconfirmedReason = `O Google localizou a rua, mas exibiu o centro da via (número ${requestedNum} não confirmado individualmente no mapa).`;
         } else if (components.streetNumber) {
           bestUnconfirmedReason = `O Google retornou o número ${components.streetNumber} em vez do número ${requestedNum} solicitado.`;
         } else {
-          bestUnconfirmedReason = `Número ${requestedNum} não encontrado nos registros exatos do Google Maps.`;
+          bestUnconfirmedReason = `Número ${requestedNum} não cadastrado na base oficial do Google Maps.`;
         }
       } else {
         bestUnconfirmedReason = undefined;
@@ -160,7 +159,7 @@ function rankAndSelectBestCandidate(results: any[], originalQuery: string): {
   };
 }
 
-// Log Diagnóstico Forense Detalhado no Console
+// Imprime Diagnóstico Forense Detalhado
 function printForensicDiagnostic(data: {
   originalQuery: string;
   apiSource: string;
@@ -247,12 +246,20 @@ export async function searchFreeTextAddress(originalQuery: string): Promise<Geoc
 
   const apiKey = getGoogleApiKey();
 
+  // Garante inclusão de contexto regional de Campina Grande / PB na consulta
+  const formattedQuery = query.toLowerCase().includes('campina grande') || query.toLowerCase().includes('pb')
+    ? query
+    : `${query}, Campina Grande - PB, Brasil`;
+
   // ETAPA 1: Google Maps JS SDK Geocoder (se injetado no browser)
   if (typeof window !== 'undefined' && (window as any).google?.maps?.Geocoder) {
     try {
       const geocoder = new (window as any).google.maps.Geocoder();
       const response = await new Promise<any>((resolve) => {
-        geocoder.geocode({ address: query }, (results: any[], status: string) => {
+        geocoder.geocode({ 
+          address: formattedQuery,
+          componentRestrictions: { country: 'BR' }
+        }, (results: any[], status: string) => {
           if (status === 'OK' && results && results.length > 0) {
             resolve({ results, status });
           } else {
@@ -262,7 +269,7 @@ export async function searchFreeTextAddress(originalQuery: string): Promise<Geoc
       });
 
       if (response.results && response.results.length > 0) {
-        const ranking = rankAndSelectBestCandidate(response.results, query);
+        const ranking = rankAndSelectBestCandidate(response.results, formattedQuery);
         const top = ranking.selected;
         const lat = top.geometry.location.lat();
         const lng = top.geometry.location.lng();
@@ -273,7 +280,7 @@ export async function searchFreeTextAddress(originalQuery: string): Promise<Geoc
         const finalResult: GeocodedAddress = {
           lat,
           lng,
-          formattedAddress: top.formatted_address || query,
+          formattedAddress: top.formatted_address || formattedQuery,
           placeId: top.place_id,
           isApproximate: isApprox,
           locationType: locType,
@@ -286,7 +293,7 @@ export async function searchFreeTextAddress(originalQuery: string): Promise<Geoc
         };
 
         printForensicDiagnostic({
-          originalQuery: query,
+          originalQuery: formattedQuery,
           apiSource: 'Google Maps JS Geocoder SDK',
           status: response.status,
           resultsCount: response.results.length,
@@ -314,12 +321,12 @@ export async function searchFreeTextAddress(originalQuery: string): Promise<Geoc
   // ETAPA 2: Google Geocoding REST API (usando VITE_GOOGLE_MAPS_API_KEY)
   if (apiKey) {
     try {
-      const googleGeocodeUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(query)}&key=${apiKey}&language=pt-BR`;
+      const googleGeocodeUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(formattedQuery)}&key=${apiKey}&language=pt-BR&components=country:BR`;
       const gRes = await fetch(googleGeocodeUrl);
       const gData = await gRes.json();
 
       if (gData.status === 'OK' && gData.results && gData.results.length > 0) {
-        const ranking = rankAndSelectBestCandidate(gData.results, query);
+        const ranking = rankAndSelectBestCandidate(gData.results, formattedQuery);
         const top = ranking.selected;
         const lat = top.geometry.location.lat;
         const lng = top.geometry.location.lng;
@@ -330,7 +337,7 @@ export async function searchFreeTextAddress(originalQuery: string): Promise<Geoc
         const finalResult: GeocodedAddress = {
           lat,
           lng,
-          formattedAddress: top.formatted_address || query,
+          formattedAddress: top.formatted_address || formattedQuery,
           placeId: top.place_id,
           isApproximate: isApprox,
           locationType: locType,
@@ -343,7 +350,7 @@ export async function searchFreeTextAddress(originalQuery: string): Promise<Geoc
         };
 
         printForensicDiagnostic({
-          originalQuery: query,
+          originalQuery: formattedQuery,
           apiSource: 'Google Geocoding REST API',
           status: gData.status,
           resultsCount: gData.results.length,
@@ -369,12 +376,12 @@ export async function searchFreeTextAddress(originalQuery: string): Promise<Geoc
 
     // ETAPA 3: Google Places Text Search REST API
     try {
-      const googlePlacesUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(query)}&key=${apiKey}&language=pt-BR`;
+      const googlePlacesUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(formattedQuery)}&key=${apiKey}&language=pt-BR&location=-7.2247,-35.8878&radius=20000`;
       const pRes = await fetch(googlePlacesUrl);
       const pData = await pRes.json();
 
       if (pData.status === 'OK' && pData.results && pData.results.length > 0) {
-        const ranking = rankAndSelectBestCandidate(pData.results, query);
+        const ranking = rankAndSelectBestCandidate(pData.results, formattedQuery);
         const top = ranking.selected;
         const lat = top.geometry.location.lat;
         const lng = top.geometry.location.lng;
@@ -382,7 +389,7 @@ export async function searchFreeTextAddress(originalQuery: string): Promise<Geoc
         const finalResult: GeocodedAddress = {
           lat,
           lng,
-          formattedAddress: top.formatted_address || top.name || query,
+          formattedAddress: top.formatted_address || top.name || formattedQuery,
           placeId: top.place_id,
           isApproximate: false,
           locationType: 'ROOFTOP',
@@ -393,7 +400,7 @@ export async function searchFreeTextAddress(originalQuery: string): Promise<Geoc
         };
 
         printForensicDiagnostic({
-          originalQuery: query,
+          originalQuery: formattedQuery,
           apiSource: 'Google Places Text Search REST API',
           status: pData.status,
           resultsCount: pData.results.length,
@@ -419,11 +426,7 @@ export async function searchFreeTextAddress(originalQuery: string): Promise<Geoc
 
   // ETAPA 4: Backup de Apoio (Esri World Geocoding)
   try {
-    const fullQuery = query.toLowerCase().includes('campina grande') || query.toLowerCase().includes('pb')
-      ? query
-      : `${query}, Campina Grande - PB, Brasil`;
-
-    const esriUrl = `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?singleLine=${encodeURIComponent(fullQuery)}&f=json&maxLocations=3`;
+    const esriUrl = `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?singleLine=${encodeURIComponent(formattedQuery)}&f=json&maxLocations=3&location=-35.8878,-7.2247`;
     const esriRes = await fetch(esriUrl);
     const esriData = await esriRes.json();
 
@@ -431,12 +434,12 @@ export async function searchFreeTextAddress(originalQuery: string): Promise<Geoc
       const top = esriData.candidates[0];
       const loc = top.location;
       const score = top.score || 100;
-      const reqNum = extractRequestedNumber(query);
+      const reqNum = extractRequestedNumber(formattedQuery);
 
       const finalResult: GeocodedAddress = {
         lat: loc.y,
         lng: loc.x,
-        formattedAddress: top.address || fullQuery,
+        formattedAddress: top.address || formattedQuery,
         isApproximate: score < 80,
         locationType: score >= 90 ? 'ROOFTOP' : 'GEOMETRIC_CENTER',
         requestedNumber: reqNum,
@@ -445,7 +448,7 @@ export async function searchFreeTextAddress(originalQuery: string): Promise<Geoc
       };
 
       printForensicDiagnostic({
-        originalQuery: query,
+        originalQuery: formattedQuery,
         apiSource: 'Esri World Geocoding (Backup)',
         status: 'OK',
         resultsCount: esriData.candidates.length,
@@ -464,7 +467,7 @@ export async function searchFreeTextAddress(originalQuery: string): Promise<Geoc
   } catch (e) {}
 
   printForensicDiagnostic({
-    originalQuery: query,
+    originalQuery: formattedQuery,
     apiSource: 'Nenhuma API respondeu',
     status: 'ZERO_RESULTS',
     resultsCount: 0
