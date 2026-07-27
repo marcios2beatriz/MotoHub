@@ -88,6 +88,7 @@ export default function RiderNavigationMap({
 
   const [pendingConfirmation, setPendingConfirmation] = useState<PendingConfirmation | null>(null);
   const [notFoundAlert, setNotFoundAlert] = useState<string | null>(null);
+  const [routeErrorAlert, setRouteErrorAlert] = useState<string | null>(null);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<Array<{
@@ -353,7 +354,7 @@ export default function RiderNavigationMap({
     }
   }, [activePos?.lat, activePos?.lng, activePos?.heading, autoFollow, isNavigating, routeCoordinates, isPinAdjustmentMode, pendingConfirmation]);
 
-  // CÁLCULO DE ROTA OFICIAL VIA GOOGLE ROUTES API V2
+  // CÁLCULO DE ROTA OFICIAL EXCLUSIVAMENTE VIA GOOGLE MAPS PLATFORM (ROUTES V2 OU DIRECTIONS V1)
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !activePos || !destCoords) return;
@@ -401,6 +402,7 @@ export default function RiderNavigationMap({
 
     const fetchGoogleRoute = async () => {
       setLoadingRoute(true);
+      setRouteErrorAlert(null);
       try {
         const result = await computeRoute({
           origin: {
@@ -432,8 +434,9 @@ export default function RiderNavigationMap({
         }
 
         setIsOffRouteDetected(false);
-      } catch (err) {
-        console.warn('Erro ao calcular rota via Google Routes API:', err);
+      } catch (err: any) {
+        console.warn('Erro na rota via Google Maps API:', err);
+        setRouteErrorAlert(err?.message || 'Insira uma chave VITE_GOOGLE_MAPS_API_KEY válida para habilitar rotas oficiais do Google.');
       } finally {
         setLoadingRoute(false);
       }
@@ -483,8 +486,8 @@ export default function RiderNavigationMap({
     } else {
       const parsed = parseAddressQuery(originalQuery);
       const errorMsg = parsed.street
-        ? `Não encontramos a rua '${parsed.street}' cadastrada no Google Maps. Posicione o pino no mapa.`
-        : "Endereço não encontrado na base do Google Maps. Posicione o pino no mapa.";
+        ? `Não encontramos a via '${parsed.street}' na base oficial do Google. Posicione o pino no mapa.`
+        : "Endereço não localizado na base do Google Maps. Posicione o pino no mapa.";
 
       setNotFoundAlert(errorMsg);
       handleEnablePinAdjustment();
@@ -716,6 +719,19 @@ export default function RiderNavigationMap({
         </div>
       </div>
 
+      {/* BANNER ALERTA DE ERRO DE CHAVE GOOGLE / ROTAS */}
+      {routeErrorAlert && (
+        <div className="bg-red-600 text-white px-4 py-2.5 z-40 flex items-center justify-between text-xs font-bold shadow-md">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="h-5 w-5 flex-shrink-0" />
+            <span>⚠️ {routeErrorAlert}</span>
+          </div>
+          <button onClick={() => setRouteErrorAlert(null)} className="p-1 hover:bg-black/10 rounded">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
       {/* BANNER ALERTA DE ENDEREÇO NÃO ENCONTRADO AUTOMATICAMENTE */}
       {notFoundAlert && (
         <div className="bg-amber-500 text-slate-950 px-4 py-2.5 z-40 flex items-center justify-between text-xs font-bold shadow-md">
@@ -910,7 +926,7 @@ export default function RiderNavigationMap({
                 </span>
               </div>
               <p className="text-[11px] text-slate-400 truncate">
-                ETA: <strong className="text-white font-bold">{routeDetails?.etaTimeString || '--:--'}</strong> • <span className="text-emerald-400 font-semibold">{routeDetails?.travelModeUsed || 'TWO_WHEELER'}</span>
+                ETA: <strong className="text-white font-bold">{routeDetails?.etaTimeString || '--:--'}</strong> • <span className="text-emerald-400 font-semibold">{routeDetails?.travelModeUsed || 'GOOGLE_MAPS'}</span>
               </p>
             </div>
           </div>
