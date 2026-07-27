@@ -47,6 +47,10 @@ interface PendingConfirmation {
   lat: number;
   lng: number;
   isApproximate?: boolean;
+  locationType?: string;
+  exactNumberMatched?: boolean;
+  requestedNumber?: string | null;
+  unconfirmedReason?: string;
   placeId?: string;
 }
 
@@ -472,23 +476,24 @@ export default function RiderNavigationMap({
     setIsSearching(true);
     setNotFoundAlert(null);
 
-    // Etapas 2 e 3: Tentar Geocoding API + Text Search mantendo originalQuery
     const geocodeResult = await searchFreeTextAddress(originalQuery);
 
     setIsSearching(false);
 
     if (geocodeResult) {
-      // Mostrar confirmação prévia no mapa sem iniciar a navegação automaticamente
       setPendingConfirmation({
         name: originalQuery,
         addressText: geocodeResult.formattedAddress || originalQuery,
         lat: geocodeResult.lat,
         lng: geocodeResult.lng,
         isApproximate: geocodeResult.isApproximate,
+        locationType: geocodeResult.locationType,
+        exactNumberMatched: geocodeResult.exactNumberMatched,
+        requestedNumber: geocodeResult.requestedNumber,
+        unconfirmedReason: geocodeResult.unconfirmedReason,
         placeId: geocodeResult.placeId
       });
     } else {
-      // Se não encontrar, abre automaticamente o modo de seleção manual
       setNotFoundAlert("Não encontramos este endereço automaticamente. Posicione o pino manualmente no mapa.");
       handleEnablePinAdjustment();
     }
@@ -529,6 +534,7 @@ export default function RiderNavigationMap({
         lat: result.lat,
         lng: result.lng,
         isApproximate: false,
+        exactNumberMatched: true,
         placeId: result.placeId
       });
     } else {
@@ -543,6 +549,10 @@ export default function RiderNavigationMap({
           lat: geocodeRes.lat,
           lng: geocodeRes.lng,
           isApproximate: geocodeRes.isApproximate,
+          locationType: geocodeRes.locationType,
+          exactNumberMatched: geocodeRes.exactNumberMatched,
+          requestedNumber: geocodeRes.requestedNumber,
+          unconfirmedReason: geocodeRes.unconfirmedReason,
           placeId: geocodeRes.placeId || result.placeId
         });
       } else {
@@ -567,7 +577,9 @@ export default function RiderNavigationMap({
         name: 'Local Confirmado Manualmente',
         addressText: `Coordenadas: ${tempAdjustedCoords.lat.toFixed(5)}, ${tempAdjustedCoords.lng.toFixed(5)}`,
         lat: tempAdjustedCoords.lat,
-        lng: tempAdjustedCoords.lng
+        lng: tempAdjustedCoords.lng,
+        exactNumberMatched: true,
+        locationType: 'ROOFTOP'
       });
     }
     setIsPinAdjustmentMode(false);
@@ -853,12 +865,21 @@ export default function RiderNavigationMap({
                 </div>
                 <div>
                   <h4 className="text-xs font-black text-amber-400 uppercase tracking-wider">
-                    {pendingConfirmation.isApproximate ? "Localização aproximada encontrada" : "É este o endereço?"}
+                    {pendingConfirmation.exactNumberMatched 
+                      ? "Ponto do Imóvel Confirmado (Google ROOFTOP)"
+                      : "Localização de Via Encontrada"}
                   </h4>
                   <p className="text-sm font-bold text-white mt-0.5">{pendingConfirmation.name}</p>
                   <p className="text-[10px] text-slate-400 truncate max-w-[260px]">{pendingConfirmation.addressText}</p>
-                  <p className="text-[9px] text-slate-500 font-mono mt-0.5">
-                    Coordenadas: {pendingConfirmation.lat.toFixed(5)}, {pendingConfirmation.lng.toFixed(5)}
+                  
+                  {pendingConfirmation.unconfirmedReason && (
+                    <div className="bg-amber-950/80 border border-amber-500/40 rounded-lg p-2 mt-1 text-[10px] text-amber-200">
+                      ⚠️ <strong>Aviso do Google:</strong> {pendingConfirmation.unconfirmedReason}
+                    </div>
+                  )}
+
+                  <p className="text-[9px] text-slate-500 font-mono mt-1">
+                    Coordenadas: {pendingConfirmation.lat.toFixed(5)}, {pendingConfirmation.lng.toFixed(5)} | Precisão: {pendingConfirmation.locationType || 'N/A'}
                   </p>
                 </div>
               </div>
