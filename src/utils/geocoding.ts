@@ -3,6 +3,8 @@
 export interface GeocodedAddress {
   lat: number;
   lng: number;
+  formattedAddress?: string;
+  placeId?: string;
 }
 
 export async function geocodeAddress(address: {
@@ -35,37 +37,23 @@ export async function geocodeAddress(address: {
 
   const fullQuery = `${street} ${number}, ${neighborhood}, ${city} - ${state}, Brasil`.replace(/\s+/g, ' ').trim();
 
-  // 1. Busca no Esri ArcGIS World Geocoding (Extremamente preciso para números e condomínios no Brasil)
+  // 1. Busca no Esri ArcGIS World Geocoding (Extremamente preciso para números e condomínios)
   try {
     const esriUrl = `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?singleLine=${encodeURIComponent(fullQuery)}&f=json&maxLocations=1`;
     const esriRes = await fetch(esriUrl);
     const esriData = await esriRes.json();
     if (esriData && esriData.candidates && esriData.candidates.length > 0) {
-      const loc = esriData.candidates[0].location;
-      return { lat: loc.y, lng: loc.x };
+      const candidate = esriData.candidates[0];
+      const loc = candidate.location;
+      return { 
+        lat: loc.y, 
+        lng: loc.x, 
+        formattedAddress: candidate.address || fullQuery 
+      };
     }
   } catch (e) {}
 
-  // 2. Busca Direta via Nominatim OpenStreetMap
-  if (street) {
-    try {
-      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(fullQuery)}&limit=1`);
-      const data = await res.json();
-      if (data && data.length > 0) {
-        return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
-      }
-
-      // Tentar sem o número para garantir que acha a rua no bairro correto
-      const queryStreetNeighborhood = `${street}, ${neighborhood}, ${city} - ${state}, Brasil`.replace(/\s+/g, ' ').trim();
-      const res2 = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(queryStreetNeighborhood)}&limit=1`);
-      const data2 = await res2.json();
-      if (data2 && data2.length > 0) {
-        return { lat: parseFloat(data2[0].lat), lng: parseFloat(data2[0].lon) };
-      }
-    } catch (e) {}
-  }
-
-  // 3. Busca via Photon API (Suporta locais comerciais e condomínios)
+  // 2. Busca via Photon API (Suporta locais comerciais, vias e condomínios)
   if (street) {
     try {
       const photonQuery = `${street} ${number}, ${city}`.replace(/\s+/g, ' ').trim();
@@ -73,7 +61,26 @@ export async function geocodeAddress(address: {
       const data = await res.json();
       if (data && data.features && data.features.length > 0) {
         const coords = data.features[0].geometry.coordinates;
-        return { lat: coords[1], lng: coords[0] };
+        return { 
+          lat: coords[1], 
+          lng: coords[0],
+          formattedAddress: data.features[0].properties.name || fullQuery
+        };
+      }
+    } catch (e) {}
+  }
+
+  // 3. Geocodificação via OpenStreetMap Nominatim
+  if (street) {
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(fullQuery)}&limit=1`);
+      const data = await res.json();
+      if (data && data.length > 0) {
+        return { 
+          lat: parseFloat(data[0].lat), 
+          lng: parseFloat(data[0].lon),
+          formattedAddress: data[0].display_name
+        };
       }
     } catch (e) {}
   }
@@ -90,7 +97,11 @@ export async function geocodeAddress(address: {
           const resNom = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(cepQuery)}&limit=1`);
           const nomData = await resNom.json();
           if (nomData && nomData.length > 0) {
-            return { lat: parseFloat(nomData[0].lat), lng: parseFloat(nomData[0].lon) };
+            return { 
+              lat: parseFloat(nomData[0].lat), 
+              lng: parseFloat(nomData[0].lon),
+              formattedAddress: nomData[0].display_name
+            };
           }
         }
       } catch (e) {}
