@@ -52,6 +52,7 @@ export default function EstablishmentDashboard() {
   const [establishment, setEstablishment] = useState<Establishment | null>(null);
   
   const [scheduledRiders, setScheduledRiders] = useState<User[]>([]);
+  const [allActiveRiders, setAllActiveRiders] = useState<User[]>([]);
   const [todaySchedules, setTodaySchedules] = useState<Schedule[]>([]);
   const [todayDeliveries, setTodayDeliveries] = useState<Delivery[]>([]);
   const [riderLocations, setRiderLocations] = useState<RiderLocation[]>([]);
@@ -190,19 +191,15 @@ export default function EstablishmentDashboard() {
     const estDeliveriesToday = allDeliveries.filter(d => isDeliveryForCurrentEst(d, currentEstName, matchingEstIds) && d.date === todayStr);
     setTodayDeliveries(estDeliveriesToday);
 
-    let riders = allUsers.filter(u => 
-      u.role === 'rider' && u.active && (
-        estSchedules.some(s => s.riderId === u.id || db.resolveUser(s.riderId)?.email.toLowerCase() === u.email.toLowerCase()) ||
-        estDeliveriesToday.some(d => d.riderId === u.id)
-      )
-    );
+    // Salva todos os motoboys ativos do sistema para seleção ao criar/editar corridas
+    const activeRiders = allUsers.filter(u => u.role === 'rider' && u.active);
+    setAllActiveRiders(activeRiders);
 
-    if (riders.length === 0) {
-      riders = allUsers.filter(u => u.role === 'rider' && u.active && u.establishmentId === currentEst?.id);
-    }
-    if (riders.length === 0) {
-      riders = allUsers.filter(u => u.role === 'rider' && u.active);
-    }
+    // FILTRO ESTRITO: Apenas motoboys que possuem escala hoje nesta loja OU que já possuem corrida hoje nesta loja
+    const riders = activeRiders.filter(u => 
+      estSchedules.some(s => s.riderId === u.id || db.resolveUser(s.riderId)?.email.toLowerCase() === u.email.toLowerCase()) ||
+      estDeliveriesToday.some(d => d.riderId === u.id || db.resolveUser(d.riderId)?.email.toLowerCase() === u.email.toLowerCase())
+    );
 
     setScheduledRiders(riders);
 
@@ -541,12 +538,12 @@ export default function EstablishmentDashboard() {
     .sort((a, b) => a.joinedAt.localeCompare(b.joinedAt));
 
   const handleOpenLaunchModal = (riderIdToPreselect?: string) => {
-    if (scheduledRiders.length === 0) {
+    if (allActiveRiders.length === 0) {
       alert('Não há motoboys ativos cadastrados no sistema.');
       return;
     }
 
-    const defaultRiderId = riderIdToPreselect || (activeQueue.length > 0 ? activeQueue[0].riderId : scheduledRiders[0].id);
+    const defaultRiderId = riderIdToPreselect || (activeQueue.length > 0 ? activeQueue[0].riderId : (scheduledRiders[0]?.id || allActiveRiders[0]?.id));
 
     setEditingDelivery(null);
     setDeliveryForm({ riderId: defaultRiderId, value: '', orderNumber: '', notes: '' });
@@ -721,6 +718,12 @@ export default function EstablishmentDashboard() {
       return b.time.localeCompare(a.time);
     });
 
+  // Lista combinada de motoboys para o formulário (escalados primeiro, depois os demais)
+  const riderSelectOptions = [
+    ...scheduledRiders,
+    ...allActiveRiders.filter(a => !scheduledRiders.some(s => s.id === a.id))
+  ];
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col relative">
       <ChatToastBanner toast={activeToast} onClose={() => setActiveToast(null)} />
@@ -877,8 +880,8 @@ export default function EstablishmentDashboard() {
             </div>
 
             {scheduledRiders.length === 0 ? (
-              <div className="text-center py-8 text-slate-400 text-sm">
-                Nenhum motoboy escalado para o dia de hoje.
+              <div className="text-center py-8 text-slate-400 text-sm bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                Nenhum motoboy escalado pelo administrador para o dia de hoje neste estabelecimento.
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -953,7 +956,7 @@ export default function EstablishmentDashboard() {
                     className="bg-transparent font-semibold text-slate-700 focus:outline-none text-xs"
                   >
                     <option value="all">Todos os Motoboys</option>
-                    {scheduledRiders.map(r => (
+                    {riderSelectOptions.map(r => (
                       <option key={r.id} value={r.id}>{r.name}</option>
                     ))}
                   </select>
@@ -982,7 +985,7 @@ export default function EstablishmentDashboard() {
             ) : (
               <div className="divide-y divide-slate-100">
                 {filteredAndSortedTodayDeliveries.map(del => {
-                  const rider = scheduledRiders.find(r => r.id === del.riderId) || db.resolveUser(del.riderId);
+                  const rider = riderSelectOptions.find(r => r.id === del.riderId) || db.resolveUser(del.riderId);
                   const isPending = del.status === 'pending';
 
                   return (
@@ -1044,7 +1047,7 @@ export default function EstablishmentDashboard() {
                           <span>{copiedId === del.id ? 'Link Copiado!' : 'Link Cliente'}</span>
                         </button>
 
-                        {/* Botão de Editar Corrida (Permitido Antes e Depois de Aprovada/Rejeitada) */}
+                        {/* Botão de Editar Corrida */}
                         <button
                           onClick={() => handleOpenEditDeliveryModal(del)}
                           className="px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 rounded-lg transition-colors flex items-center gap-1 text-xs font-bold border border-amber-200"
@@ -1129,8 +1132,10 @@ export default function EstablishmentDashboard() {
                   onChange={(e) => setDeliveryForm({ ...deliveryForm, riderId: e.target.value })}
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none"
                 >
-                  {scheduledRiders.map(r => (
-                    <option key={r.id} value={r.id}>{r.name}</option>
+                  {riderSelectOptions.map(r => (
+                    <option key={r.id} value={r.id}>
+                      {r.name} {scheduledRiders.some(s => s.id === r.id) ? '(Escalado Hoje)' : '(Motoboy Ativo)'}
+                    </option>
                   ))}
                 </select>
               </div>
