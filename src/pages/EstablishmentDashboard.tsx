@@ -23,7 +23,10 @@ import {
   ListOrdered,
   ArrowRight,
   Filter,
-  ArrowUpDown
+  ArrowUpDown,
+  Edit2,
+  Share2,
+  Copy
 } from 'lucide-react';
 
 import L from 'leaflet';
@@ -56,6 +59,7 @@ export default function EstablishmentDashboard() {
 
   const [estCoords, setEstCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [activeToast, setActiveToast] = useState<ChatToast | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const [isMapExpanded, setIsMapExpanded] = useState(false);
 
@@ -178,7 +182,6 @@ export default function EstablishmentDashboard() {
     const todayStr = db.getLocalDateString();
     const allSchedules = db.getSchedules();
     
-    // Escalas RIGOROSAMENTE de HOJE para esta loja
     const estSchedules = allSchedules.filter(s => isScheduleForCurrentEst(s, currentEstName, matchingEstIds) && s.date === todayStr);
     setTodaySchedules(estSchedules);
 
@@ -187,7 +190,6 @@ export default function EstablishmentDashboard() {
     const estDeliveriesToday = allDeliveries.filter(d => isDeliveryForCurrentEst(d, currentEstName, matchingEstIds) && d.date === todayStr);
     setTodayDeliveries(estDeliveriesToday);
 
-    // CORREÇÃO DO BUG: Filtra motoboys escalados/ativos EXCLUSIVAMENTE NO DIA DE HOJE
     let riders = allUsers.filter(u => 
       u.role === 'rider' && u.active && (
         estSchedules.some(s => s.riderId === u.id || db.resolveUser(s.riderId)?.email.toLowerCase() === u.email.toLowerCase()) ||
@@ -195,7 +197,6 @@ export default function EstablishmentDashboard() {
       )
     );
 
-    // Fallback: se não houver escalas criadas especificamente para hoje, disponibiliza os motoboys vinculados ao estabelecimento
     if (riders.length === 0) {
       riders = allUsers.filter(u => u.role === 'rider' && u.active && u.establishmentId === currentEst?.id);
     }
@@ -225,7 +226,6 @@ export default function EstablishmentDashboard() {
       db.pullFromSupabase().then(() => loadData());
     }, 1500);
 
-    // Escuta transmissões de GPS em tempo real do WebSocket
     const unsubscribeRealtime = realtimeGps.subscribeToLocations((payload) => {
       setRiderLocations((prev) => {
         const existingIdx = prev.findIndex(l => l.riderId === payload.riderId);
@@ -536,7 +536,6 @@ export default function EstablishmentDashboard() {
   const todayStr = db.getLocalDateString();
   const currentEstId = establishment?.id || user?.establishmentId || '';
 
-  // Filtra motoboys aguardando na fila hoje ordenados por horário
   const activeQueue = queueEntries
     .filter(q => q.establishmentId === currentEstId && q.date === todayStr && q.status === 'waiting')
     .sort((a, b) => a.joinedAt.localeCompare(b.joinedAt));
@@ -552,6 +551,25 @@ export default function EstablishmentDashboard() {
     setEditingDelivery(null);
     setDeliveryForm({ riderId: defaultRiderId, value: '', orderNumber: '', notes: '' });
     setShowDeliveryModal(true);
+  };
+
+  const handleOpenEditDeliveryModal = (del: Delivery) => {
+    setEditingDelivery(del);
+    setDeliveryForm({
+      riderId: del.riderId,
+      value: del.value.toString(),
+      orderNumber: del.orderNumber || '',
+      notes: del.notes || ''
+    });
+    setShowDeliveryModal(true);
+  };
+
+  const handleShareTrackingLink = (deliveryId: string) => {
+    const link = `${window.location.origin}/#/track/${deliveryId}`;
+    navigator.clipboard.writeText(link).then(() => {
+      setCopiedId(deliveryId);
+      setTimeout(() => setCopiedId(null), 2500);
+    });
   };
 
   const handleSaveDelivery = (e: React.FormEvent) => {
@@ -595,7 +613,6 @@ export default function EstablishmentDashboard() {
       };
       db.setDeliveries([...allDeliveries, newDelivery]);
 
-      // Marca o motoboy como "em entrega" na fila de rodízio
       db.markRiderDelivering(deliveryForm.riderId, currentEstId);
     }
 
@@ -678,7 +695,6 @@ export default function EstablishmentDashboard() {
     });
   }).length;
 
-  // Filtragem e Classificação das Corridas Lançadas Hoje
   const filteredAndSortedTodayDeliveries = todayDeliveries
     .filter(d => {
       if (deliveryRiderFilter !== 'all' && d.riderId !== deliveryRiderFilter) {
@@ -702,7 +718,6 @@ export default function EstablishmentDashboard() {
       if (deliverySortOrder === 'time_asc') {
         return a.time.localeCompare(b.time);
       }
-      // Padrão: Horário mais recente primeiro (time_desc)
       return b.time.localeCompare(a.time);
     });
 
@@ -920,7 +935,7 @@ export default function EstablishmentDashboard() {
             )}
           </div>
 
-          {/* Histórico e Aprovação de Corridas de Hoje com Filtro e Classificação */}
+          {/* Histórico e Edição de Corridas Lançadas Hoje */}
           <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
               <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
@@ -1014,6 +1029,30 @@ export default function EstablishmentDashboard() {
                             </button>
                           </>
                         )}
+
+                        {/* Botão de Enviar Link de Rastreio ao Cliente */}
+                        <button
+                          onClick={() => handleShareTrackingLink(del.id)}
+                          className={`px-2.5 py-1.5 rounded-lg transition-colors flex items-center gap-1 text-xs font-bold ${
+                            copiedId === del.id 
+                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' 
+                              : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700'
+                          }`}
+                          title="Copiar Link de Rastreamento do Motoboy para Enviar ao Cliente"
+                        >
+                          {copiedId === del.id ? <Check className="h-3.5 w-3.5" /> : <Share2 className="h-3.5 w-3.5" />}
+                          <span>{copiedId === del.id ? 'Link Copiado!' : 'Link Cliente'}</span>
+                        </button>
+
+                        {/* Botão de Editar Corrida (Permitido Antes e Depois de Aprovada/Rejeitada) */}
+                        <button
+                          onClick={() => handleOpenEditDeliveryModal(del)}
+                          className="px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 rounded-lg transition-colors flex items-center gap-1 text-xs font-bold border border-amber-200"
+                          title="Editar os dados desta corrida"
+                        >
+                          <Edit2 className="h-3.5 w-3.5" />
+                          <span>Editar</span>
+                        </button>
 
                         <button
                           onClick={() => setNotesDeliveryId(del.id)}
