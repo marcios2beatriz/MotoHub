@@ -86,7 +86,7 @@ function printRouteAuditLog(data: {
 export async function computeRoute({ origin, destination, travelMode = 'TWO_WHEELER' }: RouteRequestParams): Promise<RouteResult> {
   const apiKey = getGoogleApiKey();
 
-  // ETAPA 1: Google Routes API v2 (computeRoutes)
+  // ETAPA 1: Google Routes API v2 (POST directions:computeRoutes)
   if (apiKey) {
     try {
       const url = 'https://routes.googleapis.com/v1/directions:computeRoutes';
@@ -108,13 +108,12 @@ export async function computeRoute({ origin, destination, travelMode = 'TWO_WHEE
             }
           }
         },
-        travelMode: travelMode, // TWO_WHEELER para motocicletas
+        travelMode: travelMode, // TWO_WHEELER
         routingPreference: 'TRAFFIC_AWARE',
         polylineQuality: 'HIGH_QUALITY',
         polylineEncoding: 'ENCODED_POLYLINE'
       };
 
-      // Inclui heading na origem se disponível e confiável
       if (origin.heading !== undefined && origin.heading >= 0 && origin.heading <= 360) {
         requestBody.origin.heading = Math.round(origin.heading);
       }
@@ -163,64 +162,67 @@ export async function computeRoute({ origin, destination, travelMode = 'TWO_WHEE
           distanceMeters,
           durationSeconds,
           coordinates,
-          travelModeUsed: isFallback ? 'DRIVE_FALLBACK' : travelMode,
+          travelModeUsed: isFallback ? 'DRIVE_FALLBACK' : 'GOOGLE_TWO_WHEELER',
           isFallback,
           fallbackReason,
           etaTimeString
         };
       } else {
-        console.warn('Google Routes API não retornou rotas válidas:', data);
+        console.warn('Google Routes API v2 retornou erro/vazio:', data);
       }
     } catch (err) {
       console.warn('Erro ao chamar Google Routes API v2:', err);
     }
-  }
 
-  // ETAPA 2: Fallback Secundário OSRM (Apenas se a chave do Google estiver ausente ou falhar)
-  try {
-    const waypointsString = `${origin.lng},${origin.lat};${destination.lng},${destination.lat}`;
-    const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${waypointsString}?overview=full&geometries=geojson&steps=true&continue_straight=true`;
+    // ETAPA 2: Google Directions API v1 REST (como fallback interno do próprio Google)
+    try {
+      const modeParam = travelMode === 'TWO_WHEELER' ? 'two_wheeler' : 'driving';
+      const directionsUrl = `https://maps.googleapis.com/maps/api/directions/json?origin=${origin.lat},${origin.lng}&destination=${destination.lat},${destination.lng}&mode=${modeParam}&key=${apiKey}&language=pt-BR`;
+      
+      const response = await fetch(directionsUrl);
+      const data = await response.json();
 
-    const osrmRes = await fetch(osrmUrl);
-    const osrmData = await osrmRes.json();
+      if (data.status === 'OK' && data.routes && data.routes.length > 0) {
+        const route = data.routes[0];
+        const leg = route.legs[0];
+        const encodedPolyline = route.overview_polyline?.points || '';
+        const coordinates = decodePolyline(encodedPolyline);
 
-    if (osrmData.code === 'Ok' && osrmData.routes && osrmData.routes.length > 0) {
-      const route = osrmData.routes[0];
-      const coordinates: [number, number][] = route.geometry.coordinates.map((c: [number, number]) => [c[1], c[0]] as [number, number]);
+        const distanceMeters = leg?.distance?.value || 0;
+        const durationSeconds = leg?.duration?.value || 0;
 
-      const distanceMeters = route.distance || 0;
-      const durationSeconds = route.duration || 0;
-      const durationMinutes = Math.ceil(durationSeconds / 60);
-      const etaDate = new Date(Date.now() + durationMinutes * 60000);
-      const etaTimeString = etaDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+        const durationMinutes = Math.ceil(durationSeconds / 60);
+        const etaDate = new Date(Date.now() + durationMinutes * 60000);
+        const etaTimeString = etaDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
-      printRouteAuditLog({
-        origin,
-        destination,
-        requestedTravelMode: travelMode,
-        actualTravelMode: 'OSRM_DRIVING_FALLBACK',
-        apiEngine: 'OSRM Public Server (Fallback)',
-        distanceKm: (distanceMeters / 1000).toFixed(2),
-        durationMin: durationMinutes,
-        coordinatesCount: coordinates.length,
-        isFallback: true,
-        fallbackReason: 'Chave VITE_GOOGLE_MAPS_API_KEY indisponível ou limite de requisições excedido no Google Routes v2.'
-      });
+        printRouteAuditLog({
+          origin,
+          destination,
+          requestedTravelMode: travelMode,
+          actualTravelMode: 'GOOGLE_DIRECTIONS_V1',
+          apiEngine: 'Google Directions API v1 (REST)',
+          distanceKm: (distanceMeters / 1000).toFixed(2),
+          durationMin: durationMinutes,
+          coordinatesCount: coordinates.length,
+          isFallback: true,
+          fallbackReason: 'Routes API v2 indisponível; utilizando Directions API v1 da própria Google Maps Platform.'
+        });
 
-      return {
-        distanceMeters,
-        durationSeconds,
-        coordinates,
-        travelModeUsed: 'OSRM_FALLBACK',
-        isFallback: true,
-        fallbackReason: 'Utilizando motor de rotas OSRM secundário.',
-        etaTimeString
-      };
+        return {
+          distanceMeters,
+          durationSeconds,
+          coordinates,
+          travelModeUsed: 'GOOGLE_DIRECTIONS_V1',
+          isFallback: true,
+          fallbackReason: 'Google Directions API v1 utilizada.',
+          etaTimeString
+        };
+      }
+    } catch (err) {
+      console.warn('Erro na chamada ao Google Directions API v1:', err);
     }
-  } catch (err) {
-    console.warn('Erro no OSRM Fallback:', err);
   }
 
-  // Se tudo falhar, lança erro em vez de desenhar linha reta inventada
-  throw new Error('Não foi possível calcular uma rota viária válida entre a origem e o destino.');
+  // SE NÃO HOUVER CHAVE GOOGLE VÁLIDA: Lança erro legível em vez de desenhar rota incorreta via OSRM
+  throw new Error('Chave VITE_GOOGLE_MAPS_API_KEY do Google Maps ausente ou sem a permissão Routes API / Directions API ativada no Google Cloud Console.');
 }

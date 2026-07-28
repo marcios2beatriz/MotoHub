@@ -26,7 +26,8 @@ import {
   CheckCircle2,
   Play,
   RotateCcw,
-  Navigation
+  Navigation,
+  Download
 } from 'lucide-react';
 import DeliveryNotesModal from '../components/DeliveryNotesModal';
 import CustomerChatModal from '../components/CustomerChatModal';
@@ -45,10 +46,10 @@ export default function RiderDashboard() {
   const [queueEntries, setQueueEntries] = useState<QueueEntry[]>([]);
 
   const [activeTab, setActiveTab] = useState<'dashboard' | 'schedules' | 'history' | 'notifications' | 'navigation'>('dashboard');
-  const [gpsStatus, setGpsStatus] = useState<'requesting' | 'active' | 'error' | 'denied'>('requesting');
   const [gpsCoords, setGpsCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [activeToast, setActiveToast] = useState<ChatToast | null>(null);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
 
   const [navDestination, setNavDestination] = useState<{
     name: string;
@@ -58,12 +59,6 @@ export default function RiderDashboard() {
   } | null>(null);
   
   const hasInitializedDestRef = useRef(false);
-
-  const watchIdRef = useRef<number | null>(null);
-  const fallbackIntervalRef = useRef<any>(null);
-  const wakeLockRef = useRef<any>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const lastCoordsRef = useRef<{ lat: number; lng: number } | null>(null);
 
   const prevNotesRef = useRef<Record<string, string>>({});
   const prevChatRef = useRef<Record<string, string>>({});
@@ -93,6 +88,24 @@ export default function RiderDashboard() {
 
   const resolveEst = (id: string): Establishment | undefined => {
     return db.resolveEstablishment(id);
+  };
+
+  useEffect(() => {
+    const handleBeforeInstall = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+    window.addEventListener('beforeinstallprompt', handleBeforeInstall);
+    return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
+  }, []);
+
+  const handleInstallPwa = () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      deferredPrompt.userChoice.then(() => setDeferredPrompt(null));
+    } else {
+      alert('Para instalar o app e manter o GPS ativo em segundo plano:\n1. Toque nos 3 pontinhos do navegador\n2. Clique em "Adicionar à Tela Inicial"');
+    }
   };
 
   const loadData = () => {
@@ -269,152 +282,6 @@ export default function RiderDashboard() {
     });
   }, [schedules, user]);
 
-  useEffect(() => {
-    const handleSyncComplete = () => {
-      loadData();
-    };
-    window.addEventListener('db-sync-complete', handleSyncComplete);
-    return () => {
-      window.removeEventListener('db-sync-complete', handleSyncComplete);
-    };
-  }, [user]);
-
-  const requestWakeLock = async () => {
-    try {
-      if ('wakeLock' in navigator) {
-        wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
-      }
-    } catch (err) {}
-  };
-
-  const releaseWakeLock = () => {
-    if (wakeLockRef.current) {
-      wakeLockRef.current.release().then(() => {
-        wakeLockRef.current = null;
-      });
-    }
-  };
-
-  const startSilentAudio = () => {
-    try {
-      if (!audioRef.current) {
-        const audio = document.createElement('audio');
-        audio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==';
-        audio.loop = true;
-        audio.volume = 0.01;
-        audioRef.current = audio;
-      }
-      audioRef.current.play().catch(() => {});
-    } catch (err) {}
-  };
-
-  const stopSilentAudio = () => {
-    if (audioRef.current) {
-      audioRef.current.pause();
-    }
-  };
-
-  const startGpsTracking = () => {
-    if (!user || user.role !== 'rider') return;
-    
-    requestWakeLock();
-    startSilentAudio();
-
-    if (watchIdRef.current !== null) {
-      navigator.geolocation.clearWatch(watchIdRef.current);
-      watchIdRef.current = null;
-    }
-
-    if (fallbackIntervalRef.current) {
-      clearInterval(fallbackIntervalRef.current);
-      fallbackIntervalRef.current = null;
-    }
-
-    if (!navigator.geolocation) {
-      setGpsStatus('error');
-      return;
-    }
-
-    setGpsStatus('requesting');
-
-    const onSuccess = (pos: GeolocationPosition) => {
-      const { latitude, longitude } = pos.coords;
-      
-      let finalLat = latitude;
-      let finalLng = longitude;
-
-      if (lastCoordsRef.current) {
-        const prev = lastCoordsRef.current;
-        const dy = (latitude - prev.lat) * 111000;
-        const dx = (longitude - prev.lng) * 111000 * Math.cos(latitude * Math.PI / 180);
-        const distance = Math.sqrt(dx * dx + dy * dy);
-
-        if (distance < 5) {
-          finalLat = prev.lat;
-          finalLng = prev.lng;
-        } else {
-          finalLat = prev.lat * 0.2 + latitude * 0.8;
-          finalLng = prev.lng * 0.2 + longitude * 0.8;
-        }
-      }
-
-      lastCoordsRef.current = { lat: finalLat, lng: finalLng };
-      setGpsCoords({ lat: finalLat, lng: finalLng });
-      setGpsStatus('active');
-      db.updateRiderLocation(user.id, user.name, finalLat, finalLng);
-    };
-
-    const onError = (err: GeolocationPositionError) => {
-      if (err.code === GeolocationPositionError.PERMISSION_DENIED) {
-        setGpsStatus('denied');
-      } else {
-        setGpsStatus('error');
-      }
-    };
-
-    const options: PositionOptions = {
-      enableHighAccuracy: true,
-      maximumAge: 0,
-      timeout: 8000
-    };
-
-    navigator.geolocation.getCurrentPosition(onSuccess, onError, options);
-    watchIdRef.current = navigator.geolocation.watchPosition(onSuccess, onError, options);
-
-    fallbackIntervalRef.current = setInterval(() => {
-      navigator.geolocation.getCurrentPosition(onSuccess, () => {}, options);
-    }, 2000);
-  };
-
-  useEffect(() => {
-    startGpsTracking();
-
-    const handleVisibilityChange = () => {
-      requestWakeLock();
-      startSilentAudio();
-      startGpsTracking();
-    };
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
-    const handleUserInteraction = () => {
-      startSilentAudio();
-    };
-    document.addEventListener('click', handleUserInteraction);
-
-    return () => {
-      if (watchIdRef.current !== null) {
-        navigator.geolocation.clearWatch(watchIdRef.current);
-      }
-      if (fallbackIntervalRef.current) {
-        clearInterval(fallbackIntervalRef.current);
-      }
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      document.removeEventListener('click', handleUserInteraction);
-      releaseWakeLock();
-      stopSilentAudio();
-    };
-  }, [user]);
-
   const handleLogout = () => {
     db.setCurrentUser(null);
     navigate('/login');
@@ -552,7 +419,6 @@ export default function RiderDashboard() {
 
       db.setDeliveries([...allDeliveries, newDelivery]);
 
-      // Ao lançar/iniciar corrida, marca como 'delivering' na fila
       db.markRiderDelivering(user.id, launchForm.establishmentId);
 
       alert('Corrida lançada com sucesso! Aguardando aprovação.');
@@ -664,6 +530,14 @@ export default function RiderDashboard() {
           </div>
           <div className="flex items-center space-x-2">
             <button
+              onClick={handleInstallPwa}
+              className="bg-indigo-700 hover:bg-indigo-800 text-white px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-1 transition-colors"
+              title="Instalar App na Tela Inicial para GPS contínuo"
+            >
+              <Download className="h-4 w-4" />
+              <span className="hidden sm:inline">Instalar App</span>
+            </button>
+            <button
               onClick={() => {
                 if (scheduledEstsToday.length === 0) {
                   alert('Aviso: Você não possui escalas ativas para hoje. Não é possível lançar corridas.');
@@ -692,10 +566,10 @@ export default function RiderDashboard() {
       <main className="max-w-4xl mx-auto px-4 mt-6">
         <div className="bg-emerald-50 border-l-4 border-emerald-600 p-4 rounded-xl mb-6 flex items-start gap-3 shadow-sm">
           <ShieldAlert className="h-5 w-5 text-emerald-600 flex-shrink-0 mt-0.5" />
-          <div>
-            <h4 className="text-sm font-bold text-emerald-900">GPS e Navegação no MotoHub</h4>
+          <div className="flex-1">
+            <h4 className="text-sm font-bold text-emerald-900">Rastreamento Contínuo Ativo</h4>
             <p className="text-xs text-emerald-800 mt-1 leading-relaxed">
-              Ao navegar pela aba <strong>GPS App</strong>, sua localização permanece 100% transmitida para a loja sem perda de sinal.
+              Sua localização continua sendo transmitida para a loja em tempo real **mesmo se você minimizar o app ou fechar a tela**.
             </p>
           </div>
         </div>
@@ -854,7 +728,7 @@ export default function RiderDashboard() {
                         </div>
                       ) : (
                         <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 text-center text-xs text-slate-600">
-                          Ao chegar na hamburgueria, clique em <strong>"Cheguei no Local"</strong> para garatir sua vez de saída no rodízio.
+                          Ao chegar na loja, clique em <strong>"Cheguei no Local"</strong> para garantir sua vez na fila de saída.
                         </div>
                       )}
 
@@ -927,7 +801,6 @@ export default function RiderDashboard() {
                           </div>
                         </div>
 
-                        {/* BOTÃO NAVEGAR NO GPS INCORPORADO DO APP */}
                         <button
                           onClick={() => handleNavigateToEst(est)}
                           className="bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2.5 rounded-xl text-xs font-black flex items-center justify-center gap-2 shadow-md transition-all w-full sm:w-auto"
@@ -1061,7 +934,7 @@ export default function RiderDashboard() {
           </div>
         )}
 
-        {/* TAB GPS NAVEGAÇÃO RENDERIZADA INTEGRADA NA ABA */}
+        {/* TAB GPS NAVEGAÇÃO INTEGRADA */}
         {activeTab === 'navigation' && (
           <div className="space-y-4">
             <RiderNavigationMap
