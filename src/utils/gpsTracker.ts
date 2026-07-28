@@ -6,9 +6,9 @@ import { realtimeGps } from './realtimeGps';
 export interface GpsLocation {
   lat: number;
   lng: number;
-  accuracy: number; // em metros
+  accuracy: number;
   speedKmh: number;
-  heading: number; // graus (0-360)
+  heading: number;
   timestamp: number;
 }
 
@@ -21,7 +21,6 @@ export interface GpsState {
   isNavigating: boolean;
 }
 
-// Cálculo da distância Haversine em metros entre duas coordenadas
 export function calculateDistanceMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6371000;
   const dLat = (lat2 - lat1) * (Math.PI / 180);
@@ -36,7 +35,6 @@ export function calculateDistanceMeters(lat1: number, lon1: number, lat2: number
   return R * c;
 }
 
-// Cálculo da direção/bearing em graus (0-360)
 export function calculateBearingDegrees(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const φ1 = lat1 * (Math.PI / 180);
   const φ2 = lat2 * (Math.PI / 180);
@@ -126,7 +124,7 @@ class HighPrecisionGpsTracker {
         this.worker.postMessage('start');
       }
     } catch (e) {
-      console.warn('Web Worker de GPS não pôde ser iniciado diretamente:', e);
+      console.warn('Web Worker de GPS ativo via fallback de intervalo.');
     }
   }
 
@@ -193,7 +191,7 @@ class HighPrecisionGpsTracker {
     navigator.geolocation.getCurrentPosition(
       (pos) => this.handleSuccess(pos),
       (err) => this.handleError(err),
-      { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+      { enableHighAccuracy: true, timeout: 6000, maximumAge: 0 }
     );
   }
 
@@ -203,37 +201,27 @@ class HighPrecisionGpsTracker {
     const accuracy = pos.coords.accuracy || 10;
     const now = Date.now();
 
-    // Descarte leituras absurdamente imprecisas (> 150m) para evitar saltos irreais
-    if (accuracy > 150 && this.lastLocation) {
-      return;
-    }
+    if (accuracy > 150 && this.lastLocation) return;
 
     const speedKmh = pos.coords.speed !== null && pos.coords.speed >= 0 ? Math.round(pos.coords.speed * 3.6) : 0;
-    
     let heading = 0;
     let distanceMoved = 0;
 
     if (this.lastLocation) {
       distanceMoved = calculateDistanceMeters(this.lastLocation.lat, this.lastLocation.lng, lat, lng);
-
-      // Descartar saltos impossíveis (> 300m em menos de 2 segundos) causados por falha de torre de celular
       const timeDiffSec = (now - this.lastLocation.timestamp) / 1000;
-      if (timeDiffSec > 0 && (distanceMoved / timeDiffSec) > 50) { // > 180 km/h salto instantâneo
-        return;
-      }
+      if (timeDiffSec > 0 && (distanceMoved / timeDiffSec) > 50) return;
 
-      // Filtro de Média Móvel Suavizada (Exponential Smoothing) para mitigar micro-oscilações
-      if (distanceMoved < 3) {
+      if (distanceMoved < 2) {
         lat = this.lastLocation.lat;
         lng = this.lastLocation.lng;
       } else {
-        const smoothingFactor = 0.75;
+        const smoothingFactor = 0.8;
         lat = this.lastLocation.lat * (1 - smoothingFactor) + lat * smoothingFactor;
         lng = this.lastLocation.lng * (1 - smoothingFactor) + lng * smoothingFactor;
       }
     }
 
-    // Cálculo do Rumo / Direção
     if (speedKmh >= 2 || distanceMoved > 2) {
       if (pos.coords.heading !== null && !isNaN(pos.coords.heading) && pos.coords.heading >= 0) {
         heading = Math.round(pos.coords.heading);
@@ -272,7 +260,7 @@ class HighPrecisionGpsTracker {
       errorMessage: null
     };
 
-    // TRANSMISSÃO EM TEMPO REAL VIA WEBSOCKETS + SUPABASE
+    // TRANSSMISSÃO EM TEMPO REAL
     const currentUser = db.getCurrentUser();
     if (currentUser && currentUser.role === 'rider') {
       realtimeGps.sendLocation({
@@ -294,7 +282,7 @@ class HighPrecisionGpsTracker {
     let msg = 'Obtendo sinal GPS...';
     if (err.code === GeolocationPositionError.PERMISSION_DENIED) {
       quality = 'denied';
-      msg = 'Permissão de localização negada no navegador.';
+      msg = 'Permissão de localização negada.';
     }
     this.currentState = { ...this.currentState, quality, errorMessage: msg };
     this.notify();
@@ -314,7 +302,7 @@ class HighPrecisionGpsTracker {
       return;
     }
 
-    const options: PositionOptions = { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 };
+    const options: PositionOptions = { enableHighAccuracy: true, timeout: 6000, maximumAge: 0 };
     this.forceLocationPoll();
 
     if (this.watchId === null) {
@@ -348,6 +336,7 @@ class HighPrecisionGpsTracker {
     try {
       if (!this.audioKeepAlive) {
         const audio = document.createElement('audio');
+        // Áudio silencioso em WAV de 1 segundo em loop para manter processo do navegador ativo
         audio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==';
         audio.loop = true;
         audio.volume = 0.01;
@@ -355,8 +344,8 @@ class HighPrecisionGpsTracker {
 
         if ('mediaSession' in navigator) {
           navigator.mediaSession.metadata = new MediaMetadata({
-            title: 'Rastreamento MotoHub Ativo',
-            artist: 'GPS do Entregador em Tempo Real',
+            title: 'MotoHub GPS Ativo',
+            artist: 'Transmitindo localização para o estabelecimento',
             album: 'MotoHub Delivery'
           });
         }
