@@ -16,7 +16,7 @@ export interface RouteResult {
   etaTimeString: string;
 }
 
-// Decodificador da Polilinha do Google Maps (Google Encoded Polyline Algorithm)
+// Decodificador de Polilinha do Google Maps
 export function decodePolyline(encoded: string): [number, number][] {
   const points: [number, number][] = [];
   let index = 0;
@@ -56,37 +56,10 @@ const getGoogleApiKey = (): string | null => {
   return import.meta.env.VITE_GOOGLE_MAPS_API_KEY || null;
 };
 
-// Log de Auditoria de Rota no Console
-function printRouteAuditLog(data: {
-  origin: { lat: number; lng: number; heading?: number };
-  destination: { lat: number; lng: number };
-  requestedTravelMode: string;
-  actualTravelMode: string;
-  apiEngine: string;
-  distanceKm: string;
-  durationMin: number;
-  coordinatesCount: number;
-  isFallback: boolean;
-  fallbackReason?: string;
-}) {
-  console.group(`🏍️ [AUDITORIA DE ROTA DE NAVEGAÇÃO] — ${new Date().toLocaleTimeString('pt-BR')}`);
-  console.log(`📌 ORIGEM GPS: Lat ${data.origin.lat.toFixed(6)}, Lng ${data.origin.lng.toFixed(6)} ${data.origin.heading ? `| Heading: ${data.origin.heading}°` : ''}`);
-  console.log(`🎯 DESTINO: Lat ${data.destination.lat.toFixed(6)}, Lng ${data.destination.lng.toFixed(6)}`);
-  console.log(`⚙️ MOTOR DE ROTAS: ${data.apiEngine}`);
-  console.log(`🛵 TRAVEL MODE SOLICITADO: ${data.requestedTravelMode} | EFETIVO: ${data.actualTravelMode}`);
-  console.log(`📏 DISTÂNCIA: ${data.distanceKm} km | DURAÇÃO: ${data.durationMin} min | PONTOS DA POLYLINE: ${data.coordinatesCount}`);
-  if (data.isFallback) {
-    console.warn(`⚠️ FALLBACK OCORRIDO: ${data.fallbackReason}`);
-  } else {
-    console.log(`✅ ROTA GOOGLE MAPS OFICIAL CALCULADA COM RESPEITO À MALHA VIÁRIA E SENTIDO DE DIREÇÃO.`);
-  }
-  console.groupEnd();
-}
-
 export async function computeRoute({ origin, destination, travelMode = 'TWO_WHEELER' }: RouteRequestParams): Promise<RouteResult> {
   const apiKey = getGoogleApiKey();
 
-  // ETAPA 1: Google Routes API v2 (POST directions:computeRoutes)
+  // ETAPA 1: Google Routes API v2
   if (apiKey) {
     try {
       const url = 'https://routes.googleapis.com/v1/directions:computeRoutes';
@@ -108,7 +81,7 @@ export async function computeRoute({ origin, destination, travelMode = 'TWO_WHEE
             }
           }
         },
-        travelMode: travelMode, // TWO_WHEELER
+        travelMode: travelMode,
         routingPreference: 'TRAFFIC_AWARE',
         polylineQuality: 'HIGH_QUALITY',
         polylineEncoding: 'ENCODED_POLYLINE'
@@ -142,39 +115,20 @@ export async function computeRoute({ origin, destination, travelMode = 'TWO_WHEE
         const etaDate = new Date(Date.now() + durationMinutes * 60000);
         const etaTimeString = etaDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
-        const isFallback = !!route.fallbackInfo;
-        const fallbackReason = route.fallbackInfo ? `Google Routes Fallback: ${JSON.stringify(route.fallbackInfo)}` : undefined;
-
-        printRouteAuditLog({
-          origin,
-          destination,
-          requestedTravelMode: travelMode,
-          actualTravelMode: isFallback ? 'DRIVE_FALLBACK' : travelMode,
-          apiEngine: 'Google Routes API v2 (computeRoutes)',
-          distanceKm: (distanceMeters / 1000).toFixed(2),
-          durationMin: durationMinutes,
-          coordinatesCount: coordinates.length,
-          isFallback,
-          fallbackReason
-        });
-
         return {
           distanceMeters,
           durationSeconds,
           coordinates,
-          travelModeUsed: isFallback ? 'DRIVE_FALLBACK' : 'GOOGLE_TWO_WHEELER',
-          isFallback,
-          fallbackReason,
+          travelModeUsed: 'GOOGLE_TWO_WHEELER',
+          isFallback: false,
           etaTimeString
         };
-      } else {
-        console.warn('Google Routes API v2 retornou erro/vazio:', data);
       }
     } catch (err) {
       console.warn('Erro ao chamar Google Routes API v2:', err);
     }
 
-    // ETAPA 2: Google Directions API v1 REST (como fallback interno do próprio Google)
+    // ETAPA 2: Google Directions API v1
     try {
       const modeParam = travelMode === 'TWO_WHEELER' ? 'two_wheeler' : 'driving';
       const directionsUrl = `https://maps.googleapis.com/maps/api/directions/json?origin=${origin.lat},${origin.lng}&destination=${destination.lat},${destination.lng}&mode=${modeParam}&key=${apiKey}&language=pt-BR`;
@@ -195,26 +149,12 @@ export async function computeRoute({ origin, destination, travelMode = 'TWO_WHEE
         const etaDate = new Date(Date.now() + durationMinutes * 60000);
         const etaTimeString = etaDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
-        printRouteAuditLog({
-          origin,
-          destination,
-          requestedTravelMode: travelMode,
-          actualTravelMode: 'GOOGLE_DIRECTIONS_V1',
-          apiEngine: 'Google Directions API v1 (REST)',
-          distanceKm: (distanceMeters / 1000).toFixed(2),
-          durationMin: durationMinutes,
-          coordinatesCount: coordinates.length,
-          isFallback: true,
-          fallbackReason: 'Routes API v2 indisponível; utilizando Directions API v1 da própria Google Maps Platform.'
-        });
-
         return {
           distanceMeters,
           durationSeconds,
           coordinates,
           travelModeUsed: 'GOOGLE_DIRECTIONS_V1',
-          isFallback: true,
-          fallbackReason: 'Google Directions API v1 utilizada.',
+          isFallback: false,
           etaTimeString
         };
       }
@@ -223,6 +163,37 @@ export async function computeRoute({ origin, destination, travelMode = 'TWO_WHEE
     }
   }
 
-  // SE NÃO HOUVER CHAVE GOOGLE VÁLIDA: Lança erro legível em vez de desenhar rota incorreta via OSRM
-  throw new Error('Chave VITE_GOOGLE_MAPS_API_KEY do Google Maps ausente ou sem a permissão Routes API / Directions API ativada no Google Cloud Console.');
+  // ETAPA 3: Fallback Gratuito OSRM (OpenStreetMap) caso não haja chave válida configurada
+  try {
+    const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${origin.lng},${origin.lat};${destination.lng},${destination.lat}?overview=full&geometries=geojson`;
+    const res = await fetch(osrmUrl);
+    const data = await res.json();
+
+    if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
+      const route = data.routes[0];
+      const rawCoords: [number, number][] = route.geometry.coordinates;
+      const coordinates: [number, number][] = rawCoords.map(c => [c[1], c[0]]);
+
+      const distanceMeters = route.distance || 0;
+      const durationSeconds = route.duration || 0;
+
+      const durationMinutes = Math.ceil(durationSeconds / 60);
+      const etaDate = new Date(Date.now() + durationMinutes * 60000);
+      const etaTimeString = etaDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+      return {
+        distanceMeters,
+        durationSeconds,
+        coordinates,
+        travelModeUsed: 'OSRM_OPENSTREETMAP',
+        isFallback: true,
+        fallbackReason: 'Chave VITE_GOOGLE_MAPS_API_KEY do Google Maps ausente ou inativa no arquivo .env. Usando rotas OpenStreetMap.',
+        etaTimeString
+      };
+    }
+  } catch (err) {
+    console.warn('Erro ao calcular rota via OSRM:', err);
+  }
+
+  throw new Error('Não foi possível calcular a rota. Verifique sua conexão de rede.');
 }

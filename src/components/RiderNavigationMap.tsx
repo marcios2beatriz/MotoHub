@@ -349,12 +349,12 @@ export default function RiderNavigationMap({
       const offRoute = isPointOffRoute({ lat: activePos.lat, lng: activePos.lng }, routeCoordinates, 40);
       if (offRoute && !isOffRouteDetected) {
         setIsOffRouteDetected(true);
-        speakInstruction('Você saiu da rota de motocicleta. Recalculando trajeto no sentido correto...');
+        speakInstruction('Você saiu da rota. Recalculando trajeto...');
       }
     }
   }, [activePos?.lat, activePos?.lng, activePos?.heading, autoFollow, isNavigating, routeCoordinates, isPinAdjustmentMode, pendingConfirmation]);
 
-  // CÁLCULO DE ROTA OFICIAL EXCLUSIVAMENTE VIA GOOGLE MAPS PLATFORM (ROUTES V2 OU DIRECTIONS V1)
+  // CÁLCULO DE ROTA VIA GOOGLE MAPS OU FALLBACK OSRM
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !activePos || !destCoords) return;
@@ -400,7 +400,7 @@ export default function RiderNavigationMap({
       }).addTo(map);
     }
 
-    const fetchGoogleRoute = async () => {
+    const fetchRoute = async () => {
       setLoadingRoute(true);
       setRouteErrorAlert(null);
       try {
@@ -421,11 +421,15 @@ export default function RiderNavigationMap({
         setRouteDetails(result);
         lastFetchedRouteKeyRef.current = routeKey;
 
+        if (result.isFallback && result.fallbackReason) {
+          setRouteErrorAlert(result.fallbackReason);
+        }
+
         if (routePolylineRef.current) {
           routePolylineRef.current.setLatLngs(result.coordinates);
         } else {
           routePolylineRef.current = L.polyline(result.coordinates, {
-            color: '#1a73e8',
+            color: result.isFallback ? '#f59e0b' : '#1a73e8',
             weight: 8,
             opacity: 0.95,
             lineCap: 'round',
@@ -435,14 +439,14 @@ export default function RiderNavigationMap({
 
         setIsOffRouteDetected(false);
       } catch (err: any) {
-        console.warn('Erro na rota via Google Maps API:', err);
-        setRouteErrorAlert(err?.message || 'Insira uma chave VITE_GOOGLE_MAPS_API_KEY válida para habilitar rotas oficiais do Google.');
+        console.warn('Erro ao calcular rota:', err);
+        setRouteErrorAlert(err?.message || 'Erro ao obter rota.');
       } finally {
         setLoadingRoute(false);
       }
     };
 
-    fetchGoogleRoute();
+    fetchRoute();
   }, [destCoords?.lat, destCoords?.lng, isOffRouteDetected]);
 
   const handleRecenter = () => {
@@ -486,8 +490,8 @@ export default function RiderNavigationMap({
     } else {
       const parsed = parseAddressQuery(originalQuery);
       const errorMsg = parsed.street
-        ? `Não encontramos a via '${parsed.street}' na base oficial do Google. Posicione o pino no mapa.`
-        : "Endereço não localizado na base do Google Maps. Posicione o pino no mapa.";
+        ? `Não encontramos a via '${parsed.street}' no mapa. Posicione o pino no mapa.`
+        : "Endereço não localizado. Posicione o pino no mapa.";
 
       setNotFoundAlert(errorMsg);
       handleEnablePinAdjustment();
@@ -665,7 +669,7 @@ export default function RiderNavigationMap({
         : 'relative h-[600px] sm:h-[680px] w-full rounded-2xl border border-slate-800'
     }`}>
       
-      {/* HEADER NAVEGAÇÃO GOOGLE MAPS (#137333) */}
+      {/* HEADER NAVEGAÇÃO */}
       <div className="bg-[#137333] text-white px-4 py-3 z-30 shadow-lg flex items-center justify-between relative border-b border-emerald-800 flex-shrink-0">
         <div className="flex items-center space-x-3 min-w-0 flex-1">
           <div className="p-2.5 bg-black/20 rounded-2xl text-white flex-shrink-0 border border-white/20">
@@ -675,7 +679,7 @@ export default function RiderNavigationMap({
             <div className="flex items-center gap-2 flex-wrap">
               <span className="bg-emerald-950/80 text-emerald-300 text-[9px] font-black uppercase px-2 py-0.5 rounded-full tracking-wider flex items-center gap-1">
                 <Bike className="h-3 w-3 text-emerald-400" />
-                Google Routes (TWO_WHEELER)
+                {routeDetails?.travelModeUsed || 'MODO MOTO'}
               </span>
             </div>
             <h2 className="text-sm sm:text-base font-extrabold truncate leading-snug mt-0.5">
@@ -719,9 +723,9 @@ export default function RiderNavigationMap({
         </div>
       </div>
 
-      {/* BANNER ALERTA DE ERRO DE CHAVE GOOGLE / ROTAS */}
+      {/* BANNER INFORMATIVO DE ROTA OU FALLBACK */}
       {routeErrorAlert && (
-        <div className="bg-red-600 text-white px-4 py-2.5 z-40 flex items-center justify-between text-xs font-bold shadow-md">
+        <div className="bg-amber-500 text-slate-950 px-4 py-2.5 z-40 flex items-center justify-between text-xs font-bold shadow-md">
           <div className="flex items-center gap-2">
             <AlertCircle className="h-5 w-5 flex-shrink-0" />
             <span>⚠️ {routeErrorAlert}</span>
@@ -853,7 +857,7 @@ export default function RiderNavigationMap({
                 <div>
                   <h4 className="text-xs font-black text-amber-400 uppercase tracking-wider">
                     {pendingConfirmation.exactNumberMatched 
-                      ? "Ponto do Imóvel Confirmado (Google ROOFTOP)"
+                      ? "Ponto do Imóvel Confirmado"
                       : "Localização de Via Encontrada"}
                   </h4>
                   <p className="text-sm font-bold text-white mt-0.5">{pendingConfirmation.name}</p>
@@ -866,7 +870,7 @@ export default function RiderNavigationMap({
                   )}
 
                   <p className="text-[9px] text-slate-500 font-mono mt-1">
-                    Coordenadas: {pendingConfirmation.lat.toFixed(5)}, {pendingConfirmation.lng.toFixed(5)} | Precisão: {pendingConfirmation.locationType || 'N/A'}
+                    Coordenadas: {pendingConfirmation.lat.toFixed(5)}, {pendingConfirmation.lng.toFixed(5)}
                   </p>
                 </div>
               </div>
@@ -926,7 +930,7 @@ export default function RiderNavigationMap({
                 </span>
               </div>
               <p className="text-[11px] text-slate-400 truncate">
-                ETA: <strong className="text-white font-bold">{routeDetails?.etaTimeString || '--:--'}</strong> • <span className="text-emerald-400 font-semibold">{routeDetails?.travelModeUsed || 'GOOGLE_MAPS'}</span>
+                ETA: <strong className="text-white font-bold">{routeDetails?.etaTimeString || '--:--'}</strong> • <span className="text-emerald-400 font-semibold">{routeDetails?.travelModeUsed || 'MAPS'}</span>
               </p>
             </div>
           </div>
