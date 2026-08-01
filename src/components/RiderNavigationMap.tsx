@@ -26,6 +26,7 @@ import L from 'leaflet';
 import { gpsTracker, GpsState, isPointOffRoute } from '../utils/gpsTracker';
 import { searchFreeTextAddress, parseAddressQuery, GeocodedAddress } from '../utils/geocoding';
 import { computeRoute, RouteResult } from '../utils/googleRoutes';
+import { loadGoogleMapsSdk } from '../utils/googleMapsLoader';
 
 interface RiderNavigationMapProps {
   currentLocation: { lat: number; lng: number } | null;
@@ -537,29 +538,62 @@ export default function RiderNavigationMap({
         exactStreetMatched: true,
         placeId: result.placeId
       });
-    } else {
+    } else if (result.placeId && (window as any).google?.maps?.Geocoder) {
       setIsSearching(true);
-      const geocodeRes = await searchFreeTextAddress(result.fullAddress);
-      setIsSearching(false);
+      try {
+        const geocoder = new (window as any).google.maps.Geocoder();
+        geocoder.geocode({ placeId: result.placeId }, (results: any[], status: string) => {
+          setIsSearching(false);
+          if (status === 'OK' && results && results[0]) {
+            const place = results[0];
+            const lat = typeof place.geometry.location.lat === 'function' ? place.geometry.location.lat() : place.geometry.location.lat;
+            const lng = typeof place.geometry.location.lng === 'function' ? place.geometry.location.lng() : place.geometry.location.lng;
 
-      if (geocodeRes) {
-        setPendingConfirmation({
-          name: result.title,
-          addressText: geocodeRes.formattedAddress || result.fullAddress,
-          lat: geocodeRes.lat,
-          lng: geocodeRes.lng,
-          isApproximate: geocodeRes.isApproximate,
-          locationType: geocodeRes.locationType,
-          exactNumberMatched: geocodeRes.exactNumberMatched,
-          exactStreetMatched: geocodeRes.exactStreetMatched,
-          requestedNumber: geocodeRes.requestedNumber,
-          unconfirmedReason: geocodeRes.unconfirmedReason,
-          placeId: geocodeRes.placeId || result.placeId
+            setPendingConfirmation({
+              name: result.title,
+              addressText: place.formatted_address || result.fullAddress,
+              lat,
+              lng,
+              isApproximate: false,
+              exactNumberMatched: true,
+              exactStreetMatched: true,
+              placeId: result.placeId
+            });
+          } else {
+            handleFallbackGeocode(result.fullAddress);
+          }
         });
-      } else {
-        setNotFoundAlert("Local não geocodificado. Posicione o pino no mapa.");
-        handleEnablePinAdjustment();
+      } catch (err) {
+        setIsSearching(false);
+        handleFallbackGeocode(result.fullAddress);
       }
+    } else {
+      handleFallbackGeocode(result.fullAddress);
+    }
+  };
+
+  const handleFallbackGeocode = async (fullAddress: string) => {
+    setIsSearching(true);
+    const geocodeRes = await searchFreeTextAddress(fullAddress);
+    setIsSearching(false);
+
+    if (geocodeRes) {
+      setPendingConfirmation({
+        name: fullAddress.split(',')[0],
+        addressText: geocodeRes.formattedAddress || fullAddress,
+        lat: geocodeRes.lat,
+        lng: geocodeRes.lng,
+        isApproximate: geocodeRes.isApproximate,
+        locationType: geocodeRes.locationType,
+        exactNumberMatched: geocodeRes.exactNumberMatched,
+        exactStreetMatched: geocodeRes.exactStreetMatched,
+        requestedNumber: geocodeRes.requestedNumber,
+        unconfirmedReason: geocodeRes.unconfirmedReason,
+        placeId: geocodeRes.placeId
+      });
+    } else {
+      setNotFoundAlert("Local não geocodificado. Posicione o pino no mapa.");
+      handleEnablePinAdjustment();
     }
   };
 
@@ -601,15 +635,9 @@ export default function RiderNavigationMap({
       setIsSearching(true);
       searchTimeoutRef.current = setTimeout(async () => {
         try {
+          const isGoogleLoaded = await loadGoogleMapsSdk();
           const lat = activePos ? activePos.lat : -7.2247;
           const lng = activePos ? activePos.lng : -35.8878;
-
-          const esriQuery = rawText.toLowerCase().includes('campina grande') 
-            ? rawText 
-            : `${rawText}, Campina Grande - PB`;
-          const esriUrl = `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?singleLine=${encodeURIComponent(esriQuery)}&f=json&maxLocations=5&location=${lng},${lat}`;
-
-          const esriRes = await fetch(esriUrl).then(r => r.json()).catch(() => null);
 
           const combined: Array<{
             id: string;
@@ -620,31 +648,73 @@ export default function RiderNavigationMap({
             lng?: number;
             placeId?: string;
           }> = [];
-          const seenKeys = new Set<string>();
 
-          if (esriRes && esriRes.candidates) {
-            esriRes.candidates.forEach((cand: any) => {
-              const loc = cand.location;
-              if (!loc) return;
-
-              const key = `${loc.y.toFixed(4)},${loc.x.toFixed(4)}`;
-              const fullAddr = cand.address || 'Endereço encontrado';
-              const parts = fullAddr.split(',');
-              const title = parts[0] ? parts[0].trim() : 'Endereço';
-              const subtitle = parts.slice(1).join(',').trim();
-
-              if (!seenKeys.has(key)) {
-                seenKeys.add(key);
-                combined.push({
-                  id: 'esri_' + Math.random(),
-                  title,
-                  subtitle: subtitle || 'Campina Grande - PB',
-                  fullAddress: fullAddr,
-                  lat: loc.y,
-                  lng: loc.x
-                });
-              }
+          if (isGoogleLoaded && (window as any).google?.maps?.places?.AutocompleteService) {
+            const autocompleteService = new (window as any).google.maps.places.AutocompleteService();
+            
+            const predictions = await new Promise<any[]>((resolve) => {
+              autocompleteService.getPlacePredictions({
+                input: rawText,
+                componentRestrictions: { country: 'br' },
+                locationBias: new (window as any).google.maps.Circle({
+                  center: { lat, lng },
+                  radius: 35000
+                })
+              }, (results: any[], status: string) => {
+                if (status === 'OK' && results) {
+                  resolve(results);
+                } else {
+                  resolve([]);
+                }
+              });
             });
+
+            if (predictions.length > 0) {
+              predictions.forEach((pred: any) => {
+                combined.push({
+                  id: pred.place_id,
+                  title: pred.structured_formatting?.main_text || pred.description.split(',')[0],
+                  subtitle: pred.structured_formatting?.secondary_text || pred.description,
+                  fullAddress: pred.description,
+                  placeId: pred.place_id
+                });
+              });
+            }
+          }
+
+          if (combined.length === 0) {
+            const esriQuery = rawText.toLowerCase().includes('campina grande') 
+              ? rawText 
+              : `${rawText}, Campina Grande - PB`;
+            const esriUrl = `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?singleLine=${encodeURIComponent(esriQuery)}&f=json&maxLocations=5&location=${lng},${lat}`;
+
+            const esriRes = await fetch(esriUrl).then(r => r.json()).catch(() => null);
+
+            if (esriRes && esriRes.candidates) {
+              const seenKeys = new Set<string>();
+              esriRes.candidates.forEach((cand: any) => {
+                const loc = cand.location;
+                if (!loc) return;
+
+                const key = `${loc.y.toFixed(4)},${loc.x.toFixed(4)}`;
+                const fullAddr = cand.address || 'Endereço encontrado';
+                const parts = fullAddr.split(',');
+                const title = parts[0] ? parts[0].trim() : 'Endereço';
+                const subtitle = parts.slice(1).join(',').trim();
+
+                if (!seenKeys.has(key)) {
+                  seenKeys.add(key);
+                  combined.push({
+                    id: 'esri_' + Math.random(),
+                    title,
+                    subtitle: subtitle || 'Campina Grande - PB',
+                    fullAddress: fullAddr,
+                    lat: loc.y,
+                    lng: loc.x
+                  });
+                }
+              });
+            }
           }
 
           setSearchResults(combined);
@@ -802,12 +872,12 @@ export default function RiderNavigationMap({
           </button>
         </form>
 
-        {/* SUGESTÕES OPCIONAIS DO AUTOCOMPLETE */}
+        {/* SUGESTÕES DO AUTOCOMPLETE (GOOGLE PLACES) */}
         {searchResults.length > 0 && (
           <div className="absolute left-2 right-2 top-full mt-1 bg-slate-900 rounded-2xl border border-slate-700 shadow-2xl z-50 overflow-hidden divide-y divide-slate-800 max-h-64 overflow-y-auto">
             <div className="bg-slate-950 px-3 py-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between">
-              <span>Sugestões Autocomplete</span>
-              <span className="text-blue-400">Pressione ENTER para buscar o texto exato</span>
+              <span>Sugestões Google Maps</span>
+              <span className="text-blue-400">Clique para selecionar</span>
             </div>
             {searchResults.map((res) => (
               <div 
