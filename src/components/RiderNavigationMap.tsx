@@ -20,13 +20,26 @@ import {
   ArrowUp,
   Hand,
   AlertCircle,
-  Bike
+  Bike,
+  Mic,
+  MicOff,
+  Plus,
+  Trash2,
+  Flag
 } from 'lucide-react';
 import L from 'leaflet';
 import { gpsTracker, GpsState, isPointOffRoute } from '../utils/gpsTracker';
 import { searchFreeTextAddress, parseAddressQuery, GeocodedAddress } from '../utils/geocoding';
 import { computeRoute, RouteResult } from '../utils/googleRoutes';
 import { loadGoogleMapsSdk } from '../utils/googleMapsLoader';
+
+export interface WaypointStop {
+  id: string;
+  name: string;
+  addressText: string;
+  lat: number;
+  lng: number;
+}
 
 interface RiderNavigationMapProps {
   currentLocation: { lat: number; lng: number } | null;
@@ -68,10 +81,13 @@ export default function RiderNavigationMap({
   const riderMarkerRef = useRef<L.Marker | null>(null);
   const destMarkerRef = useRef<L.Marker | null>(null);
   const pendingMarkerRef = useRef<L.Marker | null>(null);
+  const waypointMarkersRef = useRef<L.Marker[]>([]);
   const routePolylineRef = useRef<L.Polyline | null>(null);
+
   const initialCenterDoneRef = useRef(false);
   const lastFetchedRouteKeyRef = useRef<string>('');
   const searchTimeoutRef = useRef<any>(null);
+  const recognitionRef = useRef<any>(null);
 
   const [gpsState, setGpsState] = useState<GpsState>({
     currentLocation: null,
@@ -86,6 +102,9 @@ export default function RiderNavigationMap({
     lat?: number;
     lng?: number;
   } | null>(initialDestination);
+
+  // LISTA DE PONTOS DE PARADA INTERMEDIÁRIOS
+  const [waypoints, setWaypoints] = useState<WaypointStop[]>([]);
 
   const [pendingConfirmation, setPendingConfirmation] = useState<PendingConfirmation | null>(null);
   const [notFoundAlert, setNotFoundAlert] = useState<string | null>(null);
@@ -102,6 +121,7 @@ export default function RiderNavigationMap({
     placeId?: string;
   }>>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [isListeningVoice, setIsListeningVoice] = useState(false);
 
   const [isPinAdjustmentMode, setIsPinAdjustmentMode] = useState(false);
   const [tempAdjustedCoords, setTempAdjustedCoords] = useState<{ lat: number; lng: number } | null>(null);
@@ -239,6 +259,49 @@ export default function RiderNavigationMap({
     };
   }, []);
 
+  // Marcadores dos Pontos de Parada Intermediários
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    // Limpa marcadores anteriores
+    waypointMarkersRef.current.forEach(m => map.removeLayer(m));
+    waypointMarkersRef.current = [];
+
+    waypoints.forEach((wp, idx) => {
+      const stopIcon = L.divIcon({
+        html: `
+          <div style="
+            background: #8b5cf6;
+            color: white;
+            width: 38px;
+            height: 38px;
+            border-radius: 50%;
+            border: 3px solid white;
+            box-shadow: 0 4px 12px rgba(139,92,246,0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 900;
+            font-size: 14px;
+          ">
+            ${idx + 1}
+          </div>
+        `,
+        className: 'custom-waypoint-icon',
+        iconSize: [38, 38],
+        iconAnchor: [19, 19]
+      });
+
+      const marker = L.marker([wp.lat, wp.lng], {
+        icon: stopIcon,
+        zIndexOffset: 2500
+      }).addTo(map).bindPopup(`<b>Parada ${idx + 1}: ${wp.name}</b><br/>${wp.addressText}`);
+
+      waypointMarkersRef.current.push(marker);
+    });
+  }, [waypoints]);
+
   // Marcador de Confirmação Pendente
   useEffect(() => {
     const map = mapRef.current;
@@ -355,13 +418,13 @@ export default function RiderNavigationMap({
     }
   }, [activePos?.lat, activePos?.lng, activePos?.heading, autoFollow, isNavigating, routeCoordinates, isPinAdjustmentMode, pendingConfirmation]);
 
-  // CÁLCULO DE ROTA VIA GOOGLE MAPS OU FALLBACK OSRM
+  // CÁLCULO DE ROTA COM WAYPOINTS
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !activePos || !destCoords) return;
 
-    const coordsList: { lat: number; lng: number }[] = [activePos, destCoords];
-    const routeKey = coordsList.map(c => `${c.lat.toFixed(4)},${c.lng.toFixed(4)}`).join(';');
+    const waypointsKey = waypoints.map(w => `${w.lat.toFixed(4)},${w.lng.toFixed(4)}`).join('|');
+    const routeKey = `${activePos.lat.toFixed(4)},${activePos.lng.toFixed(4)};${waypointsKey};${destCoords.lat.toFixed(4)},${destCoords.lng.toFixed(4)}`;
     
     if (lastFetchedRouteKeyRef.current === routeKey && !isOffRouteDetected && routeCoordinates.length > 0) {
       return;
@@ -415,6 +478,7 @@ export default function RiderNavigationMap({
             lat: destCoords.lat,
             lng: destCoords.lng
           },
+          waypoints: waypoints.map(w => ({ lat: w.lat, lng: w.lng })),
           travelMode: 'TWO_WHEELER'
         });
 
@@ -448,7 +512,58 @@ export default function RiderNavigationMap({
     };
 
     fetchRoute();
-  }, [destCoords?.lat, destCoords?.lng, isOffRouteDetected]);
+  }, [destCoords?.lat, destCoords?.lng, waypoints, isOffRouteDetected]);
+
+  // FUNÇÃO PESQUISA POR VOZ (MICROFONE)
+  const handleStartVoiceSearch = () => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      alert('Seu navegador não suporta pesquisa por voz nativa. Digite o endereço no campo de busca.');
+      return;
+    }
+
+    if (isListeningVoice) {
+      if (recognitionRef.current) recognitionRef.current.stop();
+      setIsListeningVoice(false);
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.lang = 'pt-BR';
+      recognition.continuous = false;
+      recognition.interimResults = false;
+
+      recognition.onstart = () => {
+        setIsListeningVoice(true);
+      };
+
+      recognition.onresult = (event: any) => {
+        const transcript = event.results[0][0].transcript;
+        if (transcript) {
+          setSearchQuery(transcript);
+          setIsListeningVoice(false);
+          handleExecuteDirectSearchWithQuery(transcript);
+        }
+      };
+
+      recognition.onerror = (err: any) => {
+        console.warn('Erro no reconhecimento de voz:', err);
+        setIsListeningVoice(false);
+      };
+
+      recognition.onend = () => {
+        setIsListeningVoice(false);
+      };
+
+      recognitionRef.current = recognition;
+      recognition.start();
+    } catch (e) {
+      setIsListeningVoice(false);
+      alert('Erro ao inicializar o microfone.');
+    }
+  };
 
   const handleRecenter = () => {
     if (mapRef.current && activePos) {
@@ -460,10 +575,8 @@ export default function RiderNavigationMap({
     }
   };
 
-  const handleExecuteDirectSearch = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-
-    const originalQuery = searchQuery.trim();
+  const handleExecuteDirectSearchWithQuery = async (queryText: string) => {
+    const originalQuery = queryText.trim();
     if (!originalQuery) return;
 
     setSearchResults([]);
@@ -499,6 +612,11 @@ export default function RiderNavigationMap({
     }
   };
 
+  const handleExecuteDirectSearch = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    handleExecuteDirectSearchWithQuery(searchQuery);
+  };
+
   const handleConfirmLocation = () => {
     if (!pendingConfirmation) return;
 
@@ -514,6 +632,30 @@ export default function RiderNavigationMap({
     setPendingConfirmation(null);
     setAutoFollow(true);
     setSearchQuery('');
+  };
+
+  // ADICIONAR LOCALIZAÇÃO COMO PONTO DE PARADA INTERMEDIÁRIO
+  const handleAddAsWaypoint = () => {
+    if (!pendingConfirmation) return;
+
+    const newStop: WaypointStop = {
+      id: 'wp_' + Date.now(),
+      name: pendingConfirmation.name,
+      addressText: pendingConfirmation.addressText,
+      lat: pendingConfirmation.lat,
+      lng: pendingConfirmation.lng
+    };
+
+    lastFetchedRouteKeyRef.current = '';
+    setWaypoints(prev => [...prev, newStop]);
+    setPendingConfirmation(null);
+    setAutoFollow(true);
+    setSearchQuery('');
+  };
+
+  const handleRemoveWaypoint = (id: string) => {
+    lastFetchedRouteKeyRef.current = '';
+    setWaypoints(prev => prev.filter(w => w.id !== id));
   };
 
   const handleSelectSearchResult = async (result: {
@@ -730,7 +872,7 @@ export default function RiderNavigationMap({
     }
   };
 
-  const activeStepInstruction = activeDestination ? `Siga em direção a ${activeDestination.name}` : 'Digite o endereço completo e pressione ENTER...';
+  const activeStepInstruction = activeDestination ? `Siga em direção a ${activeDestination.name}` : 'Digite o endereço completo ou use a voz...';
 
   return (
     <div className={`flex flex-col bg-slate-950 text-white overflow-hidden shadow-2xl transition-all font-sans ${
@@ -751,6 +893,11 @@ export default function RiderNavigationMap({
                 <Bike className="h-3 w-3 text-emerald-400" />
                 {routeDetails?.travelModeUsed || 'MODO MOTO'}
               </span>
+              {waypoints.length > 0 && (
+                <span className="bg-purple-900 text-purple-200 text-[9px] font-extrabold uppercase px-2 py-0.5 rounded-full">
+                  {waypoints.length} Parada(s)
+                </span>
+              )}
             </div>
             <h2 className="text-sm sm:text-base font-extrabold truncate leading-snug mt-0.5">
               {activeStepInstruction}
@@ -792,6 +939,26 @@ export default function RiderNavigationMap({
           )}
         </div>
       </div>
+
+      {/* PAINEL DE PONTOS DE PARADA ATIVOS */}
+      {waypoints.length > 0 && (
+        <div className="bg-purple-950/90 border-b border-purple-800 px-4 py-2 z-20 flex items-center gap-2 overflow-x-auto flex-shrink-0 text-xs">
+          <span className="font-extrabold text-purple-300 uppercase tracking-wider text-[10px] flex-shrink-0">
+            Paradas:
+          </span>
+          {waypoints.map((wp, idx) => (
+            <div key={wp.id} className="bg-purple-900 text-purple-100 px-2.5 py-1 rounded-lg flex items-center gap-1.5 flex-shrink-0 font-semibold border border-purple-700">
+              <span className="w-4 h-4 rounded-full bg-purple-500 text-white flex items-center justify-center font-black text-[10px]">
+                {idx + 1}
+              </span>
+              <span className="truncate max-w-[120px]">{wp.name}</span>
+              <button onClick={() => handleRemoveWaypoint(wp.id)} className="text-purple-300 hover:text-white p-0.5">
+                <Trash2 className="h-3 w-3" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* BANNER INFORMATIVO DE ROTA OU FALLBACK */}
       {routeErrorAlert && (
@@ -837,28 +1004,44 @@ export default function RiderNavigationMap({
         </div>
       )}
 
-      {/* FORMULÁRIO DE BUSCA LIVRE */}
+      {/* FORMULÁRIO DE BUSCA COM MICROFONE */}
       <div className="bg-slate-900 border-b border-slate-800 p-2.5 z-20 relative flex-shrink-0 space-y-2">
         <form onSubmit={handleExecuteDirectSearch} className="relative flex items-center gap-1.5">
           <div className="relative flex-1 flex items-center">
             <input
               type="text"
-              placeholder="Digite o endereço exato (ex: Vereador Alberto Agra, 260) e pressione ENTER..."
+              placeholder="Digite o endereço exato ou use o microfone..."
               value={searchQuery}
               onChange={(e) => handleSearchInput(e.target.value)}
-              className="w-full text-white placeholder-slate-400 text-xs sm:text-sm pl-9 pr-10 py-2.5 rounded-xl border bg-slate-800 border-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="w-full text-white placeholder-slate-400 text-xs sm:text-sm pl-9 pr-20 py-2.5 rounded-xl border bg-slate-800 border-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
             />
             <Search className="h-4 w-4 text-slate-400 absolute left-3 pointer-events-none" />
 
-            {searchQuery && (
+            <div className="absolute right-2 flex items-center gap-1">
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => { setSearchQuery(''); setSearchResults([]); }}
+                  className="text-slate-400 hover:text-white p-1"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+
+              {/* BOTÃO DE PESQUISA POR VOZ */}
               <button
                 type="button"
-                onClick={() => { setSearchQuery(''); setSearchResults([]); }}
-                className="text-slate-400 hover:text-white absolute right-3 p-1"
+                onClick={handleStartVoiceSearch}
+                className={`p-1.5 rounded-lg transition-all ${
+                  isListeningVoice 
+                    ? 'bg-red-600 text-white animate-pulse' 
+                    : 'text-slate-400 hover:text-white hover:bg-slate-700'
+                }`}
+                title="Pesquisar por Voz (Microfone)"
               >
-                <X className="h-4 w-4" />
+                {isListeningVoice ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4 text-emerald-400" />}
               </button>
-            )}
+            </div>
           </div>
 
           <button
@@ -950,13 +1133,23 @@ export default function RiderNavigationMap({
               </button>
             </div>
 
-            <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-800">
+            <div className="grid grid-cols-3 gap-2 pt-1 border-t border-slate-800">
               <button
                 onClick={handleConfirmLocation}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold py-2.5 rounded-xl transition-all shadow-md flex items-center justify-center gap-1.5"
+                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold py-2.5 rounded-xl transition-all shadow-md flex items-center justify-center gap-1 col-span-1"
+                title="Definir como destino final da corrida"
               >
                 <Check className="h-4 w-4" />
-                <span>CONFIRMAR LOCALIZAÇÃO</span>
+                <span>DESTINO</span>
+              </button>
+
+              <button
+                onClick={handleAddAsWaypoint}
+                className="bg-purple-600 hover:bg-purple-700 text-white text-xs font-extrabold py-2.5 rounded-xl transition-all shadow-md flex items-center justify-center gap-1 col-span-1"
+                title="Adicionar como parada intermediária antes do destino"
+              >
+                <Plus className="h-4 w-4" />
+                <span>+ PARADA</span>
               </button>
 
               <button
@@ -967,10 +1160,11 @@ export default function RiderNavigationMap({
                   if (mapRef.current) mapRef.current.setView([targetLat, targetLng], 18);
                   handleEnablePinAdjustment();
                 }}
-                className="bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-extrabold py-2.5 rounded-xl transition-all shadow-md flex items-center justify-center gap-1.5"
+                className="bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-extrabold py-2.5 rounded-xl transition-all shadow-md flex items-center justify-center gap-1 col-span-1"
+                title="Ajustar posição do pino"
               >
                 <Hand className="h-4 w-4" />
-                <span>AJUSTAR NO MAPA</span>
+                <span>AJUSTAR</span>
               </button>
             </div>
           </div>

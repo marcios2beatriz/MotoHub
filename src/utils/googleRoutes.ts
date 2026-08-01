@@ -5,6 +5,7 @@ import { loadGoogleMapsSdk } from './googleMapsLoader';
 export interface RouteRequestParams {
   origin: { lat: number; lng: number; heading?: number };
   destination: { lat: number; lng: number };
+  waypoints?: { lat: number; lng: number }[];
   travelMode?: 'TWO_WHEELER' | 'DRIVE';
 }
 
@@ -54,10 +55,10 @@ export function decodePolyline(encoded: string): [number, number][] {
   return points;
 }
 
-export async function computeRoute({ origin, destination, travelMode = 'TWO_WHEELER' }: RouteRequestParams): Promise<RouteResult> {
+export async function computeRoute({ origin, destination, waypoints = [], travelMode = 'TWO_WHEELER' }: RouteRequestParams): Promise<RouteResult> {
   const isSdkLoaded = await loadGoogleMapsSdk();
 
-  // ETAPA 1: Google Maps JS SDK DirectionsService (Nativo no navegador sem erros de CORS)
+  // ETAPA 1: Google Maps JS SDK DirectionsService (Com suporte a Waypoints/Pontos de Parada)
   if (isSdkLoaded && (window as any).google?.maps?.DirectionsService) {
     try {
       const directionsService = new (window as any).google.maps.DirectionsService();
@@ -67,10 +68,17 @@ export async function computeRoute({ origin, destination, travelMode = 'TWO_WHEE
         ? googleMaps.TravelMode.TWO_WHEELER
         : googleMaps.TravelMode.DRIVING;
 
+      const formattedWaypoints = waypoints.map(w => ({
+        location: new googleMaps.LatLng(w.lat, w.lng),
+        stopover: true
+      }));
+
       const result = await new Promise<any>((resolve, reject) => {
         directionsService.route({
           origin: new googleMaps.LatLng(origin.lat, origin.lng),
           destination: new googleMaps.LatLng(destination.lat, destination.lng),
+          waypoints: formattedWaypoints,
+          optimizeWaypoints: false,
           travelMode: mode
         }, (response: any, status: string) => {
           if (status === 'OK' && response) {
@@ -83,25 +91,45 @@ export async function computeRoute({ origin, destination, travelMode = 'TWO_WHEE
 
       if (result && result.routes && result.routes.length > 0) {
         const route = result.routes[0];
-        const leg = route.legs[0];
-        const overviewPath = route.overview_path || [];
-        const coordinates: [number, number][] = overviewPath.map((p: any) => [
-          typeof p.lat === 'function' ? p.lat() : p.lat,
-          typeof p.lng === 'function' ? p.lng() : p.lng
-        ]);
+        const legs = route.legs || [];
+        
+        let totalDistanceMeters = 0;
+        let totalDurationSeconds = 0;
+        const coordinates: [number, number][] = [];
 
-        const distanceMeters = leg?.distance?.value || 0;
-        const durationSeconds = leg?.duration?.value || 0;
+        legs.forEach((leg: any) => {
+          totalDistanceMeters += leg?.distance?.value || 0;
+          totalDurationSeconds += leg?.duration?.value || 0;
+          const steps = leg?.steps || [];
+          steps.forEach((step: any) => {
+            const path = step?.path || [];
+            path.forEach((p: any) => {
+              coordinates.push([
+                typeof p.lat === 'function' ? p.lat() : p.lat,
+                typeof p.lng === 'function' ? p.lng() : p.lng
+              ]);
+            });
+          });
+        });
 
-        const durationMinutes = Math.ceil(durationSeconds / 60);
+        if (coordinates.length === 0 && route.overview_path) {
+          route.overview_path.forEach((p: any) => {
+            coordinates.push([
+              typeof p.lat === 'function' ? p.lat() : p.lat,
+              typeof p.lng === 'function' ? p.lng() : p.lng
+            ]);
+          });
+        }
+
+        const durationMinutes = Math.ceil(totalDurationSeconds / 60);
         const etaDate = new Date(Date.now() + durationMinutes * 60000);
         const etaTimeString = etaDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
         return {
-          distanceMeters,
-          durationSeconds,
+          distanceMeters: totalDistanceMeters,
+          durationSeconds: totalDurationSeconds,
           coordinates,
-          travelModeUsed: 'GOOGLE_MAPS_MOTO',
+          travelModeUsed: waypoints.length > 0 ? `GOOGLE_MAPS_MOTO (${waypoints.length + 1} PARADAS)` : 'GOOGLE_MAPS_MOTO',
           isFallback: false,
           etaTimeString
         };
@@ -111,9 +139,11 @@ export async function computeRoute({ origin, destination, travelMode = 'TWO_WHEE
     }
   }
 
-  // ETAPA 2: Fallback Gratuito OSRM (OpenStreetMap) caso o SDK não retorne resultados
+  // ETAPA 2: Fallback OSRM (Com suporte a múltiplos pontos de parada)
   try {
-    const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${origin.lng},${origin.lat};${destination.lng},${destination.lat}?overview=full&geometries=geojson`;
+    const allPoints = [origin, ...waypoints, destination];
+    const pointsString = allPoints.map(p => `${p.lng},${p.lat}`).join(';');
+    const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${pointsString}?overview=full&geometries=geojson`;
     const res = await fetch(osrmUrl);
     const data = await res.json();
 
@@ -135,7 +165,7 @@ export async function computeRoute({ origin, destination, travelMode = 'TWO_WHEE
         coordinates,
         travelModeUsed: 'OSRM_OPENSTREETMAP',
         isFallback: true,
-        fallbackReason: 'Serviço de rotas OpenStreetMap ativo para traçar o percurso.',
+        fallbackReason: 'Serviço de rotas OpenStreetMap ativo para traçar o percurso com paradas.',
         etaTimeString
       };
     }
