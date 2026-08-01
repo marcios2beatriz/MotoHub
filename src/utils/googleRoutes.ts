@@ -1,8 +1,11 @@
 "use client";
 
+import { loadGoogleMapsSdk } from './googleMapsLoader';
+
 export interface RouteRequestParams {
   origin: { lat: number; lng: number; heading?: number };
   destination: { lat: number; lng: number };
+  waypoints?: { lat: number; lng: number }[];
   travelMode?: 'TWO_WHEELER' | 'DRIVE';
 }
 
@@ -16,7 +19,7 @@ export interface RouteResult {
   etaTimeString: string;
 }
 
-// Decodificador da Polilinha do Google Maps (Google Encoded Polyline Algorithm)
+// Decodificador de Polilinha do Google Maps
 export function decodePolyline(encoded: string): [number, number][] {
   const points: [number, number][] = [];
   let index = 0;
@@ -52,177 +55,123 @@ export function decodePolyline(encoded: string): [number, number][] {
   return points;
 }
 
-const getGoogleApiKey = (): string | null => {
-  return import.meta.env.VITE_GOOGLE_MAPS_API_KEY || null;
-};
+export async function computeRoute({ origin, destination, waypoints = [], travelMode = 'TWO_WHEELER' }: RouteRequestParams): Promise<RouteResult> {
+  const isSdkLoaded = await loadGoogleMapsSdk();
 
-// Log de Auditoria de Rota no Console
-function printRouteAuditLog(data: {
-  origin: { lat: number; lng: number; heading?: number };
-  destination: { lat: number; lng: number };
-  requestedTravelMode: string;
-  actualTravelMode: string;
-  apiEngine: string;
-  distanceKm: string;
-  durationMin: number;
-  coordinatesCount: number;
-  isFallback: boolean;
-  fallbackReason?: string;
-}) {
-  console.group(`🏍️ [AUDITORIA DE ROTA DE NAVEGAÇÃO] — ${new Date().toLocaleTimeString('pt-BR')}`);
-  console.log(`📌 ORIGEM GPS: Lat ${data.origin.lat.toFixed(6)}, Lng ${data.origin.lng.toFixed(6)} ${data.origin.heading ? `| Heading: ${data.origin.heading}°` : ''}`);
-  console.log(`🎯 DESTINO: Lat ${data.destination.lat.toFixed(6)}, Lng ${data.destination.lng.toFixed(6)}`);
-  console.log(`⚙️ MOTOR DE ROTAS: ${data.apiEngine}`);
-  console.log(`🛵 TRAVEL MODE SOLICITADO: ${data.requestedTravelMode} | EFETIVO: ${data.actualTravelMode}`);
-  console.log(`📏 DISTÂNCIA: ${data.distanceKm} km | DURAÇÃO: ${data.durationMin} min | PONTOS DA POLYLINE: ${data.coordinatesCount}`);
-  if (data.isFallback) {
-    console.warn(`⚠️ FALLBACK OCORRIDO: ${data.fallbackReason}`);
-  } else {
-    console.log(`✅ ROTA GOOGLE MAPS OFICIAL CALCULADA COM RESPEITO À MALHA VIÁRIA E SENTIDO DE DIREÇÃO.`);
-  }
-  console.groupEnd();
-}
-
-export async function computeRoute({ origin, destination, travelMode = 'TWO_WHEELER' }: RouteRequestParams): Promise<RouteResult> {
-  const apiKey = getGoogleApiKey();
-
-  // ETAPA 1: Google Routes API v2 (POST directions:computeRoutes)
-  if (apiKey) {
+  // ETAPA 1: Google Maps JS SDK DirectionsService (Com suporte a Waypoints/Pontos de Parada)
+  if (isSdkLoaded && (window as any).google?.maps?.DirectionsService) {
     try {
-      const url = 'https://routes.googleapis.com/v1/directions:computeRoutes';
+      const directionsService = new (window as any).google.maps.DirectionsService();
+      const googleMaps = (window as any).google.maps;
 
-      const requestBody: any = {
-        origin: {
-          location: {
-            latLng: {
-              latitude: origin.lat,
-              longitude: origin.lng
-            }
+      const mode = (travelMode === 'TWO_WHEELER' && googleMaps.TravelMode.TWO_WHEELER)
+        ? googleMaps.TravelMode.TWO_WHEELER
+        : googleMaps.TravelMode.DRIVING;
+
+      const formattedWaypoints = waypoints.map(w => ({
+        location: new googleMaps.LatLng(w.lat, w.lng),
+        stopover: true
+      }));
+
+      const result = await new Promise<any>((resolve, reject) => {
+        directionsService.route({
+          origin: new googleMaps.LatLng(origin.lat, origin.lng),
+          destination: new googleMaps.LatLng(destination.lat, destination.lng),
+          waypoints: formattedWaypoints,
+          optimizeWaypoints: false,
+          travelMode: mode
+        }, (response: any, status: string) => {
+          if (status === 'OK' && response) {
+            resolve(response);
+          } else {
+            reject(new Error('DirectionsService status: ' + status));
           }
-        },
-        destination: {
-          location: {
-            latLng: {
-              latitude: destination.lat,
-              longitude: destination.lng
-            }
-          }
-        },
-        travelMode: travelMode, // TWO_WHEELER
-        routingPreference: 'TRAFFIC_AWARE',
-        polylineQuality: 'HIGH_QUALITY',
-        polylineEncoding: 'ENCODED_POLYLINE'
-      };
-
-      if (origin.heading !== undefined && origin.heading >= 0 && origin.heading <= 360) {
-        requestBody.origin.heading = Math.round(origin.heading);
-      }
-
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Goog-Api-Key': apiKey,
-          'X-Goog-FieldMask': 'routes.duration,routes.distanceMeters,routes.polyline.encodedPolyline,routes.fallbackInfo'
-        },
-        body: JSON.stringify(requestBody)
+        });
       });
 
-      const data = await response.json();
+      if (result && result.routes && result.routes.length > 0) {
+        const route = result.routes[0];
+        const legs = route.legs || [];
+        
+        let totalDistanceMeters = 0;
+        let totalDurationSeconds = 0;
+        const coordinates: [number, number][] = [];
 
-      if (response.ok && data.routes && data.routes.length > 0) {
-        const route = data.routes[0];
-        const encodedPolyline = route.polyline?.encodedPolyline || '';
-        const coordinates = decodePolyline(encodedPolyline);
+        legs.forEach((leg: any) => {
+          totalDistanceMeters += leg?.distance?.value || 0;
+          totalDurationSeconds += leg?.duration?.value || 0;
+          const steps = leg?.steps || [];
+          steps.forEach((step: any) => {
+            const path = step?.path || [];
+            path.forEach((p: any) => {
+              coordinates.push([
+                typeof p.lat === 'function' ? p.lat() : p.lat,
+                typeof p.lng === 'function' ? p.lng() : p.lng
+              ]);
+            });
+          });
+        });
 
-        const distanceMeters = route.distanceMeters || 0;
-        const durationSeconds = parseInt((route.duration || '0s').replace('s', ''), 10) || 0;
+        if (coordinates.length === 0 && route.overview_path) {
+          route.overview_path.forEach((p: any) => {
+            coordinates.push([
+              typeof p.lat === 'function' ? p.lat() : p.lat,
+              typeof p.lng === 'function' ? p.lng() : p.lng
+            ]);
+          });
+        }
 
-        const durationMinutes = Math.ceil(durationSeconds / 60);
+        const durationMinutes = Math.ceil(totalDurationSeconds / 60);
         const etaDate = new Date(Date.now() + durationMinutes * 60000);
         const etaTimeString = etaDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
-        const isFallback = !!route.fallbackInfo;
-        const fallbackReason = route.fallbackInfo ? `Google Routes Fallback: ${JSON.stringify(route.fallbackInfo)}` : undefined;
-
-        printRouteAuditLog({
-          origin,
-          destination,
-          requestedTravelMode: travelMode,
-          actualTravelMode: isFallback ? 'DRIVE_FALLBACK' : travelMode,
-          apiEngine: 'Google Routes API v2 (computeRoutes)',
-          distanceKm: (distanceMeters / 1000).toFixed(2),
-          durationMin: durationMinutes,
-          coordinatesCount: coordinates.length,
-          isFallback,
-          fallbackReason
-        });
-
         return {
-          distanceMeters,
-          durationSeconds,
+          distanceMeters: totalDistanceMeters,
+          durationSeconds: totalDurationSeconds,
           coordinates,
-          travelModeUsed: isFallback ? 'DRIVE_FALLBACK' : 'GOOGLE_TWO_WHEELER',
-          isFallback,
-          fallbackReason,
-          etaTimeString
-        };
-      } else {
-        console.warn('Google Routes API v2 retornou erro/vazio:', data);
-      }
-    } catch (err) {
-      console.warn('Erro ao chamar Google Routes API v2:', err);
-    }
-
-    // ETAPA 2: Google Directions API v1 REST (como fallback interno do próprio Google)
-    try {
-      const modeParam = travelMode === 'TWO_WHEELER' ? 'two_wheeler' : 'driving';
-      const directionsUrl = `https://maps.googleapis.com/maps/api/directions/json?origin=${origin.lat},${origin.lng}&destination=${destination.lat},${destination.lng}&mode=${modeParam}&key=${apiKey}&language=pt-BR`;
-      
-      const response = await fetch(directionsUrl);
-      const data = await response.json();
-
-      if (data.status === 'OK' && data.routes && data.routes.length > 0) {
-        const route = data.routes[0];
-        const leg = route.legs[0];
-        const encodedPolyline = route.overview_polyline?.points || '';
-        const coordinates = decodePolyline(encodedPolyline);
-
-        const distanceMeters = leg?.distance?.value || 0;
-        const durationSeconds = leg?.duration?.value || 0;
-
-        const durationMinutes = Math.ceil(durationSeconds / 60);
-        const etaDate = new Date(Date.now() + durationMinutes * 60000);
-        const etaTimeString = etaDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-
-        printRouteAuditLog({
-          origin,
-          destination,
-          requestedTravelMode: travelMode,
-          actualTravelMode: 'GOOGLE_DIRECTIONS_V1',
-          apiEngine: 'Google Directions API v1 (REST)',
-          distanceKm: (distanceMeters / 1000).toFixed(2),
-          durationMin: durationMinutes,
-          coordinatesCount: coordinates.length,
-          isFallback: true,
-          fallbackReason: 'Routes API v2 indisponível; utilizando Directions API v1 da própria Google Maps Platform.'
-        });
-
-        return {
-          distanceMeters,
-          durationSeconds,
-          coordinates,
-          travelModeUsed: 'GOOGLE_DIRECTIONS_V1',
-          isFallback: true,
-          fallbackReason: 'Google Directions API v1 utilizada.',
+          travelModeUsed: waypoints.length > 0 ? `GOOGLE_MAPS_MOTO (${waypoints.length + 1} PARADAS)` : 'GOOGLE_MAPS_MOTO',
+          isFallback: false,
           etaTimeString
         };
       }
-    } catch (err) {
-      console.warn('Erro na chamada ao Google Directions API v1:', err);
+    } catch (sdkErr) {
+      console.warn('Falha no calculador do Google Maps SDK, apelando para OSRM:', sdkErr);
     }
   }
 
-  // SE NÃO HOUVER CHAVE GOOGLE VÁLIDA: Lança erro legível em vez de desenhar rota incorreta via OSRM
-  throw new Error('Chave VITE_GOOGLE_MAPS_API_KEY do Google Maps ausente ou sem a permissão Routes API / Directions API ativada no Google Cloud Console.');
+  // ETAPA 2: Fallback OSRM (Com suporte a múltiplos pontos de parada)
+  try {
+    const allPoints = [origin, ...waypoints, destination];
+    const pointsString = allPoints.map(p => `${p.lng},${p.lat}`).join(';');
+    const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${pointsString}?overview=full&geometries=geojson`;
+    const res = await fetch(osrmUrl);
+    const data = await res.json();
+
+    if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
+      const route = data.routes[0];
+      const rawCoords: [number, number][] = route.geometry.coordinates;
+      const coordinates: [number, number][] = rawCoords.map(c => [c[1], c[0]]);
+
+      const distanceMeters = route.distance || 0;
+      const durationSeconds = route.duration || 0;
+
+      const durationMinutes = Math.ceil(durationSeconds / 60);
+      const etaDate = new Date(Date.now() + durationMinutes * 60000);
+      const etaTimeString = etaDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+      return {
+        distanceMeters,
+        durationSeconds,
+        coordinates,
+        travelModeUsed: 'OSRM_OPENSTREETMAP',
+        isFallback: true,
+        fallbackReason: 'Serviço de rotas OpenStreetMap ativo para traçar o percurso com paradas.',
+        etaTimeString
+      };
+    }
+  } catch (err) {
+    console.warn('Erro ao calcular rota via OSRM:', err);
+  }
+
+  throw new Error('Não foi possível calcular a rota. Verifique sua conexão de rede.');
 }

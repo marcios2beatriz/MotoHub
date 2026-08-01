@@ -20,12 +20,26 @@ import {
   ArrowUp,
   Hand,
   AlertCircle,
-  Bike
+  Bike,
+  Mic,
+  MicOff,
+  Plus,
+  Trash2,
+  Flag
 } from 'lucide-react';
 import L from 'leaflet';
 import { gpsTracker, GpsState, isPointOffRoute } from '../utils/gpsTracker';
 import { searchFreeTextAddress, parseAddressQuery, GeocodedAddress } from '../utils/geocoding';
 import { computeRoute, RouteResult } from '../utils/googleRoutes';
+import { loadGoogleMapsSdk } from '../utils/googleMapsLoader';
+
+export interface WaypointStop {
+  id: string;
+  name: string;
+  addressText: string;
+  lat: number;
+  lng: number;
+}
 
 interface RiderNavigationMapProps {
   currentLocation: { lat: number; lng: number } | null;
@@ -67,10 +81,13 @@ export default function RiderNavigationMap({
   const riderMarkerRef = useRef<L.Marker | null>(null);
   const destMarkerRef = useRef<L.Marker | null>(null);
   const pendingMarkerRef = useRef<L.Marker | null>(null);
+  const waypointMarkersRef = useRef<L.Marker[]>([]);
   const routePolylineRef = useRef<L.Polyline | null>(null);
+
   const initialCenterDoneRef = useRef(false);
   const lastFetchedRouteKeyRef = useRef<string>('');
   const searchTimeoutRef = useRef<any>(null);
+  const recognitionRef = useRef<any>(null);
 
   const [gpsState, setGpsState] = useState<GpsState>({
     currentLocation: null,
@@ -85,6 +102,9 @@ export default function RiderNavigationMap({
     lat?: number;
     lng?: number;
   } | null>(initialDestination);
+
+  // LISTA DE PONTOS DE PARADA INTERMEDIÁRIOS
+  const [waypoints, setWaypoints] = useState<WaypointStop[]>([]);
 
   const [pendingConfirmation, setPendingConfirmation] = useState<PendingConfirmation | null>(null);
   const [notFoundAlert, setNotFoundAlert] = useState<string | null>(null);
@@ -101,6 +121,7 @@ export default function RiderNavigationMap({
     placeId?: string;
   }>>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [isListeningVoice, setIsListeningVoice] = useState(false);
 
   const [isPinAdjustmentMode, setIsPinAdjustmentMode] = useState(false);
   const [tempAdjustedCoords, setTempAdjustedCoords] = useState<{ lat: number; lng: number } | null>(null);
@@ -238,6 +259,49 @@ export default function RiderNavigationMap({
     };
   }, []);
 
+  // Marcadores dos Pontos de Parada Intermediários
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    // Limpa marcadores anteriores
+    waypointMarkersRef.current.forEach(m => map.removeLayer(m));
+    waypointMarkersRef.current = [];
+
+    waypoints.forEach((wp, idx) => {
+      const stopIcon = L.divIcon({
+        html: `
+          <div style="
+            background: #8b5cf6;
+            color: white;
+            width: 38px;
+            height: 38px;
+            border-radius: 50%;
+            border: 3px solid white;
+            box-shadow: 0 4px 12px rgba(139,92,246,0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 900;
+            font-size: 14px;
+          ">
+            ${idx + 1}
+          </div>
+        `,
+        className: 'custom-waypoint-icon',
+        iconSize: [38, 38],
+        iconAnchor: [19, 19]
+      });
+
+      const marker = L.marker([wp.lat, wp.lng], {
+        icon: stopIcon,
+        zIndexOffset: 2500
+      }).addTo(map).bindPopup(`<b>Parada ${idx + 1}: ${wp.name}</b><br/>${wp.addressText}`);
+
+      waypointMarkersRef.current.push(marker);
+    });
+  }, [waypoints]);
+
   // Marcador de Confirmação Pendente
   useEffect(() => {
     const map = mapRef.current;
@@ -349,18 +413,18 @@ export default function RiderNavigationMap({
       const offRoute = isPointOffRoute({ lat: activePos.lat, lng: activePos.lng }, routeCoordinates, 40);
       if (offRoute && !isOffRouteDetected) {
         setIsOffRouteDetected(true);
-        speakInstruction('Você saiu da rota de motocicleta. Recalculando trajeto no sentido correto...');
+        speakInstruction('Você saiu da rota. Recalculando trajeto...');
       }
     }
   }, [activePos?.lat, activePos?.lng, activePos?.heading, autoFollow, isNavigating, routeCoordinates, isPinAdjustmentMode, pendingConfirmation]);
 
-  // CÁLCULO DE ROTA OFICIAL EXCLUSIVAMENTE VIA GOOGLE MAPS PLATFORM (ROUTES V2 OU DIRECTIONS V1)
+  // CÁLCULO DE ROTA COM WAYPOINTS
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !activePos || !destCoords) return;
 
-    const coordsList: { lat: number; lng: number }[] = [activePos, destCoords];
-    const routeKey = coordsList.map(c => `${c.lat.toFixed(4)},${c.lng.toFixed(4)}`).join(';');
+    const waypointsKey = waypoints.map(w => `${w.lat.toFixed(4)},${w.lng.toFixed(4)}`).join('|');
+    const routeKey = `${activePos.lat.toFixed(4)},${activePos.lng.toFixed(4)};${waypointsKey};${destCoords.lat.toFixed(4)},${destCoords.lng.toFixed(4)}`;
     
     if (lastFetchedRouteKeyRef.current === routeKey && !isOffRouteDetected && routeCoordinates.length > 0) {
       return;
@@ -400,7 +464,7 @@ export default function RiderNavigationMap({
       }).addTo(map);
     }
 
-    const fetchGoogleRoute = async () => {
+    const fetchRoute = async () => {
       setLoadingRoute(true);
       setRouteErrorAlert(null);
       try {
@@ -414,6 +478,7 @@ export default function RiderNavigationMap({
             lat: destCoords.lat,
             lng: destCoords.lng
           },
+          waypoints: waypoints.map(w => ({ lat: w.lat, lng: w.lng })),
           travelMode: 'TWO_WHEELER'
         });
 
@@ -421,11 +486,15 @@ export default function RiderNavigationMap({
         setRouteDetails(result);
         lastFetchedRouteKeyRef.current = routeKey;
 
+        if (result.isFallback && result.fallbackReason) {
+          setRouteErrorAlert(result.fallbackReason);
+        }
+
         if (routePolylineRef.current) {
           routePolylineRef.current.setLatLngs(result.coordinates);
         } else {
           routePolylineRef.current = L.polyline(result.coordinates, {
-            color: '#1a73e8',
+            color: result.isFallback ? '#f59e0b' : '#1a73e8',
             weight: 8,
             opacity: 0.95,
             lineCap: 'round',
@@ -435,15 +504,66 @@ export default function RiderNavigationMap({
 
         setIsOffRouteDetected(false);
       } catch (err: any) {
-        console.warn('Erro na rota via Google Maps API:', err);
-        setRouteErrorAlert(err?.message || 'Insira uma chave VITE_GOOGLE_MAPS_API_KEY válida para habilitar rotas oficiais do Google.');
+        console.warn('Erro ao calcular rota:', err);
+        setRouteErrorAlert(err?.message || 'Erro ao obter rota.');
       } finally {
         setLoadingRoute(false);
       }
     };
 
-    fetchGoogleRoute();
-  }, [destCoords?.lat, destCoords?.lng, isOffRouteDetected]);
+    fetchRoute();
+  }, [destCoords?.lat, destCoords?.lng, waypoints, isOffRouteDetected]);
+
+  // FUNÇÃO PESQUISA POR VOZ (MICROFONE)
+  const handleStartVoiceSearch = () => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      alert('Seu navegador não suporta pesquisa por voz nativa. Digite o endereço no campo de busca.');
+      return;
+    }
+
+    if (isListeningVoice) {
+      if (recognitionRef.current) recognitionRef.current.stop();
+      setIsListeningVoice(false);
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.lang = 'pt-BR';
+      recognition.continuous = false;
+      recognition.interimResults = false;
+
+      recognition.onstart = () => {
+        setIsListeningVoice(true);
+      };
+
+      recognition.onresult = (event: any) => {
+        const transcript = event.results[0][0].transcript;
+        if (transcript) {
+          setSearchQuery(transcript);
+          setIsListeningVoice(false);
+          handleExecuteDirectSearchWithQuery(transcript);
+        }
+      };
+
+      recognition.onerror = (err: any) => {
+        console.warn('Erro no reconhecimento de voz:', err);
+        setIsListeningVoice(false);
+      };
+
+      recognition.onend = () => {
+        setIsListeningVoice(false);
+      };
+
+      recognitionRef.current = recognition;
+      recognition.start();
+    } catch (e) {
+      setIsListeningVoice(false);
+      alert('Erro ao inicializar o microfone.');
+    }
+  };
 
   const handleRecenter = () => {
     if (mapRef.current && activePos) {
@@ -455,10 +575,8 @@ export default function RiderNavigationMap({
     }
   };
 
-  const handleExecuteDirectSearch = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-
-    const originalQuery = searchQuery.trim();
+  const handleExecuteDirectSearchWithQuery = async (queryText: string) => {
+    const originalQuery = queryText.trim();
     if (!originalQuery) return;
 
     setSearchResults([]);
@@ -486,12 +604,17 @@ export default function RiderNavigationMap({
     } else {
       const parsed = parseAddressQuery(originalQuery);
       const errorMsg = parsed.street
-        ? `Não encontramos a via '${parsed.street}' na base oficial do Google. Posicione o pino no mapa.`
-        : "Endereço não localizado na base do Google Maps. Posicione o pino no mapa.";
+        ? `Não encontramos a via '${parsed.street}' no mapa. Posicione o pino no mapa.`
+        : "Endereço não localizado. Posicione o pino no mapa.";
 
       setNotFoundAlert(errorMsg);
       handleEnablePinAdjustment();
     }
+  };
+
+  const handleExecuteDirectSearch = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    handleExecuteDirectSearchWithQuery(searchQuery);
   };
 
   const handleConfirmLocation = () => {
@@ -509,6 +632,30 @@ export default function RiderNavigationMap({
     setPendingConfirmation(null);
     setAutoFollow(true);
     setSearchQuery('');
+  };
+
+  // ADICIONAR LOCALIZAÇÃO COMO PONTO DE PARADA INTERMEDIÁRIO
+  const handleAddAsWaypoint = () => {
+    if (!pendingConfirmation) return;
+
+    const newStop: WaypointStop = {
+      id: 'wp_' + Date.now(),
+      name: pendingConfirmation.name,
+      addressText: pendingConfirmation.addressText,
+      lat: pendingConfirmation.lat,
+      lng: pendingConfirmation.lng
+    };
+
+    lastFetchedRouteKeyRef.current = '';
+    setWaypoints(prev => [...prev, newStop]);
+    setPendingConfirmation(null);
+    setAutoFollow(true);
+    setSearchQuery('');
+  };
+
+  const handleRemoveWaypoint = (id: string) => {
+    lastFetchedRouteKeyRef.current = '';
+    setWaypoints(prev => prev.filter(w => w.id !== id));
   };
 
   const handleSelectSearchResult = async (result: {
@@ -533,29 +680,62 @@ export default function RiderNavigationMap({
         exactStreetMatched: true,
         placeId: result.placeId
       });
-    } else {
+    } else if (result.placeId && (window as any).google?.maps?.Geocoder) {
       setIsSearching(true);
-      const geocodeRes = await searchFreeTextAddress(result.fullAddress);
-      setIsSearching(false);
+      try {
+        const geocoder = new (window as any).google.maps.Geocoder();
+        geocoder.geocode({ placeId: result.placeId }, (results: any[], status: string) => {
+          setIsSearching(false);
+          if (status === 'OK' && results && results[0]) {
+            const place = results[0];
+            const lat = typeof place.geometry.location.lat === 'function' ? place.geometry.location.lat() : place.geometry.location.lat;
+            const lng = typeof place.geometry.location.lng === 'function' ? place.geometry.location.lng() : place.geometry.location.lng;
 
-      if (geocodeRes) {
-        setPendingConfirmation({
-          name: result.title,
-          addressText: geocodeRes.formattedAddress || result.fullAddress,
-          lat: geocodeRes.lat,
-          lng: geocodeRes.lng,
-          isApproximate: geocodeRes.isApproximate,
-          locationType: geocodeRes.locationType,
-          exactNumberMatched: geocodeRes.exactNumberMatched,
-          exactStreetMatched: geocodeRes.exactStreetMatched,
-          requestedNumber: geocodeRes.requestedNumber,
-          unconfirmedReason: geocodeRes.unconfirmedReason,
-          placeId: geocodeRes.placeId || result.placeId
+            setPendingConfirmation({
+              name: result.title,
+              addressText: place.formatted_address || result.fullAddress,
+              lat,
+              lng,
+              isApproximate: false,
+              exactNumberMatched: true,
+              exactStreetMatched: true,
+              placeId: result.placeId
+            });
+          } else {
+            handleFallbackGeocode(result.fullAddress);
+          }
         });
-      } else {
-        setNotFoundAlert("Local não geocodificado. Posicione o pino no mapa.");
-        handleEnablePinAdjustment();
+      } catch (err) {
+        setIsSearching(false);
+        handleFallbackGeocode(result.fullAddress);
       }
+    } else {
+      handleFallbackGeocode(result.fullAddress);
+    }
+  };
+
+  const handleFallbackGeocode = async (fullAddress: string) => {
+    setIsSearching(true);
+    const geocodeRes = await searchFreeTextAddress(fullAddress);
+    setIsSearching(false);
+
+    if (geocodeRes) {
+      setPendingConfirmation({
+        name: fullAddress.split(',')[0],
+        addressText: geocodeRes.formattedAddress || fullAddress,
+        lat: geocodeRes.lat,
+        lng: geocodeRes.lng,
+        isApproximate: geocodeRes.isApproximate,
+        locationType: geocodeRes.locationType,
+        exactNumberMatched: geocodeRes.exactNumberMatched,
+        exactStreetMatched: geocodeRes.exactStreetMatched,
+        requestedNumber: geocodeRes.requestedNumber,
+        unconfirmedReason: geocodeRes.unconfirmedReason,
+        placeId: geocodeRes.placeId
+      });
+    } else {
+      setNotFoundAlert("Local não geocodificado. Posicione o pino no mapa.");
+      handleEnablePinAdjustment();
     }
   };
 
@@ -597,15 +777,9 @@ export default function RiderNavigationMap({
       setIsSearching(true);
       searchTimeoutRef.current = setTimeout(async () => {
         try {
+          const isGoogleLoaded = await loadGoogleMapsSdk();
           const lat = activePos ? activePos.lat : -7.2247;
           const lng = activePos ? activePos.lng : -35.8878;
-
-          const esriQuery = rawText.toLowerCase().includes('campina grande') 
-            ? rawText 
-            : `${rawText}, Campina Grande - PB`;
-          const esriUrl = `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?singleLine=${encodeURIComponent(esriQuery)}&f=json&maxLocations=5&location=${lng},${lat}`;
-
-          const esriRes = await fetch(esriUrl).then(r => r.json()).catch(() => null);
 
           const combined: Array<{
             id: string;
@@ -616,31 +790,73 @@ export default function RiderNavigationMap({
             lng?: number;
             placeId?: string;
           }> = [];
-          const seenKeys = new Set<string>();
 
-          if (esriRes && esriRes.candidates) {
-            esriRes.candidates.forEach((cand: any) => {
-              const loc = cand.location;
-              if (!loc) return;
-
-              const key = `${loc.y.toFixed(4)},${loc.x.toFixed(4)}`;
-              const fullAddr = cand.address || 'Endereço encontrado';
-              const parts = fullAddr.split(',');
-              const title = parts[0] ? parts[0].trim() : 'Endereço';
-              const subtitle = parts.slice(1).join(',').trim();
-
-              if (!seenKeys.has(key)) {
-                seenKeys.add(key);
-                combined.push({
-                  id: 'esri_' + Math.random(),
-                  title,
-                  subtitle: subtitle || 'Campina Grande - PB',
-                  fullAddress: fullAddr,
-                  lat: loc.y,
-                  lng: loc.x
-                });
-              }
+          if (isGoogleLoaded && (window as any).google?.maps?.places?.AutocompleteService) {
+            const autocompleteService = new (window as any).google.maps.places.AutocompleteService();
+            
+            const predictions = await new Promise<any[]>((resolve) => {
+              autocompleteService.getPlacePredictions({
+                input: rawText,
+                componentRestrictions: { country: 'br' },
+                locationBias: new (window as any).google.maps.Circle({
+                  center: { lat, lng },
+                  radius: 35000
+                })
+              }, (results: any[], status: string) => {
+                if (status === 'OK' && results) {
+                  resolve(results);
+                } else {
+                  resolve([]);
+                }
+              });
             });
+
+            if (predictions.length > 0) {
+              predictions.forEach((pred: any) => {
+                combined.push({
+                  id: pred.place_id,
+                  title: pred.structured_formatting?.main_text || pred.description.split(',')[0],
+                  subtitle: pred.structured_formatting?.secondary_text || pred.description,
+                  fullAddress: pred.description,
+                  placeId: pred.place_id
+                });
+              });
+            }
+          }
+
+          if (combined.length === 0) {
+            const esriQuery = rawText.toLowerCase().includes('campina grande') 
+              ? rawText 
+              : `${rawText}, Campina Grande - PB`;
+            const esriUrl = `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?singleLine=${encodeURIComponent(esriQuery)}&f=json&maxLocations=5&location=${lng},${lat}`;
+
+            const esriRes = await fetch(esriUrl).then(r => r.json()).catch(() => null);
+
+            if (esriRes && esriRes.candidates) {
+              const seenKeys = new Set<string>();
+              esriRes.candidates.forEach((cand: any) => {
+                const loc = cand.location;
+                if (!loc) return;
+
+                const key = `${loc.y.toFixed(4)},${loc.x.toFixed(4)}`;
+                const fullAddr = cand.address || 'Endereço encontrado';
+                const parts = fullAddr.split(',');
+                const title = parts[0] ? parts[0].trim() : 'Endereço';
+                const subtitle = parts.slice(1).join(',').trim();
+
+                if (!seenKeys.has(key)) {
+                  seenKeys.add(key);
+                  combined.push({
+                    id: 'esri_' + Math.random(),
+                    title,
+                    subtitle: subtitle || 'Campina Grande - PB',
+                    fullAddress: fullAddr,
+                    lat: loc.y,
+                    lng: loc.x
+                  });
+                }
+              });
+            }
           }
 
           setSearchResults(combined);
@@ -656,7 +872,7 @@ export default function RiderNavigationMap({
     }
   };
 
-  const activeStepInstruction = activeDestination ? `Siga em direção a ${activeDestination.name}` : 'Digite o endereço completo e pressione ENTER...';
+  const activeStepInstruction = activeDestination ? `Siga em direção a ${activeDestination.name}` : 'Digite o endereço completo ou use a voz...';
 
   return (
     <div className={`flex flex-col bg-slate-950 text-white overflow-hidden shadow-2xl transition-all font-sans ${
@@ -665,7 +881,7 @@ export default function RiderNavigationMap({
         : 'relative h-[600px] sm:h-[680px] w-full rounded-2xl border border-slate-800'
     }`}>
       
-      {/* HEADER NAVEGAÇÃO GOOGLE MAPS (#137333) */}
+      {/* HEADER NAVEGAÇÃO */}
       <div className="bg-[#137333] text-white px-4 py-3 z-30 shadow-lg flex items-center justify-between relative border-b border-emerald-800 flex-shrink-0">
         <div className="flex items-center space-x-3 min-w-0 flex-1">
           <div className="p-2.5 bg-black/20 rounded-2xl text-white flex-shrink-0 border border-white/20">
@@ -675,8 +891,13 @@ export default function RiderNavigationMap({
             <div className="flex items-center gap-2 flex-wrap">
               <span className="bg-emerald-950/80 text-emerald-300 text-[9px] font-black uppercase px-2 py-0.5 rounded-full tracking-wider flex items-center gap-1">
                 <Bike className="h-3 w-3 text-emerald-400" />
-                Google Routes (TWO_WHEELER)
+                {routeDetails?.travelModeUsed || 'MODO MOTO'}
               </span>
+              {waypoints.length > 0 && (
+                <span className="bg-purple-900 text-purple-200 text-[9px] font-extrabold uppercase px-2 py-0.5 rounded-full">
+                  {waypoints.length} Parada(s)
+                </span>
+              )}
             </div>
             <h2 className="text-sm sm:text-base font-extrabold truncate leading-snug mt-0.5">
               {activeStepInstruction}
@@ -719,9 +940,29 @@ export default function RiderNavigationMap({
         </div>
       </div>
 
-      {/* BANNER ALERTA DE ERRO DE CHAVE GOOGLE / ROTAS */}
+      {/* PAINEL DE PONTOS DE PARADA ATIVOS */}
+      {waypoints.length > 0 && (
+        <div className="bg-purple-950/90 border-b border-purple-800 px-4 py-2 z-20 flex items-center gap-2 overflow-x-auto flex-shrink-0 text-xs">
+          <span className="font-extrabold text-purple-300 uppercase tracking-wider text-[10px] flex-shrink-0">
+            Paradas:
+          </span>
+          {waypoints.map((wp, idx) => (
+            <div key={wp.id} className="bg-purple-900 text-purple-100 px-2.5 py-1 rounded-lg flex items-center gap-1.5 flex-shrink-0 font-semibold border border-purple-700">
+              <span className="w-4 h-4 rounded-full bg-purple-500 text-white flex items-center justify-center font-black text-[10px]">
+                {idx + 1}
+              </span>
+              <span className="truncate max-w-[120px]">{wp.name}</span>
+              <button onClick={() => handleRemoveWaypoint(wp.id)} className="text-purple-300 hover:text-white p-0.5">
+                <Trash2 className="h-3 w-3" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* BANNER INFORMATIVO DE ROTA OU FALLBACK */}
       {routeErrorAlert && (
-        <div className="bg-red-600 text-white px-4 py-2.5 z-40 flex items-center justify-between text-xs font-bold shadow-md">
+        <div className="bg-amber-500 text-slate-950 px-4 py-2.5 z-40 flex items-center justify-between text-xs font-bold shadow-md">
           <div className="flex items-center gap-2">
             <AlertCircle className="h-5 w-5 flex-shrink-0" />
             <span>⚠️ {routeErrorAlert}</span>
@@ -763,28 +1004,44 @@ export default function RiderNavigationMap({
         </div>
       )}
 
-      {/* FORMULÁRIO DE BUSCA LIVRE */}
+      {/* FORMULÁRIO DE BUSCA COM MICROFONE */}
       <div className="bg-slate-900 border-b border-slate-800 p-2.5 z-20 relative flex-shrink-0 space-y-2">
         <form onSubmit={handleExecuteDirectSearch} className="relative flex items-center gap-1.5">
           <div className="relative flex-1 flex items-center">
             <input
               type="text"
-              placeholder="Digite o endereço exato (ex: Vereador Alberto Agra, 260) e pressione ENTER..."
+              placeholder="Digite o endereço exato ou use o microfone..."
               value={searchQuery}
               onChange={(e) => handleSearchInput(e.target.value)}
-              className="w-full text-white placeholder-slate-400 text-xs sm:text-sm pl-9 pr-10 py-2.5 rounded-xl border bg-slate-800 border-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="w-full text-white placeholder-slate-400 text-xs sm:text-sm pl-9 pr-20 py-2.5 rounded-xl border bg-slate-800 border-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
             />
             <Search className="h-4 w-4 text-slate-400 absolute left-3 pointer-events-none" />
 
-            {searchQuery && (
+            <div className="absolute right-2 flex items-center gap-1">
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => { setSearchQuery(''); setSearchResults([]); }}
+                  className="text-slate-400 hover:text-white p-1"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+
+              {/* BOTÃO DE PESQUISA POR VOZ */}
               <button
                 type="button"
-                onClick={() => { setSearchQuery(''); setSearchResults([]); }}
-                className="text-slate-400 hover:text-white absolute right-3 p-1"
+                onClick={handleStartVoiceSearch}
+                className={`p-1.5 rounded-lg transition-all ${
+                  isListeningVoice 
+                    ? 'bg-red-600 text-white animate-pulse' 
+                    : 'text-slate-400 hover:text-white hover:bg-slate-700'
+                }`}
+                title="Pesquisar por Voz (Microfone)"
               >
-                <X className="h-4 w-4" />
+                {isListeningVoice ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4 text-emerald-400" />}
               </button>
-            )}
+            </div>
           </div>
 
           <button
@@ -798,12 +1055,12 @@ export default function RiderNavigationMap({
           </button>
         </form>
 
-        {/* SUGESTÕES OPCIONAIS DO AUTOCOMPLETE */}
+        {/* SUGESTÕES DO AUTOCOMPLETE (GOOGLE PLACES) */}
         {searchResults.length > 0 && (
           <div className="absolute left-2 right-2 top-full mt-1 bg-slate-900 rounded-2xl border border-slate-700 shadow-2xl z-50 overflow-hidden divide-y divide-slate-800 max-h-64 overflow-y-auto">
             <div className="bg-slate-950 px-3 py-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between">
-              <span>Sugestões Autocomplete</span>
-              <span className="text-blue-400">Pressione ENTER para buscar o texto exato</span>
+              <span>Sugestões Google Maps</span>
+              <span className="text-blue-400">Clique para selecionar</span>
             </div>
             {searchResults.map((res) => (
               <div 
@@ -853,7 +1110,7 @@ export default function RiderNavigationMap({
                 <div>
                   <h4 className="text-xs font-black text-amber-400 uppercase tracking-wider">
                     {pendingConfirmation.exactNumberMatched 
-                      ? "Ponto do Imóvel Confirmado (Google ROOFTOP)"
+                      ? "Ponto do Imóvel Confirmado"
                       : "Localização de Via Encontrada"}
                   </h4>
                   <p className="text-sm font-bold text-white mt-0.5">{pendingConfirmation.name}</p>
@@ -866,7 +1123,7 @@ export default function RiderNavigationMap({
                   )}
 
                   <p className="text-[9px] text-slate-500 font-mono mt-1">
-                    Coordenadas: {pendingConfirmation.lat.toFixed(5)}, {pendingConfirmation.lng.toFixed(5)} | Precisão: {pendingConfirmation.locationType || 'N/A'}
+                    Coordenadas: {pendingConfirmation.lat.toFixed(5)}, {pendingConfirmation.lng.toFixed(5)}
                   </p>
                 </div>
               </div>
@@ -876,13 +1133,23 @@ export default function RiderNavigationMap({
               </button>
             </div>
 
-            <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-800">
+            <div className="grid grid-cols-3 gap-2 pt-1 border-t border-slate-800">
               <button
                 onClick={handleConfirmLocation}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold py-2.5 rounded-xl transition-all shadow-md flex items-center justify-center gap-1.5"
+                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold py-2.5 rounded-xl transition-all shadow-md flex items-center justify-center gap-1 col-span-1"
+                title="Definir como destino final da corrida"
               >
                 <Check className="h-4 w-4" />
-                <span>CONFIRMAR LOCALIZAÇÃO</span>
+                <span>DESTINO</span>
+              </button>
+
+              <button
+                onClick={handleAddAsWaypoint}
+                className="bg-purple-600 hover:bg-purple-700 text-white text-xs font-extrabold py-2.5 rounded-xl transition-all shadow-md flex items-center justify-center gap-1 col-span-1"
+                title="Adicionar como parada intermediária antes do destino"
+              >
+                <Plus className="h-4 w-4" />
+                <span>+ PARADA</span>
               </button>
 
               <button
@@ -893,10 +1160,11 @@ export default function RiderNavigationMap({
                   if (mapRef.current) mapRef.current.setView([targetLat, targetLng], 18);
                   handleEnablePinAdjustment();
                 }}
-                className="bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-extrabold py-2.5 rounded-xl transition-all shadow-md flex items-center justify-center gap-1.5"
+                className="bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-extrabold py-2.5 rounded-xl transition-all shadow-md flex items-center justify-center gap-1 col-span-1"
+                title="Ajustar posição do pino"
               >
                 <Hand className="h-4 w-4" />
-                <span>AJUSTAR NO MAPA</span>
+                <span>AJUSTAR</span>
               </button>
             </div>
           </div>
@@ -926,7 +1194,7 @@ export default function RiderNavigationMap({
                 </span>
               </div>
               <p className="text-[11px] text-slate-400 truncate">
-                ETA: <strong className="text-white font-bold">{routeDetails?.etaTimeString || '--:--'}</strong> • <span className="text-emerald-400 font-semibold">{routeDetails?.travelModeUsed || 'GOOGLE_MAPS'}</span>
+                ETA: <strong className="text-white font-bold">{routeDetails?.etaTimeString || '--:--'}</strong> • <span className="text-emerald-400 font-semibold">{routeDetails?.travelModeUsed || 'MAPS'}</span>
               </p>
             </div>
           </div>
